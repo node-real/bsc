@@ -75,6 +75,7 @@ type ParallelStateProcessor struct {
 	txResultChan         chan *ParallelTxResult // to notify dispatcher that a tx is done
 	slotState            []*SlotState           // idle, or pending messages
 	mergedTxIndex        int                    // the latest finalized tx index
+	slotDBsToRelease     []*state.StateDB
 	debugErrorRedoNum    int
 	debugConflictRedoNum int
 }
@@ -591,6 +592,7 @@ func (p *ParallelStateProcessor) dispatchToIdleSlot(statedb *state.StateDB, txRe
 			if len(slot.mergedChangeList) == 0 {
 				// first transaction of a slot, there is no usable SlotDB, have to create one for it.
 				txReq.slotDB = state.NewSlotDB(statedb, consensus.SystemAddress, p.mergedTxIndex, false)
+				p.slotDBsToRelease = append(p.slotDBsToRelease, txReq.slotDB)
 			}
 			log.Debug("dispatchToIdleSlot", "Slot", i, "txIndex", txReq.txIndex)
 			slot.tailTxReq = txReq
@@ -616,6 +618,7 @@ func (p *ParallelStateProcessor) waitUntilNextTxDone(statedb *state.StateDB, gp 
 			// the target slot is waiting for new slotDB
 			slotState := p.slotState[result.slotIndex]
 			slotDB := state.NewSlotDB(statedb, consensus.SystemAddress, p.mergedTxIndex, result.keepSystem)
+			p.slotDBsToRelease = append(p.slotDBsToRelease, slotDB)
 			slotState.slotdbChan <- slotDB
 			continue
 		}
@@ -830,6 +833,15 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	p.debugConflictRedoNum = 0
 
 	statedb.PrepareForParallel()
+
+	stateDBsToRelease := p.slotDBsToRelease
+	p.slotDBsToRelease = make([]*state.StateDB, 0, txNum)
+
+	go func() {
+		for _, slotDB := range stateDBsToRelease {
+			slotDB.SlotDBPutSyncPool()
+		}
+	}()
 
 	for _, slot := range p.slotState {
 		slot.tailTxReq = nil
