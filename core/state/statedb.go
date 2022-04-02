@@ -156,6 +156,9 @@ type ParallelState struct {
 	systemAddress            common.Address
 	systemAddressOpsCount    int
 	keepSystemAddressBalance bool
+
+	// we may need to redo for some specific reasons, like we read the wrong state and need to panic in sequential mode in SubRefund
+	needRedo bool
 }
 
 // StateDB structs within the ethereum protocol are used to store anything
@@ -370,9 +373,9 @@ func (s *StateDB) MergeSlotDB(slotDb *StateDB, slotReceipt *types.Receipt, txInd
 		} else {
 			// addr already in main DB, do merge: balance, KV, code, State(create, suicide)
 			// can not do copy or ownership transfer directly, since dirtyObj could have outdated
-			// data(may be update within the conflict window)
+			// data(may be updated within the conflict window)
 
-			var newMainObj = mainObj
+			var newMainObj = mainObj // we don't need to copy the object since the storages are thread safe
 			if _, created := slotDb.parallel.addrStateChangesInSlot[addr]; created {
 				// there are 3 kinds of state change:
 				// 1.Suicide
@@ -616,6 +619,12 @@ func (s *StateDB) AddRefund(gas uint64) {
 func (s *StateDB) SubRefund(gas uint64) {
 	s.journal.append(refundChange{prev: s.refund})
 	if gas > s.refund {
+		if s.isParallel {
+			// we don't need to panic here if we read the wrong state, we just need to redo this transaction
+			log.Info(fmt.Sprintf("Refund counter below zero (gas: %d > refund: %d)", gas, s.refund), "tx", s.thash.String())
+			s.parallel.needRedo = true
+			return
+		}
 		panic(fmt.Sprintf("Refund counter below zero (gas: %d > refund: %d)", gas, s.refund))
 	}
 	s.refund -= gas
@@ -695,6 +704,11 @@ func (s *StateDB) BalanceReadsInSlot() map[common.Address]struct{} {
 // this case, we should redo and keep its balance on NewSlotDB()
 func (s *StateDB) SystemAddressRedo() bool {
 	return s.parallel.systemAddressOpsCount > 2
+}
+
+// NeedRedo returns true if there is any clear reason that we need to redo this transaction
+func (s *StateDB) NeedRedo() bool {
+	return s.parallel.needRedo
 }
 
 func (s *StateDB) GetCode(addr common.Address) []byte {
@@ -1555,7 +1569,7 @@ func (s *StateDB) SlotDBPutSyncPool() {
 	logsPool.Put(s.logs)
 }
 
-// Copy all the basic fields, initialize the memory ones
+// CopyForSlot copy all the basic fields, initialize the memory ones
 func (s *StateDB) CopyForSlot() *StateDB {
 	parallel := ParallelState{
 		// use base(dispatcher) slot db's stateObjects.

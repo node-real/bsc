@@ -448,6 +448,11 @@ func (p *ParallelStateProcessor) init() {
 // conflict check uses conflict window, it will check all state changes from (cfWindowStart + 1)
 // to the previous Tx, if any state in readDb is updated in changeList, then it is conflicted
 func (p *ParallelStateProcessor) hasStateConflict(readDb *state.StateDB, changeList state.SlotChangeList) bool {
+	// skip the conflict check if there is any clear reason to redo this transaction
+	if readDb.NeedRedo() {
+		return true
+	}
+
 	// check KV change
 	reads := readDb.StateReadsInSlot()
 	writes := changeList.StateChangeSet
