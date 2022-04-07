@@ -1157,7 +1157,7 @@ func (s *StateDB) preloadStateObject(address []common.Address) []*StateObject {
 				data.Root = emptyRoot
 			}
 			// Insert into the live set
-			obj := newObject(s, addr, *data)
+			obj := newObject(s, s.isParallel, addr, *data)
 			objs = append(objs, obj)
 		}
 		// Do not enable this feature when snapshot is not enabled.
@@ -1230,7 +1230,7 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *StateObject {
 		}
 	}
 	// Insert into the live set
-	obj := newObject(s, addr, *data)
+	obj := newObject(s, s.isParallel, addr, *data)
 	s.SetStateObject(obj)
 	return obj
 }
@@ -1271,7 +1271,7 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *StateObject) 
 			s.snapDestructs[prev.address] = struct{}{}
 		}
 	}
-	newobj = newObject(s, addr, Account{})
+	newobj = newObject(s, s.isParallel, addr, Account{})
 	newobj.setNonce(0) // sets the object to dirty
 	if prev == nil {
 		s.journal.append(createObjectChange{account: &addr})

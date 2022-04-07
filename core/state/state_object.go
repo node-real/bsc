@@ -38,12 +38,61 @@ func (c Code) String() string {
 	return string(c) //strings.Join(Disassemble(c), " ")
 }
 
-//map[common.Hash]common.Hash
-type Storage struct {
+type Storage interface {
+	String() string
+	GetValue(hash common.Hash) (common.Hash, bool)
+	StoreValue(hash common.Hash, value common.Hash)
+	Length() (length int)
+	Copy() Storage
+	Range(func(key, value interface{}) bool)
+}
+
+type StorageMap map[common.Hash]common.Hash
+
+func (s StorageMap) String() (str string) {
+	for key, value := range s {
+		str += fmt.Sprintf("%X : %X\n", key, value)
+	}
+
+	return
+}
+
+func (s StorageMap) Copy() Storage {
+	cpy := make(StorageMap)
+	for key, value := range s {
+		cpy[key] = value
+	}
+
+	return cpy
+}
+
+func (s StorageMap) GetValue(hash common.Hash) (common.Hash, bool) {
+	value, ok := s[hash]
+	return value, ok
+}
+
+func (s StorageMap) StoreValue(hash common.Hash, value common.Hash) {
+	s[hash] = value
+}
+
+func (s StorageMap) Length() int {
+	return len(s)
+}
+
+func (s StorageMap) Range(f func(hash, value interface{}) bool) {
+	for k, v := range s {
+		result := f(k, v)
+		if !result {
+			return
+		}
+	}
+}
+
+type StorageSyncMap struct {
 	sync.Map
 }
 
-func (s *Storage) String() (str string) {
+func (s *StorageSyncMap) String() (str string) {
 	s.Range(func(key, value interface{}) bool {
 		str += fmt.Sprintf("%X : %X\n", key, value)
 		return true
@@ -52,7 +101,7 @@ func (s *Storage) String() (str string) {
 	return
 }
 
-func (s *Storage) GetValue(hash common.Hash) (common.Hash, bool) {
+func (s *StorageSyncMap) GetValue(hash common.Hash) (common.Hash, bool) {
 	value, ok := s.Load(hash)
 	if !ok {
 		return common.Hash{}, ok
@@ -61,11 +110,11 @@ func (s *Storage) GetValue(hash common.Hash) (common.Hash, bool) {
 	return value.(common.Hash), ok
 }
 
-func (s *Storage) StoreValue(hash common.Hash, value common.Hash) {
+func (s *StorageSyncMap) StoreValue(hash common.Hash, value common.Hash) {
 	s.Store(hash, value)
 }
 
-func (s *Storage) Length() (length int) {
+func (s *StorageSyncMap) Length() (length int) {
 	s.Range(func(key, value interface{}) bool {
 		length++
 		return true
@@ -73,8 +122,8 @@ func (s *Storage) Length() (length int) {
 	return length
 }
 
-func (s *Storage) Copy() *Storage {
-	cpy := Storage{}
+func (s *StorageSyncMap) Copy() Storage {
+	cpy := StorageSyncMap{}
 	s.Range(func(key, value interface{}) bool {
 		cpy.Store(key, value)
 		return true
@@ -106,10 +155,11 @@ type StateObject struct {
 	trie Trie // storage trie, which becomes non-nil on first access
 	code Code // contract bytecode, which gets set when code is loaded
 
-	originStorage  *Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
-	pendingStorage *Storage // Storage entries that need to be flushed to disk, at the end of an entire block
-	dirtyStorage   *Storage // Storage entries that have been modified in the current transaction execution
-	fakeStorage    *Storage // Fake storage which constructed by caller for debugging purpose.
+	isParallel     bool
+	originStorage  Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
+	pendingStorage Storage // Storage entries that need to be flushed to disk, at the end of an entire block
+	dirtyStorage   Storage // Storage entries that have been modified in the current transaction execution
+	fakeStorage    Storage // Fake storage which constructed by caller for debugging purpose.
 
 	// Cache flags.
 	// When an object is marked suicided it will be delete from the trie
@@ -137,7 +187,7 @@ type Account struct {
 }
 
 // newObject creates a state object.
-func newObject(db *StateDB, address common.Address, data Account) *StateObject {
+func newObject(db *StateDB, isParallel bool, address common.Address, data Account) *StateObject {
 	if data.Balance == nil {
 		data.Balance = new(big.Int)
 	}
@@ -147,15 +197,22 @@ func newObject(db *StateDB, address common.Address, data Account) *StateObject {
 	if data.Root == (common.Hash{}) {
 		data.Root = emptyRoot
 	}
-	return &StateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           data,
-		originStorage:  &Storage{},
-		pendingStorage: &Storage{},
-		dirtyStorage:   &Storage{},
+	s := &StateObject{
+		db:         db,
+		address:    address,
+		addrHash:   crypto.Keccak256Hash(address[:]),
+		data:       data,
+		isParallel: isParallel,
 	}
+	s.originStorage, s.dirtyStorage, s.pendingStorage = s.newStorage(), s.newStorage(), s.newStorage()
+	return s
+}
+
+func (s *StateObject) newStorage() Storage {
+	if s.isParallel {
+		return &StorageSyncMap{}
+	}
+	return make(StorageMap)
 }
 
 // EncodeRLP implements rlp.Encoder.
@@ -326,7 +383,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) {
 func (s *StateObject) SetStorage(storage map[common.Hash]common.Hash) {
 	// Allocate fake storage if it's nil.
 	if s.fakeStorage == nil {
-		s.fakeStorage = &Storage{}
+		s.fakeStorage = s.newStorage()
 	}
 	for key, value := range storage {
 		s.fakeStorage.StoreValue(key, value)
@@ -344,7 +401,7 @@ func (s *StateObject) setState(key, value common.Hash) {
 func (s *StateObject) finalise(prefetch bool) {
 	slotsToPrefetch := make([][]byte, 0, s.dirtyStorage.Length())
 	s.dirtyStorage.Range(func(key, value interface{}) bool {
-		s.pendingStorage.Store(key, value)
+		s.pendingStorage.StoreValue(key.(common.Hash), value.(common.Hash))
 
 		originalValue, _ := s.originStorage.GetValue(key.(common.Hash))
 		if value.(common.Hash) != originalValue {
@@ -358,7 +415,7 @@ func (s *StateObject) finalise(prefetch bool) {
 		s.db.prefetcher.prefetch(s.data.Root, slotsToPrefetch, s.addrHash)
 	}
 	if s.dirtyStorage.Length() > 0 {
-		s.dirtyStorage = &Storage{}
+		s.dirtyStorage = s.newStorage()
 	}
 }
 
@@ -395,7 +452,7 @@ func (s *StateObject) updateTrie(db Database) Trie {
 			return true
 		}
 
-		s.originStorage.Store(k, v)
+		s.originStorage.StoreValue(k.(common.Hash), v.(common.Hash))
 
 		var vs []byte
 		if (value == common.Hash{}) {
@@ -426,7 +483,7 @@ func (s *StateObject) updateTrie(db Database) Trie {
 		s.db.prefetcher.used(s.data.Root, usedStorage)
 	}
 	if s.pendingStorage.Length() > 0 {
-		s.pendingStorage = &Storage{}
+		s.pendingStorage = s.newStorage()
 	}
 	return tr
 }
@@ -514,7 +571,7 @@ func (s *StateObject) setBalance(amount *big.Int) {
 func (s *StateObject) ReturnGas(gas *big.Int) {}
 
 func (s *StateObject) deepCopy(db *StateDB) *StateObject {
-	stateObject := newObject(db, s.address, s.data)
+	stateObject := newObject(db, s.isParallel, s.address, s.data)
 	if s.trie != nil {
 		stateObject.trie = db.db.CopyTrie(s.trie)
 	}
