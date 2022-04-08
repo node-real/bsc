@@ -132,6 +132,13 @@ func (s *StorageSyncMap) Copy() Storage {
 	return &cpy
 }
 
+func newStorage(isParallel bool) Storage {
+	if isParallel {
+		return &StorageSyncMap{}
+	}
+	return make(StorageMap)
+}
+
 // StateObject represents an Ethereum account which is being modified.
 //
 // The usage pattern is as follows:
@@ -155,7 +162,7 @@ type StateObject struct {
 	trie Trie // storage trie, which becomes non-nil on first access
 	code Code // contract bytecode, which gets set when code is loaded
 
-	isParallel     bool
+	isParallel     bool    // isParallel indicates this state object is used in parallel mode
 	originStorage  Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
 	pendingStorage Storage // Storage entries that need to be flushed to disk, at the end of an entire block
 	dirtyStorage   Storage // Storage entries that have been modified in the current transaction execution
@@ -197,22 +204,16 @@ func newObject(db *StateDB, isParallel bool, address common.Address, data Accoun
 	if data.Root == (common.Hash{}) {
 		data.Root = emptyRoot
 	}
-	s := &StateObject{
-		db:         db,
-		address:    address,
-		addrHash:   crypto.Keccak256Hash(address[:]),
-		data:       data,
-		isParallel: isParallel,
+	return &StateObject{
+		db:             db,
+		address:        address,
+		addrHash:       crypto.Keccak256Hash(address[:]),
+		data:           data,
+		isParallel:     isParallel,
+		originStorage:  newStorage(isParallel),
+		dirtyStorage:   newStorage(isParallel),
+		pendingStorage: newStorage(isParallel),
 	}
-	s.originStorage, s.dirtyStorage, s.pendingStorage = s.newStorage(), s.newStorage(), s.newStorage()
-	return s
-}
-
-func (s *StateObject) newStorage() Storage {
-	if s.isParallel {
-		return &StorageSyncMap{}
-	}
-	return make(StorageMap)
 }
 
 // EncodeRLP implements rlp.Encoder.
@@ -383,7 +384,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) {
 func (s *StateObject) SetStorage(storage map[common.Hash]common.Hash) {
 	// Allocate fake storage if it's nil.
 	if s.fakeStorage == nil {
-		s.fakeStorage = s.newStorage()
+		s.fakeStorage = newStorage(s.isParallel)
 	}
 	for key, value := range storage {
 		s.fakeStorage.StoreValue(key, value)
@@ -415,7 +416,7 @@ func (s *StateObject) finalise(prefetch bool) {
 		s.db.prefetcher.prefetch(s.data.Root, slotsToPrefetch, s.addrHash)
 	}
 	if s.dirtyStorage.Length() > 0 {
-		s.dirtyStorage = s.newStorage()
+		s.dirtyStorage = newStorage(s.isParallel)
 	}
 }
 
@@ -483,7 +484,7 @@ func (s *StateObject) updateTrie(db Database) Trie {
 		s.db.prefetcher.used(s.data.Root, usedStorage)
 	}
 	if s.pendingStorage.Length() > 0 {
-		s.pendingStorage = s.newStorage()
+		s.pendingStorage = newStorage(s.isParallel)
 	}
 	return tr
 }

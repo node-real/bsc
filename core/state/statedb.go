@@ -158,7 +158,7 @@ type ParallelState struct {
 	keepSystemAddressBalance bool
 
 	// we may need to redo for some specific reasons, like we read the wrong state and need to panic in sequential mode in SubRefund
-	needRedo bool
+	needsRedo bool
 }
 
 // StateDB structs within the ethereum protocol are used to store anything
@@ -622,7 +622,7 @@ func (s *StateDB) SubRefund(gas uint64) {
 		if s.isParallel {
 			// we don't need to panic here if we read the wrong state, we just need to redo this transaction
 			log.Info(fmt.Sprintf("Refund counter below zero (gas: %d > refund: %d)", gas, s.refund), "tx", s.thash.String())
-			s.parallel.needRedo = true
+			s.parallel.needsRedo = true
 			return
 		}
 		panic(fmt.Sprintf("Refund counter below zero (gas: %d > refund: %d)", gas, s.refund))
@@ -706,9 +706,9 @@ func (s *StateDB) SystemAddressRedo() bool {
 	return s.parallel.systemAddressOpsCount > 2
 }
 
-// NeedRedo returns true if there is any clear reason that we need to redo this transaction
-func (s *StateDB) NeedRedo() bool {
-	return s.parallel.needRedo
+// NeedsRedo returns true if there is any clear reason that we need to redo this transaction
+func (s *StateDB) NeedsRedo() bool {
+	return s.parallel.needsRedo
 }
 
 func (s *StateDB) GetCode(addr common.Address) []byte {

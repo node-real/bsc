@@ -448,11 +448,6 @@ func (p *ParallelStateProcessor) init() {
 // conflict check uses conflict window, it will check all state changes from (cfWindowStart + 1)
 // to the previous Tx, if any state in readDb is updated in changeList, then it is conflicted
 func (p *ParallelStateProcessor) hasStateConflict(readDb *state.StateDB, changeList state.SlotChangeList) bool {
-	// skip the conflict check if there is any clear reason to redo this transaction
-	if readDb.NeedRedo() {
-		return true
-	}
-
 	// check KV change
 	reads := readDb.StateReadsInSlot()
 	writes := changeList.StateChangeSet
@@ -726,6 +721,9 @@ func (p *ParallelStateProcessor) execInSlot(slotIndex int, txReq *ParallelTxRequ
 	if slotDB.SystemAddressRedo() {
 		hasConflict = true
 		systemAddrConflict = true
+	} else if slotDB.NeedsRedo() {
+		// if this is any reason that indicates this transaction needs to redo, skip the conflict check
+		hasConflict = true
 	} else {
 		for index := 0; index < p.parallelNum; index++ {
 			if index == slotIndex {
