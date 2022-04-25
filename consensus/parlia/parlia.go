@@ -582,7 +582,11 @@ func (p *Parlia) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 
 	// Verify vote attestation for fast finality.
 	if err := p.verifyVoteAttestation(chain, header, parents); err != nil {
-		return err
+		if !chain.Config().IsLynn(header.Number) {
+			log.Warn("invalid vote attestation", "error", err)
+		} else {
+			return err
+		}
 	}
 
 	// All basic checks passed, verify the seal and return
@@ -1058,8 +1062,8 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 	if err != nil {
 		return err
 	}
-	// TODO disable reward distribution in test phase1
-	if p.chainConfig.IsBoneh(new(big.Int).Sub(header.Number, big.NewInt(1))) {
+
+	if p.chainConfig.IsLynn(new(big.Int).Sub(header.Number, big.NewInt(1))) {
 		if err := p.distributeFinalityReward(chain, state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
 			return err
 		}
@@ -1110,8 +1114,8 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 			}
 		}
 	}
-	// TODO disable reward distribution in test phase1
-	if p.chainConfig.IsBoneh(new(big.Int).Sub(header.Number, big.NewInt(1))) {
+
+	if p.chainConfig.IsLynn(new(big.Int).Sub(header.Number, big.NewInt(1))) {
 		if err := p.distributeFinalityReward(chain, state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
 			return nil, nil, err
 		}
@@ -1698,6 +1702,9 @@ func (p *Parlia) GetHighestJustifiedHeader(chain consensus.ChainHeaderReader, he
 }
 
 func (p *Parlia) GetHighestFinalizedNumber(chain consensus.ChainHeaderReader, header *types.Header) uint64 {
+	if !chain.Config().IsLynn(header.Number) {
+		return 0
+	}
 	if chain == nil || header == nil || header.Number.Uint64() < 2 {
 		return 0
 	}
