@@ -582,11 +582,10 @@ func (p *Parlia) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 
 	// Verify vote attestation for fast finality.
 	if err := p.verifyVoteAttestation(chain, header, parents); err != nil {
-		if !chain.Config().IsLynn(header.Number) {
-			log.Warn("invalid vote attestation", "error", err)
-		} else {
+		if chain.Config().IsLynn(header.Number) {
 			return err
 		}
+		log.Warn("invalid vote attestation", "error", err)
 	}
 
 	// All basic checks passed, verify the seal and return
@@ -942,16 +941,18 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 	currentHeight := header.Number.Uint64()
 	epoch := p.config.Epoch
 	chainConfig := chain.Config()
-	headhash := header.ParentHash
-	head := chain.GetHeaderByHash(headhash)
 	if currentHeight%epoch != 0 || !chainConfig.IsBoneh(new(big.Int).Sub(header.Number, big.NewInt(1))) {
 		return nil
 	}
 
+	head := chain.GetHeaderByHash(header.ParentHash)
 	accumulatedWeights := make(map[common.Address]uint64)
-	for height := currentHeight - 1; height >= currentHeight-epoch && height >= 1; height-- {
+	for height := currentHeight - 1; height+epoch >= currentHeight && height >= 1; height-- {
+		if height != currentHeight-1 {
+			head = chain.GetHeaderByHash(head.ParentHash)
+		}
 		if head == nil {
-			continue
+			return fmt.Errorf("header is nil at height %d", height)
 		}
 		voteAttestation, err := getVoteAttestationFromHeader(head, chainConfig, p.config)
 		if err != nil {
@@ -962,6 +963,7 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 		}
 		justifiedBlock := chain.GetHeaderByHash(voteAttestation.Data.TargetHash)
 		if justifiedBlock == nil {
+			log.Warn("justifiedBlock is nil at height %d", voteAttestation.Data.TargetNumber)
 			continue
 		}
 
@@ -972,16 +974,14 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 		validators := snap.validators()
 		validatorsBitSet := bitset.From([]uint64{uint64(voteAttestation.VoteAddressSet)})
 		if validatorsBitSet.Count() > uint(len(validators)) {
-			//log.Error("invalid attestation, vote number larger than validators number")
-			//continue
-			return errors.New("invalid attestation, vote number larger than validators number")
+			log.Error("invalid attestation, vote number larger than validators number")
+			continue
 		}
 		for index, val := range validators {
 			if validatorsBitSet.Test(uint(index)) {
 				accumulatedWeights[val] += 1
 			}
 		}
-		head = chain.GetHeaderByHash(head.ParentHash)
 	}
 
 	validators := make([]common.Address, 0, len(accumulatedWeights))
@@ -994,17 +994,14 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 		weights = append(weights, big.NewInt(int64(accumulatedWeights[val])))
 	}
 
-	// method
+	// generate system transaction
 	method := "distributeFinalityReward"
-	// get packed data
 	data, err := p.validatorSetABI.Pack(method, validators, weights)
 	if err != nil {
 		log.Error("Unable to pack tx for distributeFinalityReward", "error", err)
 		return err
 	}
-	// get system message
 	msg := p.getSystemMessage(header.Coinbase, common.HexToAddress(systemcontracts.ValidatorContract), data, common.Big0)
-	// apply message
 	return p.applyTransaction(msg, state, header, cx, txs, receipts, systemTxs, usedGas, mining)
 }
 
@@ -1028,8 +1025,6 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 		return err
 	}
 
-	// If the block is an epoch end block, distribute the finality reward
-	// The distribution can only be done when the state is ready, it can't be done in VerifyHeader.
 	cx := chainContext{Chain: chain, parlia: p}
 
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
@@ -1063,7 +1058,7 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 		return err
 	}
 
-	if p.chainConfig.IsLynn(new(big.Int).Sub(header.Number, big.NewInt(1))) {
+	if p.chainConfig.IsLynn(header.Number) {
 		if err := p.distributeFinalityReward(chain, state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
 			return err
 		}
@@ -1115,7 +1110,7 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 		}
 	}
 
-	if p.chainConfig.IsLynn(new(big.Int).Sub(header.Number, big.NewInt(1))) {
+	if p.chainConfig.IsLynn(header.Number) {
 		if err := p.distributeFinalityReward(chain, state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
 			return nil, nil, err
 		}
