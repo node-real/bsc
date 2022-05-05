@@ -1288,7 +1288,7 @@ func (s *PublicBlockChainAPI) GetDiffAccountsWithScope(ctx context.Context, bloc
 }
 
 func (s *PublicBlockChainAPI) GetRootByDiffHash(ctx context.Context, blockNr rpc.BlockNumber, blockHash common.Hash, diffHash common.Hash) *core.VerifyResult {
-	return s.b.Chain().GetRootByDiffHash(uint64(blockNr), blockHash, diffHash)
+	return s.b.Chain().GetVerifyResult(uint64(blockNr), blockHash, diffHash)
 }
 
 // ExecutionResult groups all structured logs emitted by the EVM

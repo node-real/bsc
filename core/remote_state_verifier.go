@@ -111,11 +111,8 @@ func (vm *remoteVerifyManager) mainLoop() {
 			vm.cacheBlockVerified(hash)
 			vm.taskLock.Lock()
 			if task, ok := vm.tasks[hash]; ok {
-				delete(vm.tasks, hash)
-				verifyTaskCounter.Dec(1)
-				verifyTaskSucceedMeter.Mark(1)
+				vm.CloseTaskAndMarkMeters(hash, task)
 				verifyTaskExecutionTimer.Update(time.Since(task.startAt))
-				task.Close()
 			}
 			vm.taskLock.Unlock()
 		case <-pruneTicker.C:
@@ -123,10 +120,7 @@ func (vm *remoteVerifyManager) mainLoop() {
 			for hash, task := range vm.tasks {
 				if vm.bc.insertStopped() || (vm.bc.CurrentHeader().Number.Cmp(task.blockHeader.Number) == 1 &&
 					vm.bc.CurrentHeader().Number.Uint64()-task.blockHeader.Number.Uint64() > pruneHeightDiff) {
-					delete(vm.tasks, hash)
-					verifyTaskCounter.Dec(1)
-					verifyTaskFailedMeter.Mark(1)
-					task.Close()
+					vm.CloseTaskAndMarkMeters(hash, task)
 				}
 			}
 			vm.taskLock.Unlock()
@@ -225,8 +219,13 @@ func (vm *remoteVerifyManager) AncestorVerified(header *types.Header) bool {
 	vm.taskLock.RLock()
 	task, exist := vm.tasks[hash]
 	vm.taskLock.RUnlock()
+	timeoutTicker := time.NewTicker(time.Second * 30)
 	if exist {
-		<-task.terminalCh
+		select {
+		case <-task.terminalCh:
+		case <-timeoutTicker.C:
+			return false
+		}
 	}
 
 	_, exist = vm.verifiedCache.Get(hash)
@@ -236,6 +235,13 @@ func (vm *remoteVerifyManager) AncestorVerified(header *types.Header) bool {
 func (vm *remoteVerifyManager) HandleRootResponse(vr *VerifyResult, pid string) error {
 	vm.messageCh <- verifyMessage{verifyResult: vr, peerId: pid}
 	return nil
+}
+
+func (vm * remoteVerifyManager) CloseTaskAndMarkMeters(hash common.Hash, task *verifyTask) {
+	delete(vm.tasks, hash)
+	task.Close()
+	verifyTaskCounter.Dec(1)
+	verifyTaskFailedMeter.Mark(1)
 }
 
 type VerifyResult struct {
@@ -352,9 +358,8 @@ func (vt *verifyTask) sendVerifyRequest(n int) {
 
 func (vt *verifyTask) compareRootHashAndMark(msg verifyMessage, verifyCh chan common.Hash) {
 	if msg.verifyResult.Root == vt.blockHeader.Root {
-		blockhash := msg.verifyResult.BlockHash
 		// write back to manager so that manager can cache the result and delete this task.
-		verifyCh <- blockhash
+		verifyCh <- msg.verifyResult.BlockHash
 	} else {
 		vt.badPeers[msg.peerId] = struct{}{}
 	}
