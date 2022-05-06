@@ -177,6 +177,36 @@ func (api *PublicFilterAPI) NewPendingTransactions(ctx context.Context) (*rpc.Su
 	return rpcSub, nil
 }
 
+// NewVotes creates a subscription that is triggered each time a vote enters the vote pool.
+func (api *PublicFilterAPI) NewVotes(ctx context.Context) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	rpcSub := notifier.CreateSubscription()
+
+	gopool.Submit(func() {
+		votes := make(chan *types.VoteEnvelope, 128)
+		voteSub := api.events.SubscribeNewVotes(votes)
+
+		for {
+			select {
+			case vote := <-votes:
+				notifier.Notify(rpcSub.ID, vote)
+			case <-rpcSub.Err():
+				voteSub.Unsubscribe()
+				return
+			case <-notifier.Closed():
+				voteSub.Unsubscribe()
+				return
+			}
+		}
+	})
+
+	return rpcSub, nil
+}
+
 // NewBlockFilter creates a filter that fetches blocks that are imported into the chain.
 // It is part of the filter package since polling goes with eth_getFilterChanges.
 //

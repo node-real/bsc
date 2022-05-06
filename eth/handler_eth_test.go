@@ -895,6 +895,8 @@ func testSendVotes(t *testing.T, protocol uint) {
 			VoteAddress: types.BLSPublicKey{},
 			Signature:   types.BLSSignature{},
 			Data: &types.VoteData{
+				SourceNumber: uint64(0),
+				SourceHash:   common.BytesToHash(common.Hex2Bytes(string(rune(0)))),
 				TargetNumber: uint64(index),
 				TargetHash:   common.BytesToHash(common.Hex2Bytes(string(rune(index)))),
 			},
@@ -997,7 +999,11 @@ func testRecvVotes(t *testing.T, protocol uint) {
 	}
 	// Send the vote to the sink and verify that it's added to the vote pool
 	vote := types.VoteEnvelope{
+		VoteAddress: types.BLSPublicKey{},
+		Signature:   types.BLSSignature{},
 		Data: &types.VoteData{
+			SourceNumber: uint64(0),
+			SourceHash:   common.BytesToHash(common.Hex2Bytes(string(rune(0)))),
 			TargetNumber: uint64(1),
 			TargetHash:   common.BytesToHash(common.Hex2Bytes(string(rune(1)))),
 		},
