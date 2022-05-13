@@ -404,7 +404,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	number := header.Number.Uint64()
 	var parent *types.Header
 	if len(parents) > 0 {
-		parent = parents[0]
+		parent = parents[len(parents)-1]
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
@@ -1672,6 +1672,8 @@ func (p *Parlia) SetVotePool(votePool consensus.VotePool) {
 	p.votePool = votePool
 }
 
+// GetHighestJustifiedHeader returns highest justified block's header before the specific block,
+// the attestation within the specific block will be taken into account.
 func (p *Parlia) GetHighestJustifiedHeader(chain consensus.ChainHeaderReader, header *types.Header) *types.Header {
 	if chain == nil || header == nil {
 		return nil
@@ -1682,14 +1684,10 @@ func (p *Parlia) GetHighestJustifiedHeader(chain consensus.ChainHeaderReader, he
 		return chain.GetHeaderByNumber(0)
 	}
 
-	parent := chain.GetHeaderByHash(header.ParentHash)
-	if parent == nil {
-		return nil
-	}
-	snap, err := p.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
+	snap, err := p.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
 	if err != nil {
 		log.Error("Unexpected error when getting snapshot",
-			"error", err, "blockNumber", parent.Number.Uint64(), "blockHash", parent.Hash())
+			"error", err, "blockNumber", header.Number.Uint64(), "blockHash", header.Hash())
 		return nil
 	}
 
@@ -1699,12 +1697,14 @@ func (p *Parlia) GetHighestJustifiedHeader(chain consensus.ChainHeaderReader, he
 	}
 	// Return naturally justified block.
 	if snap.Number-snap.Attestation.TargetNumber > naturallyJustifiedDist {
-		return FindAncientHeader(parent, naturallyJustifiedDist, chain, nil)
+		return FindAncientHeader(header, naturallyJustifiedDist, chain, nil)
 	}
 	//Return latest vote justified block.
 	return chain.GetHeaderByHash(snap.Attestation.TargetHash)
 }
 
+// GetHighestFinalizedNumber returns highest finalized block number before the specific block,
+// the attestation within the specific block will be taken into account.
 func (p *Parlia) GetHighestFinalizedNumber(chain consensus.ChainHeaderReader, header *types.Header) uint64 {
 	if !chain.Config().IsLynn(header.Number) {
 		return 0
@@ -1713,15 +1713,10 @@ func (p *Parlia) GetHighestFinalizedNumber(chain consensus.ChainHeaderReader, he
 		return 0
 	}
 
-	parent := chain.GetHeaderByHash(header.ParentHash)
-	if parent == nil {
-		return 0
-	}
-
-	snap, err := p.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
+	snap, err := p.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
 	if err != nil {
 		log.Error("Unexpected error when getting snapshot",
-			"error", err, "blockNumber", parent.Number.Uint64(), "blockHash", parent.Hash())
+			"error", err, "blockNumber", header.Number.Uint64(), "blockHash", header.Hash())
 		return 0
 	}
 
