@@ -1718,10 +1718,10 @@ func (p *Parlia) GetJustifiedHeader(chain consensus.ChainHeaderReader, header *t
 // the attestation within the specific block will be taken into account.
 func (p *Parlia) GetFinalizedHeader(chain consensus.ChainHeaderReader, header *types.Header) *types.Header {
 	if !chain.Config().IsLynn(header.Number) {
-		return nil
+		return chain.GetHeaderByNumber(0)
 	}
 	if chain == nil || header == nil || header.Number.Uint64() < 2 {
-		return nil
+		return chain.GetHeaderByNumber(0)
 	}
 
 	snap, err := p.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
@@ -1744,7 +1744,7 @@ func (p *Parlia) GetFinalizedHeader(chain consensus.ChainHeaderReader, header *t
 		}
 	}
 
-	return nil
+	return chain.GetHeaderByNumber(0)
 }
 
 // ===========================     utility function        ==========================
