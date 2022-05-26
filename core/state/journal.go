@@ -142,7 +142,11 @@ type (
 )
 
 func (ch createObjectChange) revert(s *StateDB) {
-	delete(s.stateObjects, *ch.account)
+	if s.parallel.isSlotDB {
+		delete(s.parallel.dirtiedStateObjectsInSlot, *ch.account)
+	} else {
+		s.deleteStateObj(*ch.account)
+	}
 	delete(s.stateObjectsDirty, *ch.account)
 }
 
