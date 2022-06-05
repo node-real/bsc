@@ -1974,6 +1974,77 @@ func TestTransactionPendingReannouce(t *testing.T) {
 	}
 }
 
+// Tests that if a batch high-priced of non-executables arrive, they do not kick out
+// all executable transactions.
+func TestTransactionFutureAttack(t *testing.T) {
+	t.Parallel()
+
+	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	blockchain := &testBlockChain{statedb, 1000000, new(event.Feed)}
+	config := testTxPoolConfig
+	config.Lifetime = time.Second
+
+	pool := NewTxPool(config, params.TestChainConfig, blockchain)
+	defer pool.Stop()
+
+	countPending := func() int {
+		t.Helper()
+		var pending int
+		for _, list := range pool.pending {
+			pending += list.Len()
+		}
+		if err := validateTxPoolInternals(pool); err != nil {
+			t.Fatalf("pool internal state corrupted: %v", err)
+		}
+		return pending
+	}
+	countQueued := func() int {
+		t.Helper()
+		var future int
+		for _, list := range pool.queue {
+			future += list.Len()
+		}
+		if err := validateTxPoolInternals(pool); err != nil {
+			t.Fatalf("pool internal state corrupted: %v", err)
+		}
+		return future
+	}
+
+	// Create a number of test accounts, fund them and make transactions.
+	executableTxs := types.Transactions{}
+	var numAccounts = 384
+	for i := 0; i < numAccounts; i++ {
+		key, _ := crypto.GenerateKey()
+		pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(10000000000))
+		// Add normal transactions (price:200)
+		for j := 0; j < int(config.AccountSlots); j++ {
+			executableTxs = append(executableTxs, pricedTransaction(uint64(j), 100000, big.NewInt(200), key))
+		}
+	}
+
+	// Import the batch and verify that limits have been enforced.
+	pool.AddRemotesSync(executableTxs)
+	pending, queued := pool.Stats()
+	t.Logf("pool.config.GlobalSlots: %d, pool.config.GlobalQueue: %d\n", pool.config.GlobalSlots, pool.config.GlobalQueue)
+	t.Logf("pool.pending: %d, pool.queued: %d, pool.all.Slots(): %d\n", pending, queued, pool.all.Slots())
+
+	// Now, future transaction attack starts, let's add a bunch of expensive future transactions, and see if the pending-count drops.
+	key, _ := crypto.GenerateKey()
+	pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(100000000000))
+	futureTxs := types.Transactions{}
+	for j := 0; j < int(config.GlobalSlots+config.GlobalQueue); j++ {
+		futureTxs = append(futureTxs, pricedTransaction(1000+uint64(j), 100000, big.NewInt(500), key))
+	}
+	pool.AddRemotesSync(futureTxs)
+	newPending := countPending()
+	newQueued := countQueued()
+	t.Logf("pool.pending: %d, pool.queued: %d, pool.all.Slots(): %d\n", newPending, newQueued, pool.all.Slots())
+
+	if newPending <= 0 {
+		t.Errorf("All pending txs have been kicked off, not expected")
+	}
+}
+
 // Benchmarks the speed of validating the contents of the pending queue of the
 // transaction pool.
 func BenchmarkPendingDemotion100(b *testing.B)   { benchmarkPendingDemotion(b, 100) }

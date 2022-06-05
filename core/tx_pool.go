@@ -52,6 +52,9 @@ const (
 
 	// txReannoMaxNum is the maximum number of transactions a reannounce action can include.
 	txReannoMaxNum = 1024
+
+	// txBatchEnqueuePercent is the percent of maximum enqueue txs number divides the global queue.
+	txBatchEnqueuePercent = 20 // 20%
 )
 
 var (
@@ -821,12 +824,28 @@ func (pool *TxPool) AddLocal(tx *types.Transaction) error {
 // This method is used to add transactions from the p2p network and does not wait for pool
 // reorganization and internal event propagation.
 func (pool *TxPool) AddRemotes(txs []*types.Transaction) []error {
+	// If there are too many txs, we should add them synchronously to avoid dos attack.
+	if uint64(len(txs)) > pool.config.GlobalQueue*txBatchEnqueuePercent/100 {
+		return pool.AddRemotesSync(txs)
+	}
+
 	return pool.addTxs(txs, false, false)
 }
 
 // This is like AddRemotes, but waits for pool reorganization. Tests use this method.
 func (pool *TxPool) AddRemotesSync(txs []*types.Transaction) []error {
-	return pool.addTxs(txs, false, true)
+	maxTxsPerBatch := pool.config.GlobalQueue * txBatchEnqueuePercent / 100
+	errs := make([]error, 0, len(txs))
+
+	i := uint64(0)
+	for ; (i+1)*maxTxsPerBatch < uint64(len(txs)); i++ {
+		err := pool.addTxs(txs[i*maxTxsPerBatch:(i+1)*maxTxsPerBatch], false, true)
+		errs = append(errs, err...)
+	}
+
+	err := pool.addTxs(txs[i*maxTxsPerBatch:], false, true)
+	errs = append(errs, err...)
+	return errs
 }
 
 // This is like AddRemotes with a single transaction, but waits for pool reorganization. Tests use this method.
