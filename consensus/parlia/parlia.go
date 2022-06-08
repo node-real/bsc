@@ -391,7 +391,10 @@ func getVoteAttestationFromHeader(header *types.Header, chainConfig *params.Chai
 func getSignRecentlyLimit(blockNumber *big.Int, validatorsNumber int, chainConfig *params.ChainConfig) int {
 	limit := validatorsNumber/2 + 1
 	if chainConfig.IsBoneh(blockNumber) {
-		limit = validatorsNumber*2/3 + 1
+		limit = validatorsNumber * 2 / 3
+		if limit == 0 {
+			limit = 1 // limit should no little than 1.
+		}
 	}
 	return limit
 }
@@ -475,7 +478,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	}
 
 	// The valid voted validators should be no less than 2/3 validators.
-	if len(votedAddrs) <= len(snap.Validators)*2/3 {
+	if len(votedAddrs) < len(snap.Validators)*2/3 || len(votedAddrs) == 0 {
 		return fmt.Errorf("invalid attestation, not enough validators voted")
 	}
 
@@ -817,7 +820,7 @@ func (p *Parlia) assembleVoteAttestation(chain consensus.ChainHeaderReader, head
 		return err
 	}
 	votes := p.VotePool.FetchVoteByBlockHash(parent.Hash())
-	if len(votes) <= len(snap.Validators)*2/3 {
+	if len(votes) < len(snap.Validators)*2/3 || len(votes) == 0 { // len(snap.Validators)*2/3 may equal to 0
 		return nil
 	}
 
