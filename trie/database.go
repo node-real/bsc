@@ -397,6 +397,9 @@ func (db *Database) node(hash common.Hash) node {
 
 	// Content unavailable in memory, attempt to retrieve from disk
 	enc, err := db.diskdb.Get(hash[:])
+  if err != nil {
+    fmt.Printf("diskdb get node error: %v\n", err)
+  }
 	if err != nil || enc == nil {
 		return nil
 	}
