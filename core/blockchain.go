@@ -18,6 +18,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -46,6 +47,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
+	gv "github.com/node-real/gatherer-verifier"
 )
 
 var (
@@ -249,6 +251,8 @@ type BlockChain struct {
 
 	shouldPreserve  func(*types.Block) bool        // Function used to determine whether should preserve the given block.
 	terminateInsert func(common.Hash, uint64) bool // Testing hook used to terminate ancient receipt chain insertion.
+
+	gathererVerifier gv.GathererVerifier
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -447,6 +451,9 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	}
 	// Take ownership of this particular state
 	go bc.update()
+	if bc.gathererVerifier != nil {
+		bc.gathererVerifier.Start(context.TODO())
+	}
 	if txLookupLimit != nil {
 		bc.txLookupLimit = *txLookupLimit
 

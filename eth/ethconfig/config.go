@@ -18,6 +18,7 @@
 package ethconfig
 
 import (
+	gv "github.com/node-real/gatherer-verifier"
 	"math/big"
 	"os"
 	"os/user"
@@ -216,6 +217,9 @@ type Config struct {
 
 	// Berlin block override (TODO: remove after the fork)
 	OverrideBerlin *big.Int `toml:",omitempty"`
+
+	// GathererVerifierConfig specified the config content for gatherer
+	GathererVerifierConfig *gv.Config `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
