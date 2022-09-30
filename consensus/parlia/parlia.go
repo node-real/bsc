@@ -377,7 +377,7 @@ func getVoteAttestationFromHeader(header *types.Header, chainConfig *params.Chai
 			return nil, nil
 		}
 		start := extraVanity + validatorNumberSizeAfterBoneh + num*validatorBytesLengthAfterBoneh
-		end := len(header.Extra) - extraVanity
+		end := len(header.Extra) - extraSeal
 		attestationBytes = header.Extra[start:end]
 	}
 
