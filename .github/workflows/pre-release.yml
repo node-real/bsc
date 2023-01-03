@@ -10,7 +10,7 @@ jobs:
     name: Build Release
     strategy:
       matrix:
-        go-version: [1.16.x]
+        go-version: [1.17.x]
         os: [ubuntu-18.04, macos-11, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
@@ -37,7 +37,6 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-
       # ==============================
       #       Linux/Macos/Windows Build
       # ==============================
@@ -51,13 +50,8 @@ jobs:
 
       - name: Build Binary for ARM
         if: matrix.os == 'ubuntu-18.04'
-        env:
-          GOPATH: /home/runner/work/woodpecker/go
         run: |
-          mkdir -p $GOPATH/src/github.com/binance-chain/bsc/
-          cp -r ./* $GOPATH/src/github.com/binance-chain/bsc/
-          cd $GOPATH/src/github.com/binance-chain/bsc/ && make geth-linux-arm
-
+          make geth-linux-arm
       # ==============================
       #       Upload artifacts
       # ==============================
@@ -88,28 +82,28 @@ jobs:
         if: matrix.os == 'ubuntu-18.04'
         with:
           name: arm5
-          path: /home/runner/work/woodpecker/go/src/github.com/binance-chain/bsc/build/bin/geth-linux-arm-5
+          path: ./build/bin/geth-linux-arm-5
       
       - name: Upload ARM-6 Build
         uses: actions/upload-artifact@v2
         if: matrix.os == 'ubuntu-18.04'
         with:
           name: arm6
-          path: /home/runner/work/woodpecker/go/src/github.com/binance-chain/bsc/build/bin/geth-linux-arm-6
+          path: ./build/bin/geth-linux-arm-6
 
       - name: Upload ARM-7 Build
         uses: actions/upload-artifact@v2
         if: matrix.os == 'ubuntu-18.04'
         with:
           name: arm7
-          path: /home/runner/work/woodpecker/go/src/github.com/binance-chain/bsc/build/bin/geth-linux-arm-7
+          path: ./build/bin/geth-linux-arm-7
 
       - name: Upload ARM-64 Build
         uses: actions/upload-artifact@v2
         if: matrix.os == 'ubuntu-18.04'
         with:
           name: arm64
-          path: /home/runner/work/woodpecker/go/src/github.com/binance-chain/bsc/build/bin/geth-linux-arm64
+          path: ./build/bin/geth-linux-arm64
 
   release:
     name: Release
@@ -175,7 +169,6 @@ jobs:
           echo "testnet.zip url: $TESTNET_FILE_URL"
           curl -L $MAINNET_FILE_URL -o ./mainnet.zip
           curl -L $TESTNET_FILE_URL -o ./testnet.zip
-
       # ==============================
       #       Create release
       # ==============================

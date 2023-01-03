@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/signer/core"
+	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 	"github.com/ethereum/go-ethereum/signer/storage"
 )
 
@@ -180,7 +181,7 @@ func TestSignTxRequest(t *testing.T) {
 	}
 	t.Logf("to %v", to.Address().String())
 	resp, err := r.ApproveTx(&core.SignTxRequest{
-		Transaction: core.SendTxArgs{
+		Transaction: apitypes.SendTxArgs{
 			From: *from,
 			To:   to},
 		Callinfo: nil,
@@ -432,15 +433,15 @@ func dummyTx(value hexutil.Big) *core.SignTxRequest {
 	gasPrice := hexutil.Big(*big.NewInt(2000000))
 
 	return &core.SignTxRequest{
-		Transaction: core.SendTxArgs{
+		Transaction: apitypes.SendTxArgs{
 			From:     *from,
 			To:       to,
 			Value:    value,
 			Nonce:    n,
-			GasPrice: gasPrice,
+			GasPrice: &gasPrice,
 			Gas:      gas,
 		},
-		Callinfo: []core.ValidationInfo{
+		Callinfo: []apitypes.ValidationInfo{
 			{Typ: "Warning", Message: "All your base are bellong to us"},
 		},
 		Meta: core.Metadata{Remote: "remoteip", Local: "localip", Scheme: "inproc"},
@@ -448,7 +449,7 @@ func dummyTx(value hexutil.Big) *core.SignTxRequest {
 }
 
 func dummyTxWithV(value uint64) *core.SignTxRequest {
-	v := big.NewInt(0).SetUint64(value)
+	v := new(big.Int).SetUint64(value)
 	h := hexutil.Big(*v)
 	return dummyTx(h)
 }
@@ -468,7 +469,7 @@ func TestLimitWindow(t *testing.T) {
 		return
 	}
 	// 0.3 ether: 429D069189E0000 wei
-	v := big.NewInt(0).SetBytes(common.Hex2Bytes("0429D069189E0000"))
+	v := new(big.Int).SetBytes(common.Hex2Bytes("0429D069189E0000"))
 	h := hexutil.Big(*v)
 	// The first three should succeed
 	for i := 0; i < 3; i++ {
@@ -604,7 +605,7 @@ function ApproveSignData(r){
 
 	t.Logf("address %v %v\n", addr.String(), addr.Original())
 
-	nvt := []*core.NameValueType{
+	nvt := []*apitypes.NameValueType{
 		{
 			Name:  "message",
 			Typ:   "text/plain",

@@ -39,9 +39,9 @@ ${CHANGE_LOG}\n
 | geth_linux | ${LINUX_BIN_SUM} |\n
 | geth_mac  | ${MAC_BIN_SUM} |\n
 | geth_windows  | ${WINDOWS_BIN_SUM} |\n
-| geth_linux_arm5  | ${ARM5_BIN_SUM} |\n
-| geth_linux_arm6  | ${ARM6_BIN_SUM} |\n
-| geth_linux_arm7  | ${ARM7_BIN_SUM} |\n
+| geth_linux_arm-5  | ${ARM5_BIN_SUM} |\n
+| geth_linux_arm-6  | ${ARM6_BIN_SUM} |\n
+| geth_linux_arm-7  | ${ARM7_BIN_SUM} |\n
 | geth_linux_arm64  | ${ARM64_BIN_SUM} |\n
 END
 )
