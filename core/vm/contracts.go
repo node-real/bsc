@@ -275,6 +275,7 @@ type sha256hash struct{}
 func (c *sha256hash) RequiredGas(input []byte) uint64 {
 	return uint64(len(input)+31)/32*params.Sha256PerWordGas + params.Sha256BaseGas
 }
+
 func (c *sha256hash) Run(input []byte) ([]byte, error) {
 	h := sha256.Sum256(input)
 	return h[:], nil
@@ -290,6 +291,7 @@ type ripemd160hash struct{}
 func (c *ripemd160hash) RequiredGas(input []byte) uint64 {
 	return uint64(len(input)+31)/32*params.Ripemd160PerWordGas + params.Ripemd160BaseGas
 }
+
 func (c *ripemd160hash) Run(input []byte) ([]byte, error) {
 	ripemd := ripemd160.New()
 	ripemd.Write(input)
@@ -306,6 +308,7 @@ type dataCopy struct{}
 func (c *dataCopy) RequiredGas(input []byte) uint64 {
 	return uint64(len(input)+31)/32*params.IdentityPerWordGas + params.IdentityBaseGas
 }
+
 func (c *dataCopy) Run(in []byte) ([]byte, error) {
 	return in, nil
 }
@@ -336,9 +339,10 @@ var (
 // modexpMultComplexity implements bigModexp multComplexity formula, as defined in EIP-198
 //
 // def mult_complexity(x):
-//    if x <= 64: return x ** 2
-//    elif x <= 1024: return x ** 2 // 4 + 96 * x - 3072
-//    else: return x ** 2 // 16 + 480 * x - 199680
+//
+//	if x <= 64: return x ** 2
+//	elif x <= 1024: return x ** 2 // 4 + 96 * x - 3072
+//	else: return x ** 2 // 16 + 480 * x - 199680
 //
 // where is x is max(length_of_MODULUS, length_of_BASE)
 func modexpMultComplexity(x *big.Int) *big.Int {
@@ -1122,32 +1126,37 @@ func (c *blsSignatureVerify) RequiredGas(input []byte) uint64 {
 	return params.BlsSignatureVerifyGas
 }
 
+const (
+	msgHashLength         = uint64(32)
+	signatureLength       = uint64(96)
+	singleBlsPubkeyLength = uint64(48)
+)
+
 // Run input:
 // msg      | signature | [{bls pubkey}] |
 // 32 bytes | 96 bytes  | [{48 bytes}]   |
 func (c *blsSignatureVerify) Run(input []byte) ([]byte, error) {
-	minimumLength := uint64(32) + uint64(96)
-	singlePubkeyLength := uint64(48)
-
+	minimumLength := msgHashLength + signatureLength
 	inputLen := uint64(len(input))
-	if inputLen <= minimumLength || (inputLen-minimumLength)%singlePubkeyLength != 0 {
-		return nil, fmt.Errorf("expected input size %d+%d*N, actual input size: %d", minimumLength, singlePubkeyLength, inputLen)
+	if inputLen <= minimumLength ||
+		(inputLen-minimumLength)%singleBlsPubkeyLength != 0 {
+		return nil, fmt.Errorf("expected input size %d+%d*N, actual input size: %d", minimumLength, singleBlsPubkeyLength, inputLen)
 	}
 
 	var msg [32]byte
-	msgBytes := getData(input, 0, 32)
+	msgBytes := getData(input, 0, msgHashLength)
 	copy(msg[:], msgBytes)
 
-	signatureBytes := getData(input, 32, 96)
+	signatureBytes := getData(input, msgHashLength, signatureLength)
 	sig, err := bls.SignatureFromBytes(signatureBytes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signature: %v", err)
 	}
 
-	pubKeyNumber := (inputLen - minimumLength) / singlePubkeyLength
+	pubKeyNumber := (inputLen - minimumLength) / singleBlsPubkeyLength
 	pubKeys := make([]bls.PublicKey, pubKeyNumber)
 	for i := uint64(0); i < pubKeyNumber; i++ {
-		pubKeyBytes := getData(input, 128+i*singlePubkeyLength, 48)
+		pubKeyBytes := getData(input, minimumLength+i*singleBlsPubkeyLength, singleBlsPubkeyLength)
 		pubKey, err := bls.PublicKeyFromBytes(pubKeyBytes)
 		if err != nil {
 			return nil, err
