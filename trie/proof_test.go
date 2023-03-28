@@ -892,6 +892,54 @@ func TestAllElementsEmptyValueRangeProof(t *testing.T) {
 	}
 }
 
+func TestProofWithExpiredSisterNode(t *testing.T) {
+	trie := new(Trie)
+
+	expiredData := map[string]string{
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+
+	unexpiredData := map[string]string{
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+	// Loop through the data and insert it into the trie
+	for k, v := range expiredData {
+		updateString(trie, k, v)
+	}
+
+	for k, v := range unexpiredData {
+		updateString(trie, k, v)
+	}
+
+	prefixKey := keybytesToHex([]byte("abcd"))[:2]
+
+	trie.ExpireByPrefix(prefixKey)
+
+	for i, prover := range makeProvers(trie){
+		for k, v := range unexpiredData {
+			proof := prover([]byte(k))
+			if proof == nil {
+				t.Fatalf("proof %d is nil", i)
+			}
+			val, err := VerifyProof(trie.Hash(), []byte("degi"), proof)
+			if err != nil {
+				t.Fatalf("prover %d: failed to verify proof: %v\nraw proof: %x", i, err, proof)
+			}
+			if !bytes.Equal(val, []byte("H")) {
+				t.Fatalf("prover %d: verified value mismatch: have %x, want %v", i, val, v)
+			}
+		}
+	}
+}
+
 // mutateByte changes one byte in b.
 func mutateByte(b []byte) {
 	for r := mrand.Intn(len(b)); ; {
