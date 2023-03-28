@@ -492,6 +492,64 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 	}
 }
 
+func (t *Trie) ExpireByPrefix(prefixKey []byte) {
+	_, err := t.expireByPrefix(t.root, prefixKey)
+	if err != nil {
+		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+	}
+}
+
+func (t *Trie) expireByPrefix(n node, prefixKey []byte) (node, error) {
+	// Loop through prefix key
+	// When prefix key is empty, generate the hash node of the current node
+	// Replace current node with the hash node
+	
+	// If length of prefix key is empty
+	if len(prefixKey) == 0 {
+		hasher := newHasher(false)
+		defer returnHasherToPool(hasher)
+		var hn node
+		_, hn = hasher.proofHash(n)
+
+		return hn, nil 
+	}
+
+	switch n := n.(type) {
+	case *shortNode:
+		matchLen := prefixLen(prefixKey, n.Key)
+		if matchLen == len(prefixKey) {
+			return nil, fmt.Errorf("")// Found the node to expire
+		}
+
+		hn, err := t.expireByPrefix(n.Val, prefixKey[matchLen:])
+		if err != nil {
+			return nil, err
+		}
+
+		// Replace child node with hash node
+		if hn != nil {
+			n.Val = hn
+		}
+
+		return nil, err
+	case *fullNode:
+		hn, err := t.expireByPrefix(n.Children[prefixKey[0]], prefixKey[1:])
+		if err != nil {
+			return nil, err
+		}
+
+		// Replace child node with hash node
+		if hn != nil {
+			n.Children[prefixKey[0]] = hn
+		}
+
+		return nil, err
+	default:
+		return nil, fmt.Errorf("invalid node type")
+	}
+}
+
+
 func concat(s1 []byte, s2 ...byte) []byte {
 	r := make([]byte, len(s1)+len(s2))
 	copy(r, s1)
