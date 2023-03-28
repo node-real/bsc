@@ -39,32 +39,11 @@ func (t *Trie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) e
 	key = keybytesToHex(key)
 	var nodes []node
 	tn := t.root
-	for len(key) > 0 && tn != nil {
-		switch n := tn.(type) {
-		case *shortNode:
-			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
-				// The trie doesn't contain the key.
-				tn = nil
-			} else {
-				tn = n.Val
-				key = key[len(n.Key):]
-			}
-			nodes = append(nodes, n)
-		case *fullNode:
-			tn = n.Children[key[0]]
-			key = key[1:]
-			nodes = append(nodes, n)
-		case hashNode:
-			var err error
-			tn, err = t.resolveHash(n, nil)
-			if err != nil {
-				log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
-				return err
-			}
-		default:
-			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
-		}
+	_, err := t.traverseNodes(tn, key, &nodes)
+	if err != nil {
+		return err
 	}
+
 	hasher := newHasher(false)
 	defer returnHasherToPool(hasher)
 
@@ -126,6 +105,42 @@ func VerifyProof(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueReader)
 			return cld, nil
 		}
 	}
+}
+
+// TODO (asyukii): Write function comment
+func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node) (node, error) {
+	for len(key) > 0 && tn != nil {
+		switch n := tn.(type) {
+		case *shortNode:
+			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
+				// The trie doesn't contain the key.
+				tn = nil
+			} else {
+				tn = n.Val
+				key = key[len(n.Key):]
+			}
+			if nodes != nil{
+				*nodes = append(*nodes, n)
+			}
+		case *fullNode:
+			tn = n.Children[key[0]]
+			key = key[1:]
+			if nodes != nil{
+				*nodes = append(*nodes, n)
+			}
+		case hashNode:
+			var err error
+			tn, err = t.resolveHash(n, nil)
+			if err != nil {
+				log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+				return tn, err
+			}
+		default:
+			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
+		}
+	}
+
+	return tn, nil
 }
 
 // proofToPath converts a merkle proof to trie node path. The main purpose of
