@@ -892,14 +892,40 @@ func TestAllElementsEmptyValueRangeProof(t *testing.T) {
 	}
 }
 
-func TestProofWithExpiredSisterNode(t *testing.T) {
+// TestStorageProof tests the storage proof generation and verification.
+// This test will also test for partial proof generation and verification.
+func TestStorageProof(t *testing.T){
+	trie, vals := randomTrie(500)
+	for _, kv := range vals {
+		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
+		for _, prefixKey := range prefixKeys {
+			proof := memorydb.New()
+			key := keybytesToHex([]byte(kv.k))
+			err := trie.ProveStorage(key, prefixKey, proof)
+			if err != nil {
+				t.Fatalf("missing key %x while constructing proof", kv.k)
+			}
+			val, err := trie.VerifyStorageProof(key, prefixKey, proof)
+			if err != nil {
+				t.Fatalf("failed to verify proof for key %x: prefix %x: %v\nraw proof: %x", key, prefixKey, err, proof)
+			}
+			if val != nil && !bytes.Equal(val, []byte(kv.v)) {
+				t.Fatalf("failed to verify proof for key %x: prefix %x: %v\nraw proof: %x", key, prefixKey, err, proof)
+			}
+		}
+	}
+}
+
+// TestStorageProofWithExpiredSubTree tests the storage proof with expired sub tree.
+// The prover is expected to give valid proof for the unexpired data.
+func TestStorageProofWithExpiredSubTree(t *testing.T) {
 	trie := new(Trie)
 
 	expiredData := map[string]string{
-		"defg": "E",
-		"defh": "F",
-		"degh": "G",
-		"degi": "H",
+		"abcd": "A",
+		"abce": "B",
+		"abde": "C",
+		"abdf": "D",
 	}
 
 
@@ -938,6 +964,141 @@ func TestProofWithExpiredSisterNode(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestOneElementStorageProof tests the storage proof generation and verification
+// for a trie with only one element.
+func TestOneElementStorageProof(t *testing.T){
+	trie := new(Trie)
+	updateString(trie, "k", "v")
+
+	proof := memorydb.New()
+	key := keybytesToHex([]byte("k"))
+	err := trie.ProveStorage(key, nil, proof)
+	if err != nil {
+		t.Fatalf("missing key %x while constructing proof", key)
+	}
+
+	if proof.Len() != 1 {
+		t.Errorf("proof should have one element")
+	}
+
+	val, err := VerifyProof(trie.Hash(), []byte("k"), proof)
+	if err != nil {
+		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proof)
+	}
+
+	if !bytes.Equal(val, []byte("v")) {
+		t.Fatalf("verified value mismatch: have %x, want 'v'", val)
+	}
+}
+
+// TestEmptyStorageProof tests storage verification with empty proof.
+// The verifier should nil for both value and error.
+func TestEmptyStorageProof(t *testing.T){
+	trie := new(Trie)
+	updateString(trie, "k", "v")
+
+	proof := memorydb.New()
+	key := keybytesToHex([]byte("k"))
+
+	val, err := trie.VerifyStorageProof(key, nil, proof)
+	if val != nil && err != nil{
+		t.Fatalf("expected nil value and error for empty proof")
+	}
+}
+
+// TestEmptyKeyStorageProof tests the storage proof with empty key.
+// The prover is expected to return 
+func TestEmptyKeyStorageProof(t *testing.T){
+	trie := new(Trie)
+	updateString(trie, "k", "v")
+
+	proof := memorydb.New()
+	err := trie.ProveStorage([]byte(""), nil, proof)
+	if err == nil {
+		t.Fatalf("expected error for empty key")
+	}
+}
+
+// TestEmptyPrefixKeyStorageProof tests the storage proof with empty prefix key,
+// which means that all proofs generated are from the root node.
+func TestEmptyPrefixKeyStorageProof(t *testing.T){
+	trie, vals := randomTrie(500)
+	for _, kv := range vals {
+		proof := memorydb.New()
+		key := keybytesToHex(kv.k)
+		err := trie.ProveStorage(key, nil, proof)
+		if err != nil {
+			t.Fatalf("missing key %x while constructing proof", key)
+		}
+		val, err := trie.VerifyStorageProof(key, nil, proof)
+		if err != nil {
+			t.Fatalf("failed to verify proof for key %x: %v\nraw proof: %x", key, err, proof)
+		}
+		if !bytes.Equal(val, kv.v) {
+			t.Fatalf("verified value mismatch for key %x: have %x, want %x", key, val, kv.v)
+		}
+	}
+}
+
+// TestBadStorageProof tests a few cases which the proof is wrong.
+// The proof is expected to detect the error.
+func TestBadStorageProof(t *testing.T){
+
+	trie, vals := randomTrie(500)
+	for _, kv := range vals {
+		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
+		for _, prefixKey := range prefixKeys {
+			proof := memorydb.New()
+			key := keybytesToHex([]byte(kv.k))
+			err := trie.ProveStorage(key, prefixKey, proof)
+			if err != nil {
+				t.Fatalf("missing key %x while constructing proof", key)
+			}
+
+			if proof.Len() == 0 {
+				continue
+			}
+
+			it := proof.NewIterator(nil, nil)
+			for i, d := 0, mrand.Intn(proof.Len()); i <= d; i++ {
+				it.Next()
+			}
+			itKey := it.Key()
+			itVal, _ := proof.Get(itKey)
+			proof.Delete(itKey)
+			it.Release()
+	
+			mutateByte(itVal)
+			proof.Put(crypto.Keccak256(itVal), itVal)
+	
+			if val, err := trie.VerifyStorageProof(key, prefixKey, proof); err == nil && val != nil{
+				t.Fatalf("expected proof to fail for key: %x, prefix: %x", key, prefixKey)
+			}
+		}
+	}
+}
+
+// TODO
+func TestBadKeyStorageProof(t *testing.T){
+	return
+}
+
+// TODO
+func TestBadPrefixKeyStorageProof(t *testing.T){
+	return
+}
+
+// TODO
+func TestKeyPrefixKeySame(t *testing.T){
+	return
+}
+
+// TODO: get the proof of unexpired tree, then expire it, then get proof of expired tree.
+// compare them
+func TestExpiredProof(t *testing.T){
+
 }
 
 // mutateByte changes one byte in b.
@@ -1147,4 +1308,46 @@ func TestRangeProofKeysWithSharedPrefix(t *testing.T) {
 	if more != false {
 		t.Error("expected more to be false")
 	}
+}
+
+func getPrefixKeys(t *Trie, key []byte) ([][]byte){
+	var prefixKeys [][]byte
+	key = keybytesToHex(key)
+	tn := t.root
+	for len(key) > 0 && tn != nil {
+		switch n := tn.(type) {
+		case *shortNode:	
+			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
+				// The trie doesn't contain the key.
+				tn = nil
+			} else {
+				tn = n.Val
+				// Check if there is a previous key in prefixKeys
+				if len(prefixKeys) == 0 {
+					prefixKeys = append(prefixKeys, n.Key)
+				} else{
+					prefixKeys = append(prefixKeys, append(prefixKeys[len(prefixKeys)-1], n.Key...))
+				}
+				key = key[len(n.Key):]
+			}
+		case *fullNode:
+			tn = n.Children[key[0]]
+			if len(prefixKeys) == 0 {
+				prefixKeys = append(prefixKeys, key[:1])
+			} else{
+				prefixKeys = append(prefixKeys, append(prefixKeys[len(prefixKeys)-1], key[:1]...))
+			}
+			key = key[1:]
+		case hashNode:
+			var err error
+			tn, err = t.resolveHash(n, nil)
+			if err != nil {
+				return nil
+			}
+		default:
+			return nil
+		}
+	}
+
+	return prefixKeys
 }
