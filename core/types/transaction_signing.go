@@ -329,6 +329,89 @@ func (s eip2930Signer) Hash(tx *Transaction) common.Hash {
 	}
 }
 
+type BEP215Signer struct {
+	EIP155Signer
+}
+
+func NewBEP215Signer(chainId *big.Int) BEP215Signer {
+	return BEP215Signer{NewEIP155Signer(chainId)}
+}
+func (s BEP215Signer) ChainID() *big.Int {
+	return s.chainId
+}
+
+func (s BEP215Signer) Equal(s2 Signer) bool {
+	bep215, ok := s2.(BEP215Signer)
+	return ok && bep215.chainId.Cmp(s.chainId) == 0
+}
+
+func (s BEP215Signer) Sender(tx *Transaction) (common.Address, error) {
+	if tx.Type() != LegacyTxType && tx.Type() != ReviveStateTxType {
+		return common.Address{}, ErrTxTypeNotSupported
+	}
+
+	if !tx.Protected() {
+		return HomesteadSigner{}.Sender(tx)
+	}
+	if tx.ChainId().Cmp(s.chainId) != 0 {
+		return common.Address{}, ErrInvalidChainId
+	}
+	V, R, S := tx.RawSignatureValues()
+	V = new(big.Int).Sub(V, s.chainIdMul)
+	V.Sub(V, big8)
+	return recoverPlain(s.Hash(tx), R, S, V, true)
+}
+
+// SignatureValues returns signature values. This signature
+// needs to be in the [R || S || V] format where V is 0 or 1.
+func (s BEP215Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
+	if tx.Type() != LegacyTxType && tx.Type() != ReviveStateTxType {
+		return nil, nil, nil, ErrTxTypeNotSupported
+	}
+	R, S, V = decodeSignature(sig)
+	if s.chainId.Sign() != 0 {
+		V = big.NewInt(int64(sig[64] + 35))
+		V.Add(V, s.chainIdMul)
+	}
+	return R, S, V, nil
+}
+
+// Hash returns the hash to be signed by the sender.
+// It does not uniquely identify the transaction.
+func (s BEP215Signer) Hash(tx *Transaction) common.Hash {
+	switch tx.Type() {
+	case LegacyTxType:
+		return rlpHash([]interface{}{
+			tx.Nonce(),
+			tx.GasPrice(),
+			tx.Gas(),
+			tx.To(),
+			tx.Value(),
+			tx.Data(),
+			s.chainId, uint(0), uint(0),
+		})
+	case ReviveStateTxType:
+		return prefixedRlpHash(
+			tx.Type(),
+			[]interface{}{
+				s.chainId,
+				tx.Nonce(),
+				tx.GasPrice(),
+				tx.Gas(),
+				tx.To(),
+				tx.Value(),
+				tx.Data(),
+				tx.WitnessList(),
+			})
+	default:
+		// This _should_ not happen, but in case someone sends in a bad
+		// json struct via RPC, it's probably more prudent to return an
+		// empty hash instead of killing the node with a panic
+		//panic("Unsupported transaction type: %d", tx.typ)
+		return common.Hash{}
+	}
+}
+
 // EIP155Signer implements Signer using the EIP-155 rules. This accepts transactions which
 // are replay-protected as well as unprotected homestead transactions.
 type EIP155Signer struct {

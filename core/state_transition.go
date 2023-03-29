@@ -80,6 +80,7 @@ type Message interface {
 	IsFake() bool
 	Data() []byte
 	AccessList() types.AccessList
+	WitnessList() types.WitnessList
 }
 
 // ExecutionResult includes all output after executing given evm

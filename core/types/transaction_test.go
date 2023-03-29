@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"math/big"
 	"math/rand"
 	"reflect"
@@ -560,6 +561,104 @@ func TestTransactionCoding(t *testing.T) {
 		if err := assertEqual(parsedTx, tx); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestTransactionCoding tests serializing/de-serializing to/from rlp and JSON, signer sender & chainId.
+func TestReviveStateTxAndSigner(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("could not generate key: %v", err)
+	}
+	var (
+		signer    = NewBEP215Signer(common.Big1)
+		from      = crypto.PubkeyToAddress(key.PublicKey)
+		addr      = common.HexToAddress("0x0000000000000000000000000000000000000001")
+		recipient = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+		witness   = WitnessList{{
+			witnessType: 0,
+			address:     &addr,
+			proofList: []MPTProof{{
+				key:   common.Hex2Bytes("095e7baea6a6c7c4c2"),
+				proof: [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
+			}},
+		}}
+	)
+	for i := uint64(0); i < 500; i++ {
+		var txdata TxData
+		switch i % 5 {
+		case 0:
+			// Legacy tx.
+			txdata = &LegacyTx{
+				Nonce:    i,
+				To:       &recipient,
+				Gas:      1,
+				GasPrice: big.NewInt(2),
+				Data:     []byte("abcdef"),
+			}
+		case 1:
+			// Legacy tx contract creation.
+			txdata = &LegacyTx{
+				Nonce:    i,
+				Gas:      1,
+				GasPrice: big.NewInt(2),
+				Data:     []byte("abcdef"),
+			}
+		case 2:
+			// Tx with non-zero witness in revive state.
+			txdata = &ReviveStateTx{
+				Nonce:       i,
+				To:          &recipient,
+				Gas:         123457,
+				GasPrice:    big.NewInt(10),
+				WitnessList: witness,
+				Data:        []byte("abcdef"),
+			}
+		case 3:
+			// Tx with empty revive state.
+			txdata = &ReviveStateTx{
+				Nonce:    i,
+				To:       &recipient,
+				Gas:      123457,
+				GasPrice: big.NewInt(10),
+				Data:     []byte("abcdef"),
+			}
+		case 4:
+			// Contract creation with revive state.
+			txdata = &ReviveStateTx{
+				Nonce:       i,
+				GasPrice:    big.NewInt(10),
+				Gas:         123457,
+				Data:        []byte("abcdef"),
+				WitnessList: witness,
+			}
+		}
+		tx, err := SignNewTx(key, signer, txdata)
+		if err != nil {
+			t.Fatalf("could not sign transaction: %v", err)
+		}
+		// RLP
+		parsedTx, err := encodeDecodeBinary(tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := assertEqual(parsedTx, tx); err != nil {
+			t.Fatal(err)
+		}
+
+		// JSON
+		parsedTx, err = encodeDecodeJSON(tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := assertEqual(parsedTx, tx); err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, common.Big1, tx.ChainId())
+		sender, err := signer.Sender(tx)
+		assert.NoError(t, err)
+		assert.Equal(t, from, sender)
 	}
 }
 

@@ -141,7 +141,8 @@ type CallMsg struct {
 	Value     *big.Int        // amount of wei sent along with the call
 	Data      []byte          // input data, usually an ABI-encoded contract method invocation
 
-	AccessList types.AccessList // EIP-2930 access list.
+	AccessList  types.AccessList  // EIP-2930 access list.
+	WitnessList types.WitnessList // EIP-2930 access list.
 }
 
 // A ContractCaller provides contract calls, essentially transactions that are executed by
