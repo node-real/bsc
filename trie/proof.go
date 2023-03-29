@@ -159,11 +159,63 @@ func VerifyProof(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueReader)
 	}
 }
 
-// TODO (asyukii): Write function comment
+// VerifyStorageProof checks a merkle proof for a storage key. The storage key should 
+// already be converted to nibbles. If the prefix key is specified, it will traverse
+// down to the node that contains the prefix key. From there, proof will be verified.
+// VerifyStorageProof returns an error if the proof contains invalid trie nodes.
+func (t *Trie) VerifyStorageProof(key []byte, prefixKey []byte, proofDb ethdb.KeyValueReader) (value []byte, err error) {
+
+	if len(key) == 0 {
+		return nil, fmt.Errorf("empty key provided")
+	}
+
+	tn := t.root
+	startNode, err := t.traverseNodes(tn, prefixKey, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	key = key[len(prefixKey):] // obtain the suffix key
+
+	hasher := newHasher(false)
+	defer returnHasherToPool(hasher)
+
+	_, hn := hasher.proofHash(startNode)
+	wantHash, ok := hn.(hashNode)
+
+	if !ok { // node is not hashed
+		return nil, nil
+	}
+	for i := 0; ; i++ {
+		buf, _ := proofDb.Get(wantHash[:])
+		if buf == nil {
+			return nil, fmt.Errorf("proof node %d (hash %064x) missing", i, wantHash)
+		}
+		n, err := decodeNode(wantHash[:], buf)
+		if err != nil {
+			return nil, fmt.Errorf("bad proof node %d: %v", i, err)
+		}
+		keyrest, cld := get(n, key, true)
+		switch cld := cld.(type) {
+		case nil:
+			return nil, nil
+		case hashNode:
+			key = keyrest
+			copy(wantHash[:], cld)
+		case valueNode:
+			return cld, nil
+		}
+	}
+}
+
+// traverseNodes traverses the trie with the given key starting at the given node.
+// If the trie contains the key, the returned node is the node that contains the
+// value for the key. If nodes is specified, the traversed nodes are appended to
+// it.
 func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node) (node, error) {
 	for len(key) > 0 && tn != nil {
 		switch n := tn.(type) {
-		case *shortNode:
+		case *shortNode:	
 			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
 				// The trie doesn't contain the key.
 				tn = nil
