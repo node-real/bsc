@@ -492,20 +492,20 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 	}
 }
 
-func (t *Trie) ExpireByPrefix(prefixKey []byte) {
-	_, err := t.expireByPrefix(t.root, prefixKey)
+func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) {
+	_, err := t.expireByPrefix(t.root, prefixKeyHex)
 	if err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 	}
 }
 
-func (t *Trie) expireByPrefix(n node, prefixKey []byte) (node, error) {
+func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 	// Loop through prefix key
 	// When prefix key is empty, generate the hash node of the current node
 	// Replace current node with the hash node
 	
 	// If length of prefix key is empty
-	if len(prefixKey) == 0 {
+	if len(prefixKeyHex) == 0 {
 		hasher := newHasher(false)
 		defer returnHasherToPool(hasher)
 		var hn node
@@ -516,12 +516,12 @@ func (t *Trie) expireByPrefix(n node, prefixKey []byte) (node, error) {
 
 	switch n := n.(type) {
 	case *shortNode:
-		matchLen := prefixLen(prefixKey, n.Key)
-		if matchLen == len(prefixKey) {
+		matchLen := prefixLen(prefixKeyHex, n.Key)
+		if matchLen == len(prefixKeyHex) {
 			return nil, fmt.Errorf("")// Found the node to expire
 		}
 
-		hn, err := t.expireByPrefix(n.Val, prefixKey[matchLen:])
+		hn, err := t.expireByPrefix(n.Val, prefixKeyHex[matchLen:])
 		if err != nil {
 			return nil, err
 		}

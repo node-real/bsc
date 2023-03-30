@@ -78,12 +78,12 @@ func (t *SecureTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWri
 	return t.trie.Prove(key, fromLevel, proofDb)
 }
 
-// ProveStorage constructs a merkle proof for a storage key. If the prefix key is specified, 
+// ProveStorageWitness constructs a merkle proof for a storage key. If the prefix key is specified, 
 // the proof will start from the node that contains the prefix key to get the partial proof.
 // The result contains all encoded nodes from the starting node to the node that contains
 // the value. The value itself is also included in the last node and can be retrieved by
 // verifying the proof.
-func (t *Trie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error {
+func (t *Trie) ProveStorageWitness(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueWriter) error {
 
 	if len(key) == 0 {
 		return fmt.Errorf("key is empty")
@@ -91,15 +91,15 @@ func (t *Trie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValue
 
 	key = keybytesToHex(key)
 
-	// traverse down using the prefixKey
+	// traverse down using the prefixKeyHex
 	var nodes []node
 	tn := t.root
-	startNode, err := t.traverseNodes(tn, prefixKey, nil) // obtain the node that contains the prefixKey
+	startNode, err := t.traverseNodes(tn, prefixKeyHex, nil) // obtain the node that contains the prefixKeyHex
 	if err != nil {
 		return err
 	}
 
-	key = key[len(prefixKey):] // obtain the suffix key
+	key = key[len(prefixKeyHex):] // obtain the suffix key
 
 	// traverse through the suffix key
 	_, err = t.traverseNodes(startNode, key, &nodes)
@@ -126,8 +126,8 @@ func (t *Trie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValue
 	return nil
 }
 
-func (t *SecureTrie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error {
-	return t.trie.ProveStorage(key, prefixKey, proofDb)
+func (t *SecureTrie) ProveStorageWitness(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueWriter) error {
+	return t.trie.ProveStorageWitness(key, prefixKeyHex, proofDb)
 }
 
 // VerifyProof checks merkle proofs. The given proof must contain the value for
@@ -159,10 +159,10 @@ func VerifyProof(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueReader)
 	}
 }
 
-// VerifyStorageProof checks a merkle proof for a storage key. If the prefix key is specified, 
+// VerifyStorageWitness checks a merkle proof for a storage key. If the prefix key is specified, 
 // it will traverse down to the node that contains the prefix key. From there, proof will be verified.
 // VerifyStorageProof returns an error if the proof contains invalid trie nodes.
-func (t *Trie) VerifyStorageProof(key []byte, prefixKey []byte, proofDb ethdb.KeyValueReader) (value []byte, err error) {
+func (t *Trie) VerifyStorageWitness(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueReader) (value []byte, err error) {
 
 	if len(key) == 0 {
 		return nil, fmt.Errorf("empty key provided")
@@ -171,12 +171,12 @@ func (t *Trie) VerifyStorageProof(key []byte, prefixKey []byte, proofDb ethdb.Ke
 	key = keybytesToHex(key)
 
 	tn := t.root
-	startNode, err := t.traverseNodes(tn, prefixKey, nil)
+	startNode, err := t.traverseNodes(tn, prefixKeyHex, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	key = key[len(prefixKey):] // obtain the suffix key
+	key = key[len(prefixKeyHex):] // obtain the suffix key
 
 	hasher := newHasher(false)
 	defer returnHasherToPool(hasher)

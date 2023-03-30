@@ -901,11 +901,11 @@ func TestStorageProof(t *testing.T){
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
 			key := kv.k
-			err := trie.ProveStorage(key, prefixKey, proof)
+			err := trie.ProveStorageWitness(key, prefixKey, proof)
 			if err != nil {
 				t.Fatalf("missing key %x while constructing proof", kv.k)
 			}
-			val, err := trie.VerifyStorageProof(key, prefixKey, proof)
+			val, err := trie.VerifyStorageWitness(key, prefixKey, proof)
 			if err != nil {
 				t.Fatalf("failed to verify proof for key %x: prefix %x: %v\nraw proof: %x", key, prefixKey, err, proof)
 			}
@@ -924,7 +924,7 @@ func TestOneElementStorageProof(t *testing.T){
 
 	proof := memorydb.New()
 	key := []byte("k")
-	err := trie.ProveStorage(key, nil, proof)
+	err := trie.ProveStorageWitness(key, nil, proof)
 	if err != nil {
 		t.Fatalf("missing key %x while constructing proof", key)
 	}
@@ -952,7 +952,7 @@ func TestEmptyStorageProof(t *testing.T){
 	proof := memorydb.New()
 	key := []byte("k")
 
-	val, err := trie.VerifyStorageProof(key, nil, proof)
+	val, err := trie.VerifyStorageWitness(key, nil, proof)
 	if val != nil && err != nil{
 		t.Fatalf("expected nil value and error for empty proof")
 	}
@@ -965,7 +965,7 @@ func TestEmptyKeyStorageProof(t *testing.T){
 	updateString(trie, "k", "v")
 
 	proof := memorydb.New()
-	err := trie.ProveStorage([]byte(""), nil, proof)
+	err := trie.ProveStorageWitness([]byte(""), nil, proof)
 	if err == nil {
 		t.Fatalf("expected error for empty key")
 	}
@@ -979,11 +979,11 @@ func TestEmptyPrefixKeyStorageProof(t *testing.T){
 		proof := memorydb.New()
 		key := kv.k
 
-		err := trie.ProveStorage(key, nil, proof)
+		err := trie.ProveStorageWitness(key, nil, proof)
 		if err != nil {
 			t.Fatalf("missing key %x while constructing proof", key)
 		}
-		val, err := trie.VerifyStorageProof(key, nil, proof)
+		val, err := trie.VerifyStorageWitness(key, nil, proof)
 		if err != nil {
 			t.Fatalf("failed to verify proof for key %x: %v\nraw proof: %x", key, err, proof)
 		}
@@ -1003,7 +1003,7 @@ func TestBadStorageProof(t *testing.T){
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
 			key := []byte(kv.k)
-			err := trie.ProveStorage(key, prefixKey, proof)
+			err := trie.ProveStorageWitness(key, prefixKey, proof)
 			if err != nil {
 				t.Fatalf("missing key %x while constructing proof", key)
 			}
@@ -1024,7 +1024,7 @@ func TestBadStorageProof(t *testing.T){
 			mutateByte(itVal)
 			proof.Put(crypto.Keccak256(itVal), itVal)
 	
-			if val, err := trie.VerifyStorageProof(key, prefixKey, proof); err == nil && val != nil{
+			if val, err := trie.VerifyStorageWitness(key, prefixKey, proof); err == nil && val != nil{
 				t.Fatalf("expected proof to fail for key: %x, prefix: %x", key, prefixKey)
 			}
 		}
@@ -1039,9 +1039,9 @@ func TestBadKeyStorageProof(t *testing.T){
 
 	proof := memorydb.New()
 	key := []byte("x")
-	trie.ProveStorage(key, nil, proof)
+	trie.ProveStorageWitness(key, nil, proof)
 
-	val, err := trie.VerifyStorageProof(key, nil, proof)
+	val, err := trie.VerifyStorageWitness(key, nil, proof)
 	if val != nil && err != nil{
 		t.Fatalf("expected nil value and error for bad key")
 	}
@@ -1058,9 +1058,9 @@ func TestBadPrefixKeyStorageProof(t *testing.T){
 
 	prefixKey := keybytesToHex([]byte("x"))
 
-	trie.ProveStorage(key, prefixKey, proof)
+	trie.ProveStorageWitness(key, prefixKey, proof)
 
-	val, err := trie.VerifyStorageProof(key, prefixKey, proof)
+	val, err := trie.VerifyStorageWitness(key, prefixKey, proof)
 	if val != nil && err != nil{
 		t.Fatalf("expected nil value and error for bad prefix key")
 	}
@@ -1075,12 +1075,12 @@ func TestKeyPrefixKeySame(t *testing.T){
 	proof := memorydb.New()
 	key := []byte("k")	
 
-	trie.ProveStorage(key, key, proof)
+	trie.ProveStorageWitness(key, key, proof)
 	if proof.Len() != 0 {
 		t.Fatalf("expected proof size to be 0 for same key and prefix key")
 	}
 
-	val, err := trie.VerifyStorageProof(key, key, proof)
+	val, err := trie.VerifyStorageWitness(key, key, proof)
 	if val != nil && err != nil{
 		t.Fatalf("expected nil value and error for same key and prefix key")
 	}
@@ -1123,8 +1123,8 @@ func TestUnexpiredStorageProof(t *testing.T) {
 	proof := memorydb.New()
 	key := []byte("degi")
 
-	trie.ProveStorage(key, nil, proof)
-	val, err := trie.VerifyStorageProof(key, nil, proof)
+	trie.ProveStorageWitness(key, nil, proof)
+	val, err := trie.VerifyStorageWitness(key, nil, proof)
 	if err != nil {
 		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proof)
 	}
