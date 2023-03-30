@@ -32,7 +32,7 @@ func (t *EmptyTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWrit
 	return nil
 }
 
-func (t *EmptyTrie) ProveStorage(key, from []byte, proofDb ethdb.KeyValueWriter) error {
+func (t *EmptyTrie) ProveStorageWitness(key, from []byte, proofDb ethdb.KeyValueWriter) error {
 	return nil
 }
 

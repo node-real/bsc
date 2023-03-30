@@ -497,13 +497,13 @@ func (s *StateDB) GetProofByHash(addrHash common.Hash) ([][]byte, error) {
 }
 
 // GetStorageWitness returns only the Merkle proof for given storage slot.
-func (s *StateDB) GetStorageWitness(a common.Address, prefixKeyHex []byte, slotKey common.Hash) ([][]byte, error) {
+func (s *StateDB) GetStorageWitness(a common.Address, prefixKeyHex []byte, key common.Hash) ([][]byte, error) {
 	var proof proofList
 	trie := s.StorageTrie(a)
 	if trie == nil {
 		return proof, errors.New("storage trie for requested address does not exist")
 	}
-	err := trie.ProveStorage(crypto.Keccak256(slotKey.Bytes()), prefixKeyHex, &proof)
+	err := trie.ProveStorageWitness(crypto.Keccak256(key.Bytes()), prefixKeyHex, &proof)
 	return proof, err
 }
 

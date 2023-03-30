@@ -127,7 +127,7 @@ type Trie interface {
 	// with the node that proves the absence of the key.
 	Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error
 	
-	ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error
+	ProveStorageWitness(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error
 
 }
 
