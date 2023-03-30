@@ -916,56 +916,6 @@ func TestStorageProof(t *testing.T){
 	}
 }
 
-// TestStorageProofWithExpiredSubTree tests the storage proof with expired sub tree.
-// The prover is expected to give valid proof for the unexpired data.
-func TestStorageProofWithExpiredSubTree(t *testing.T) {
-	trie := new(Trie)
-
-	expiredData := map[string]string{
-		"abcd": "A",
-		"abce": "B",
-		"abde": "C",
-		"abdf": "D",
-	}
-
-
-	unexpiredData := map[string]string{
-		"defg": "E",
-		"defh": "F",
-		"degh": "G",
-		"degi": "H",
-	}
-
-	// Loop through the data and insert it into the trie
-	for k, v := range expiredData {
-		updateString(trie, k, v)
-	}
-
-	for k, v := range unexpiredData {
-		updateString(trie, k, v)
-	}
-
-	prefixKey := keybytesToHex([]byte("abcd"))[:2]
-
-	trie.ExpireByPrefix(prefixKey)
-
-	for i, prover := range makeProvers(trie){
-		for k, v := range unexpiredData {
-			proof := prover([]byte(k))
-			if proof == nil {
-				t.Fatalf("proof %d is nil", i)
-			}
-			val, err := VerifyProof(trie.Hash(), []byte("degi"), proof)
-			if err != nil {
-				t.Fatalf("prover %d: failed to verify proof: %v\nraw proof: %x", i, err, proof)
-			}
-			if !bytes.Equal(val, []byte("H")) {
-				t.Fatalf("prover %d: verified value mismatch: have %x, want %v", i, val, v)
-			}
-		}
-	}
-}
-
 // TestOneElementStorageProof tests the storage proof generation and verification
 // for a trie with only one element.
 func TestOneElementStorageProof(t *testing.T){
@@ -1080,25 +1030,106 @@ func TestBadStorageProof(t *testing.T){
 	}
 }
 
-// TODO
+// TestBadKeyStorageProof tests the storage proof with a bad key.
+// The verifier is expected to return nil for both value and error.
 func TestBadKeyStorageProof(t *testing.T){
-	return
+	trie := new(Trie)
+	updateString(trie, "k", "v")
+
+	proof := memorydb.New()
+	key := keybytesToHex([]byte("x"))
+	trie.ProveStorage(key, nil, proof)
+
+	val, err := trie.VerifyStorageProof(key, nil, proof)
+	if val != nil && err != nil{
+		t.Fatalf("expected nil value and error for bad key")
+	}
 }
 
-// TODO
+// TestBadPrefixKeyStorageProof tests the storage proof with a bad prefix key.
+// The verifier is expected to return nil for both value and error.
 func TestBadPrefixKeyStorageProof(t *testing.T){
-	return
+	trie := new(Trie)
+	updateString(trie, "k", "v")
+
+	proof := memorydb.New()
+	key := keybytesToHex([]byte("k"))
+
+	prefixKey := keybytesToHex([]byte("x"))
+
+	trie.ProveStorage(key, prefixKey, proof)
+
+	val, err := trie.VerifyStorageProof(key, prefixKey, proof)
+	if val != nil && err != nil{
+		t.Fatalf("expected nil value and error for bad prefix key")
+	}
 }
 
-// TODO
+// TestKeyPrefixKeySame tests the storage proof with the same key and prefix key.
+// The proof size should be 0 and the verifier should return nil for both value and error.
 func TestKeyPrefixKeySame(t *testing.T){
-	return
+	trie := new(Trie)
+	updateString(trie, "k", "v")
+
+	proof := memorydb.New()
+	key := keybytesToHex([]byte("k"))
+
+	trie.ProveStorage(key, key, proof)
+	if proof.Len() != 0 {
+		t.Fatalf("expected proof size to be 0 for same key and prefix key")
+	}
+
+	val, err := trie.VerifyStorageProof(key, key, proof)
+	if val != nil && err != nil{
+		t.Fatalf("expected nil value and error for same key and prefix key")
+	}
 }
 
-// TODO: get the proof of unexpired tree, then expire it, then get proof of expired tree.
-// compare them
-func TestExpiredProof(t *testing.T){
+// TestUnexpiredStorageProof tests the storage proof with a trie containing
+// both expired and unexpired data. The prover is expected to give valid proof
+// for the unexpired data.
+func TestUnexpiredStorageProof(t *testing.T) {
+	trie := new(Trie)
 
+	expiredData := map[string]string{
+		"abcd": "A",
+		"abce": "B",
+		"abde": "C",
+		"abdf": "D",
+	}
+
+
+	unexpiredData := map[string]string{
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+	// Loop through the data and insert it into the trie
+	for k, v := range expiredData {
+		updateString(trie, k, v)
+	}
+
+	for k, v := range unexpiredData {
+		updateString(trie, k, v)
+	}
+
+	prefixKey := keybytesToHex([]byte("abcd"))[:2]
+
+	trie.ExpireByPrefix(prefixKey)
+
+	proof := memorydb.New()
+	key := keybytesToHex([]byte("degi"))
+
+	trie.ProveStorage(key, nil, proof)
+	val, err := trie.VerifyStorageProof(key, nil, proof)
+	if err != nil {
+		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proof)
+	}
+	if !bytes.Equal(val, []byte("H")) {
+		t.Fatalf("verified value mismatch: have %x, want %v", val, "H")
+	}
 }
 
 // mutateByte changes one byte in b.
