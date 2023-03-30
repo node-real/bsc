@@ -130,6 +130,10 @@ func (t *Trie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValue
 	return nil
 }
 
+func (t *SecureTrie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error {
+	return t.trie.ProveStorage(key, prefixKey, proofDb)
+}
+
 // VerifyProof checks merkle proofs. The given proof must contain the value for
 // key in a trie with the given root hash. VerifyProof returns an error if the
 // proof contains invalid trie nodes or the wrong value.

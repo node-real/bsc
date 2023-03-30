@@ -32,6 +32,10 @@ func (t *EmptyTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWrit
 	return nil
 }
 
+func (t *EmptyTrie) ProveStorage(key, from []byte, proofDb ethdb.KeyValueWriter) error {
+	return nil
+}
+
 // NewSecure creates a dummy trie
 func NewEmptyTrie() *EmptyTrie {
 	return &EmptyTrie{}
