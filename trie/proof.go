@@ -27,11 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-type MPTProof struct {
-	prefixKey []byte // prefix key
-	proof [][]byte // list of RLP-encoded nodes
-}
-
 // Prove constructs a merkle proof for key. The result contains all encoded nodes
 // on the path to the value at key. The value itself is also included in the last
 // node and can be retrieved by verifying the proof.
