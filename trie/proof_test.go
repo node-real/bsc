@@ -900,7 +900,7 @@ func TestStorageProof(t *testing.T){
 		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
-			key := keybytesToHex([]byte(kv.k))
+			key := kv.k
 			err := trie.ProveStorage(key, prefixKey, proof)
 			if err != nil {
 				t.Fatalf("missing key %x while constructing proof", kv.k)
@@ -923,7 +923,7 @@ func TestOneElementStorageProof(t *testing.T){
 	updateString(trie, "k", "v")
 
 	proof := memorydb.New()
-	key := keybytesToHex([]byte("k"))
+	key := []byte("k")
 	err := trie.ProveStorage(key, nil, proof)
 	if err != nil {
 		t.Fatalf("missing key %x while constructing proof", key)
@@ -950,7 +950,7 @@ func TestEmptyStorageProof(t *testing.T){
 	updateString(trie, "k", "v")
 
 	proof := memorydb.New()
-	key := keybytesToHex([]byte("k"))
+	key := []byte("k")
 
 	val, err := trie.VerifyStorageProof(key, nil, proof)
 	if val != nil && err != nil{
@@ -977,7 +977,8 @@ func TestEmptyPrefixKeyStorageProof(t *testing.T){
 	trie, vals := randomTrie(500)
 	for _, kv := range vals {
 		proof := memorydb.New()
-		key := keybytesToHex(kv.k)
+		key := kv.k
+
 		err := trie.ProveStorage(key, nil, proof)
 		if err != nil {
 			t.Fatalf("missing key %x while constructing proof", key)
@@ -1001,7 +1002,7 @@ func TestBadStorageProof(t *testing.T){
 		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
-			key := keybytesToHex([]byte(kv.k))
+			key := []byte(kv.k)
 			err := trie.ProveStorage(key, prefixKey, proof)
 			if err != nil {
 				t.Fatalf("missing key %x while constructing proof", key)
@@ -1037,7 +1038,7 @@ func TestBadKeyStorageProof(t *testing.T){
 	updateString(trie, "k", "v")
 
 	proof := memorydb.New()
-	key := keybytesToHex([]byte("x"))
+	key := []byte("x")
 	trie.ProveStorage(key, nil, proof)
 
 	val, err := trie.VerifyStorageProof(key, nil, proof)
@@ -1053,7 +1054,7 @@ func TestBadPrefixKeyStorageProof(t *testing.T){
 	updateString(trie, "k", "v")
 
 	proof := memorydb.New()
-	key := keybytesToHex([]byte("k"))
+	key := []byte("k")
 
 	prefixKey := keybytesToHex([]byte("x"))
 
@@ -1072,7 +1073,7 @@ func TestKeyPrefixKeySame(t *testing.T){
 	updateString(trie, "k", "v")
 
 	proof := memorydb.New()
-	key := keybytesToHex([]byte("k"))
+	key := []byte("k")	
 
 	trie.ProveStorage(key, key, proof)
 	if proof.Len() != 0 {
@@ -1120,7 +1121,7 @@ func TestUnexpiredStorageProof(t *testing.T) {
 	trie.ExpireByPrefix(prefixKey)
 
 	proof := memorydb.New()
-	key := keybytesToHex([]byte("degi"))
+	key := []byte("degi")
 
 	trie.ProveStorage(key, nil, proof)
 	val, err := trie.VerifyStorageProof(key, nil, proof)

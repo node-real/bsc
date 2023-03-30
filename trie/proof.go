@@ -83,9 +83,8 @@ func (t *SecureTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWri
 	return t.trie.Prove(key, fromLevel, proofDb)
 }
 
-// ProveStorage constructs a merkle proof for a storage key. The storage key should 
-// already be converted to nibbles. If the prefix key is specified, the proof will 
-// start from the node that contains the prefix key to get the partial proof.
+// ProveStorage constructs a merkle proof for a storage key. If the prefix key is specified, 
+// the proof will start from the node that contains the prefix key to get the partial proof.
 // The result contains all encoded nodes from the starting node to the node that contains
 // the value. The value itself is also included in the last node and can be retrieved by
 // verifying the proof.
@@ -94,6 +93,8 @@ func (t *Trie) ProveStorage(key []byte, prefixKey []byte, proofDb ethdb.KeyValue
 	if len(key) == 0 {
 		return fmt.Errorf("key is empty")
 	}
+
+	key = keybytesToHex(key)
 
 	// traverse down using the prefixKey
 	var nodes []node
@@ -163,15 +164,16 @@ func VerifyProof(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueReader)
 	}
 }
 
-// VerifyStorageProof checks a merkle proof for a storage key. The storage key should 
-// already be converted to nibbles. If the prefix key is specified, it will traverse
-// down to the node that contains the prefix key. From there, proof will be verified.
+// VerifyStorageProof checks a merkle proof for a storage key. If the prefix key is specified, 
+// it will traverse down to the node that contains the prefix key. From there, proof will be verified.
 // VerifyStorageProof returns an error if the proof contains invalid trie nodes.
 func (t *Trie) VerifyStorageProof(key []byte, prefixKey []byte, proofDb ethdb.KeyValueReader) (value []byte, err error) {
 
 	if len(key) == 0 {
 		return nil, fmt.Errorf("empty key provided")
 	}
+	
+	key = keybytesToHex(key)
 
 	tn := t.root
 	startNode, err := t.traverseNodes(tn, prefixKey, nil)
