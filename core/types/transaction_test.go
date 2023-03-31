@@ -576,11 +576,11 @@ func TestReviveStateTxAndSigner(t *testing.T) {
 		addr      = common.HexToAddress("0x0000000000000000000000000000000000000001")
 		recipient = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
 		witness   = WitnessList{{
-			witnessType: 0,
-			address:     &addr,
-			proofList: []MPTProof{{
-				key:   common.Hex2Bytes("095e7baea6a6c7c4c2"),
-				proof: [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
+			WitnessType: 0,
+			Address:     &addr,
+			ProofList: []MPTProof{{
+				Key:   common.Hex2Bytes("095e7baea6a6c7c4c2"),
+				Proof: [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
 			}},
 		}}
 	)

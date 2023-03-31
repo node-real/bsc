@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 	"math/big"
 )
 
@@ -108,4 +109,16 @@ func (tx *ReviveStateTx) rawSignatureValues() (v, r, s *big.Int) {
 
 func (tx *ReviveStateTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	tx.V, tx.R, tx.S = v, r, s
+}
+
+func WitnessIntrinsicGas(wits WitnessList) uint64 {
+	totalGas := uint64(0)
+	for i := 0; i < len(wits); i++ {
+		// witness size cost
+		totalGas += wits[i].Size() * params.TxWitnessListStorageGasPerByte
+		// witness verify cost
+		count, words := wits[i].ProofWords()
+		totalGas += count*params.TxWitnessListVerifyBaseGas + words*params.TxWitnessListVerifyGasPerWord
+	}
+	return totalGas
 }

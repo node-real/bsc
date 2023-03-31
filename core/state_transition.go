@@ -119,7 +119,7 @@ func (result *ExecutionResult) Revert() []byte {
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
-func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isEIP2028 bool) (uint64, error) {
+func IntrinsicGas(data []byte, accessList types.AccessList, witnessList types.WitnessList, isContractCreation bool, isHomestead, isEIP2028 bool) (uint64, error) {
 	// Set the starting gas for the raw transaction
 	var gas uint64
 	if isContractCreation && isHomestead {
@@ -155,6 +155,14 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 	if accessList != nil {
 		gas += uint64(len(accessList)) * params.TxAccessListAddressGas
 		gas += uint64(accessList.StorageKeys()) * params.TxAccessListStorageKeyGas
+	}
+
+	if witnessList != nil {
+		witGas := types.WitnessIntrinsicGas(witnessList)
+		if (math.MaxUint64 - gas) < witGas {
+			return 0, ErrGasUintOverflow
+		}
+		gas += witGas
 	}
 	return gas, nil
 }
@@ -316,7 +324,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		}
 	}
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, rules.IsHomestead, rules.IsIstanbul)
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), st.msg.WitnessList(), contractCreation, rules.IsHomestead, rules.IsIstanbul)
 	if err != nil {
 		return nil, err
 	}
