@@ -526,21 +526,20 @@ func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 			return nil, err
 		}
 
-		// Replace child node with hash node
 		if hn != nil {
-			n.Val = hn
+			return nil, fmt.Errorf("short node's child cannot be expired")
 		}
 
 		return nil, err
 	case *fullNode:
-		hn, err := t.expireByPrefix(n.Children[prefixKey[0]], prefixKey[1:])
+		hn, err := t.expireByPrefix(n.Children[prefixKeyHex[0]], prefixKeyHex[1:])
 		if err != nil {
 			return nil, err
 		}
 
 		// Replace child node with hash node
 		if hn != nil {
-			n.Children[prefixKey[0]] = hn
+			n.Children[prefixKeyHex[0]] = hn
 		}
 
 		return nil, err
@@ -549,6 +548,164 @@ func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 	}
 }
 
+// ReviveTrie restores a trie structure using a proof.
+// The proof is a list of RLP-encoded nodes.
+// It supports partial revival of a trie by specifying the prefix key.
+func (t *Trie) ReviveTrie(prefixKeyHex []byte, proof [][]byte) error {
+	// Using the prefixKeyHex, traverse down the trie until the start node has been found
+	// TODO: When RootNode is introduced, parent node will be the RootNode instead of nil
+	var parent node
+	startNode := t.root
+	parent = nil
+
+	// Iterate through the prefix key
+	for len(prefixKeyHex) > 0 {
+		switch n := startNode.(type) {
+			case *shortNode:
+				if len(prefixKeyHex) < len(n.Key) || !bytes.Equal(prefixKeyHex[:len(n.Key)], n.Key) {
+					return fmt.Errorf("prefix key %v does not match the trie", prefixKeyHex)
+				} else {
+					startNode = n.Val
+					parent = n
+					prefixKeyHex = prefixKeyHex[len(n.Key):]
+				}
+			case *fullNode:
+				startNode = n.Children[prefixKeyHex[0]]
+				parent = n
+				prefixKeyHex = prefixKeyHex[1:]
+			case hashNode:
+				var err error
+				startNode, err = t.resolveHash(n, nil)
+				if err != nil {
+					log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+					return err
+				}
+			default:
+				return fmt.Errorf("invalid node type: %T", n)
+		}
+	}
+
+	// Initialize proof index to 0
+	proofIndex := 0
+
+	// keep iterating until a hash node is found
+findFirstHashNode:
+	for proofIndex < len(proof) {
+		proofElementHash := crypto.Keccak256(proof[proofIndex])
+		switch n := startNode.(type) {
+		case *shortNode:
+			startNode = n.Val
+			proofIndex += 1
+		case *fullNode:
+			for i := 0; i < 16; i++ {
+				// if child is a hashNode
+				if hn, ok := n.Children[i].(hashNode); ok {
+					// Compare proof element hash with hash of child node
+					if bytes.Equal(proofElementHash, hn) {
+						startNode = hn
+						parent = n
+						proofIndex += 1
+						break findFirstHashNode
+					}
+				}
+			}
+			// go to the next proof element
+			index, err := getFullNodeSuffixKey(proof, proofIndex)
+			if err != nil {
+				return err
+			}
+
+			startNode = n.Children[index]
+			proofIndex += 1
+		case hashNode: // only when index is 0
+			if bytes.Equal(proofElementHash, n) {
+				startNode = n
+				break findFirstHashNode
+			} else {
+				return fmt.Errorf("proof is invalid")
+			}
+		default:
+			return fmt.Errorf("invalid node type: %T", n)
+		}
+	}
+
+	// At this point, startNode is the hash node that needs to be revived
+	// parent is the parent node of the hash node
+	// proofIndex is the index of the proof slice that contains the hash node
+
+	// Iterate through proof starting from the proofIndex
+	for i := proofIndex; i < len(proof); i++ {
+
+		// Get the hash of proof element
+		proofElementHash := crypto.Keccak256(proof[i])
+
+		// Decode the proof element
+		decodedNode, err := decodeNode(nil, proof[i])
+		if err != nil {
+			return err
+		}
+
+		// Attach the decoded node to the parent node
+		switch n := parent.(type) {
+		case *shortNode:
+			n.Val = decodedNode
+			parent = n.Val
+		case *fullNode:
+			for i := 0; i < 16; i++ {
+				// if child is a hashNode
+				if hn, ok := n.Children[i].(hashNode); ok {
+					// Compare proof element hash with hash of child node
+					if bytes.Equal(proofElementHash, hn) {
+						n.Children[i] = decodedNode
+						parent = n.Children[i]
+						break
+					}
+				}
+			}
+			if parent == n{
+				return fmt.Errorf("cannot find hash node in full node")
+			}
+		default: 
+			return fmt.Errorf("invalid node type: %T", n)
+		}
+	}	
+
+	return nil
+}
+
+// getFullNodeSuffixKey returns the suffix key of the child node of a full node
+func getFullNodeSuffixKey(proof [][]byte, index int) (int, error) {
+
+	// Check if index is out of range
+	if index < 0 || index + 1 >= len(proof) {
+		return -1, fmt.Errorf("index out of range")
+	}
+
+	proofElement := proof[index]
+	childProofElement := proof[index + 1]
+
+	n, err := decodeNode(nil, proofElement)
+	if err != nil {
+		return -1, err
+	}
+
+	// proof element must be a full node
+	fullNode, ok := n.(*fullNode)
+	if !ok {
+		return -1, fmt.Errorf("proof element is not a full node")
+	}
+
+	// iterate through all children and find the corresponding suffix key
+	for i := 0; i < 16; i++ {
+		if hn, ok := fullNode.Children[i].(hashNode); ok {
+			if bytes.Equal(crypto.Keccak256(childProofElement), hn) {
+				return i, nil
+			}
+		}
+	}
+
+	return -1, fmt.Errorf("cannot find the corresponding suffix key")
+}
 
 func concat(s1 []byte, s2 ...byte) []byte {
 	r := make([]byte, len(s1)+len(s2))

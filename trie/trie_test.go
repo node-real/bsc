@@ -893,6 +893,105 @@ func TestCommitSequenceSmallRoot(t *testing.T) {
 	}
 }
 
+type proofList [][]byte
+
+func (n *proofList) Put(key []byte, value []byte) error {
+	*n = append(*n, value)
+	return nil
+}
+
+func (n *proofList) Delete(key []byte) error {
+	panic("not supported")
+}
+
+// TODO: TestRevive
+func TestRevive(t *testing.T) {
+	trie := new(Trie)
+
+	data := map[string]string{
+		"abcd": "A",
+		"abce": "B",
+		"abde": "C",
+		"abdf": "D",
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+	for k, v := range data {
+		trie.Update([]byte(k), []byte(v))
+	}
+
+	var proof proofList
+
+	// Get the proof for key
+	key := "abcd"
+	val := "A"
+
+	prefixKey := keybytesToHex([]byte(key))[:2]
+	trie.ProveStorageWitness([]byte(key), prefixKey, &proof)
+
+	// Expire subtree with prefix
+	trie.ExpireByPrefix(prefixKey)
+
+	// Revive trie
+	err := trie.ReviveTrie(prefixKey, proof)
+	if err != nil {
+		t.Fatalf("Failed to revive trie %v", err)
+	}
+
+	// Validate trie
+	resVal, err := trie.TryGet([]byte(key))
+	if err != nil {
+		t.Fatalf("Failed to get value %v", err)
+	}
+	if string(resVal) != val {
+		t.Fatalf("Value mismatch, got %s, expected %s", resVal, val)
+	}
+}
+
+// TODO: TestReviveAtRoot
+func TestReviveAtRoot(t *testing.T) {
+}
+
+// TODO: TestReviveInvalidProof
+func TestReviveInvalidProof(t *testing.T) {
+	return
+}
+
+// TODO: TestReviveAllProofsExist
+func TestReviveAllProofsExist(t *testing.T) {
+	return
+}
+
+// TODO: TestReviveSomeProofsExist
+func TestReviveSomeProofsExist(t *testing.T) {
+	return
+}
+
+// TODO: TestReviveInvalidPrefixKey
+func TestReviveInvalidPrefixKey(t *testing.T) {
+	return
+}
+
+// TODO: TestReviveInvalidPrefixKeyLength
+func TestReviveInvalidPrefixKeyLength(t *testing.T) {
+	return
+}
+
+// TODO: TestReviveEmptyPrefixKey
+func TestReviveEmptyPrefixKey(t *testing.T) {
+	return
+}
+
+// TODO: TestReviveEmptyProof
+func TestReviveEmptyProof(t *testing.T) {
+	return
+}
+
+// TODO: test revive expired tree but updated value, so with similar node path
+
 // BenchmarkCommitAfterHashFixedSize benchmarks the Commit (after Hash) of a fixed number of updates to a trie.
 // This benchmark is meant to capture the difference on efficiency of small versus large changes. Typically,
 // storage tries are small (a couple of entries), whereas the full post-block account trie update is large (a couple
