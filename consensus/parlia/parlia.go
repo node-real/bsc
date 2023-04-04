@@ -597,7 +597,7 @@ func (p *Parlia) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 		if chain.Config().IsLynn(header.Number) {
 			return err
 		}
-		log.Warn("Verify vote attestation failed", "block", header.Number.Uint64(), "block hash", header.Hash(), "error", err)
+		log.Warn("Verify vote attestation failed", "error", err, "block", header)
 	}
 
 	// All basic checks passed, verify the seal and return
@@ -776,7 +776,7 @@ func (p *Parlia) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 	return nil
 }
 
-func (p *Parlia) prepareValidators(chain consensus.ChainHeaderReader, header *types.Header) error {
+func (p *Parlia) prepareValidators(header *types.Header) error {
 	if header.Number.Uint64()%p.config.Epoch != 0 {
 		return nil
 	}
@@ -902,7 +902,7 @@ func (p *Parlia) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	nextForkHash := forkid.NextForkHash(p.chainConfig, p.genesisHash, number)
 	header.Extra = append(header.Extra, nextForkHash[:]...)
 
-	if err := p.prepareValidators(chain, header); err != nil {
+	if err := p.prepareValidators(header); err != nil {
 		return err
 	}
 
