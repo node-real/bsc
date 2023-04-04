@@ -809,3 +809,4 @@ func (t *Trie) Reset() {
 func (t *Trie) Size() int {
 	return estimateSize(t.root)
 }
+// copy makes a deep copy of the trie.func (t *Trie) copy() *Trie {	nt := &Trie{		db:       t.db,		root:     t.root,		unhashed: t.unhashed,	}	return nt}
