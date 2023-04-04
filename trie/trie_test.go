@@ -904,8 +904,188 @@ func (n *proofList) Delete(key []byte) error {
 	panic("not supported")
 }
 
-// TODO: TestRevive
-func TestRevive(t *testing.T) {
+// TestExpireByPrefix tests that a trie can be expired by prefix
+// and the root hash still remains the same
+func TestExpireByPrefix(t *testing.T){
+	trie, vals := randomTrie(500)
+	oriRootHash := trie.Hash()
+	for _, kv := range vals {
+		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
+		for _, prefixKey := range prefixKeys {
+			trie.ExpireByPrefix(prefixKey)
+
+			// Validate root hash
+			rootHash := trie.Hash()
+			if trie.Hash() != oriRootHash {
+				t.Fatalf("Root hash mismatch, got %x, expected %x", rootHash, oriRootHash)
+			}
+		}
+	}
+}
+
+// TestReviveTrie tests that a trie can be revived from a proof
+func TestReviveTrie(t *testing.T){
+	trie, vals := randomTrie(500)
+	oriRootHash := trie.Hash()
+	for _, kv := range vals {
+		key := kv.k
+		val := kv.v
+		prefixKeys := getPrefixKeys(trie, []byte(key))
+		for _, prefixKey := range prefixKeys {
+			var proof proofList
+			err := trie.ProveStorageWitness(key, prefixKey, &proof)
+			if err != nil {
+				t.Fatalf("missing key %x while constructing proof", key)
+			}
+			trie.ExpireByPrefix(prefixKey)
+			err = trie.ReviveTrie(prefixKey, proof)
+			if err != nil {
+				t.Fatalf("Failed to revive trie %v", err)
+			}
+			// Validate trie
+			resVal, err := trie.TryGet([]byte(key))
+			if err != nil {
+				t.Fatalf("Failed to get value %v", err)
+			}
+			if resVal != nil && !bytes.Equal(val, resVal) {
+				t.Fatalf("Value mismatch, got %x, expected %x", resVal, val)
+			}
+
+			// Validate merkle root
+			rootHash := trie.Hash()
+			if rootHash != oriRootHash {
+				t.Fatalf("Root hash mismatch, got %x, expected %x", rootHash, oriRootHash)
+			}
+		}
+	}
+}
+
+// TestReviveAtRool tests that a key can be revived at root when 
+// whole trie is expired
+func TestReviveAtRoot(t *testing.T) {
+	trie, vals := randomTrie(500)
+	ori := trie.copy()
+	for _, kv := range vals {
+		key := kv.k
+		val := kv.v
+		var proof proofList
+
+		err := trie.ProveStorageWitness(key, nil, &proof)
+		if err != nil {
+			t.Fatalf("missing key %x while constructing proof", key)
+		}
+
+		trie.ExpireByPrefix(nil)
+		err = trie.ReviveTrie(nil, proof)
+		if err != nil {
+			t.Fatalf("Failed to revive trie %v", err)
+		}
+
+		// Validate trie
+		resVal, err := trie.TryGet([]byte(key))
+		if err != nil {
+			t.Fatalf("Failed to get value %v", err)
+		}
+		if resVal != nil && !bytes.Equal(val, resVal) {
+			t.Fatalf("Value mismatch, got %x, expected %x", resVal, val)
+		}
+
+		trie = ori.copy() // reset trie
+	}
+}
+
+// TestReviveBadProof tests that a trie cannot be revived from a bad proof
+func TestReviveBadProof(t *testing.T) {
+	var tempProof proofList
+	tempTrie := new(Trie)
+	updateString(tempTrie, "a", "a")
+	tempTrie.ProveStorageWitness([]byte("a"), nil, &tempProof)
+	
+	trie, vals := randomTrie(500)
+	for _, kv := range vals {
+		key := kv.k
+		prefixKeys := getPrefixKeys(trie, []byte(key))
+		for _, prefixKey := range prefixKeys {
+			trie.ExpireByPrefix(prefixKey)
+			trie.ReviveTrie(prefixKey, tempProof)
+
+			// Validate trie
+			resVal, err := trie.TryGet([]byte(key))
+			if resVal != nil && err == nil {
+				t.Fatalf("expected value: %x not found for key: %x", resVal, key)
+			}
+		}
+	}
+}
+
+// TestReviveOneElement tests that a trie with a single element
+// can be revived from a proof
+func TestReviveOneElement(t *testing.T) {
+	trie := new(Trie)
+	key := "k"
+	val := "v"
+	updateString(trie, key, val)
+
+	var proof proofList
+
+	trie.ProveStorageWitness([]byte(key), nil, &proof)
+	trie.ExpireByPrefix(nil)
+	err := trie.ReviveTrie(nil, proof)
+	if err != nil {
+		t.Fatalf("Failed to revive trie %v", err)
+	}
+
+	// Validate trie
+	resVal, err := trie.TryGet([]byte(key))
+	if err != nil {
+		t.Fatalf("Failed to get value %v", err)
+	}
+	if resVal != nil && !bytes.Equal([]byte(val), resVal) {
+		t.Fatalf("Value mismatch, got %x, expected %x", resVal, val)
+	}
+}
+
+// TestReviveBadProofAfterUpdate tests that after reviving a path and 
+// then update the value, old proof should be invalid
+func TestReviveBadProofAfterUpdate(t *testing.T) {
+	trie, vals := randomTrie(500)
+	for _, kv := range vals {
+		key := kv.k
+		prefixKeys := getPrefixKeys(trie, []byte(key))
+		for _, prefixKey := range prefixKeys {
+			var proof proofList
+			err := trie.ProveStorageWitness(key, prefixKey, &proof)
+			if err != nil {
+				t.Fatalf("missing key %x while constructing proof", key)
+			}
+
+			// Revive trie
+			trie.ExpireByPrefix(prefixKey)
+			err = trie.ReviveTrie(prefixKey, proof)
+			if err != nil {
+				t.Fatalf("Failed to revive trie %v", err)
+			}
+
+			// Update trie with new value
+			trie.Update([]byte(key), []byte("new value"))
+
+			// Revive trie with old proof
+			trie.ReviveTrie(prefixKey, proof)
+
+			// Validate trie
+			resVal, err := trie.TryGet([]byte(key))
+			if err != nil {
+				t.Fatalf("Failed to get value %v", err)
+			}
+			if string(resVal) != "new value" {
+				t.Fatalf("expected value 'new value' for key: %x", key)
+			}
+		}
+	}}
+
+// TestPartialRevive tests that a path can be revived
+// when the trie is partially expired
+func TestPartialRevive(t *testing.T) {
 	trie := new(Trie)
 
 	data := map[string]string{
@@ -920,77 +1100,179 @@ func TestRevive(t *testing.T) {
 	}
 
 	for k, v := range data {
-		trie.Update([]byte(k), []byte(v))
+		updateString(trie, k, v)
 	}
 
-	var proof proofList
+	var proofA proofList
+	var proofB proofList
 
-	// Get the proof for key
-	key := "abcd"
-	val := "A"
+	// Get common prefix
+	commonPrefix := keybytesToHex([]byte("abcd"))[:2]
+	// Get proof for each key
+	trie.ProveStorageWitness([]byte("abcd"), commonPrefix, &proofA)
+	trie.ProveStorageWitness([]byte("abdf"), commonPrefix, &proofB)
+	// Expire using common prefix
+	trie.ExpireByPrefix(commonPrefix)
 
-	prefixKey := keybytesToHex([]byte(key))[:2]
-	trie.ProveStorageWitness([]byte(key), prefixKey, &proof)
+	// Check both values do not exist
+	resVal, err := trie.TryGet([]byte("abcd"))
+	if resVal != nil && err == nil {
+		t.Fatalf("expected value: %x not found for key: %x", resVal, "abcd")
+	}
 
-	// Expire subtree with prefix
-	trie.ExpireByPrefix(prefixKey)
+	resVal, err = trie.TryGet([]byte("abdf"))
+	if resVal != nil && err == nil {
+		t.Fatalf("expected value: %x not found for key: %x", resVal, "abdf")
+	}
 
-	// Revive trie
-	err := trie.ReviveTrie(prefixKey, proof)
+	// Revive A
+	err = trie.ReviveTrie([]byte(commonPrefix), proofA)
+	if err != nil {
+		t.Fatalf("Failed to revive trie %v", err)
+	}
+
+	// Update A
+	trie.Update([]byte("abcd"), []byte("new value"))
+
+	// Revive B
+	err = trie.ReviveTrie([]byte(commonPrefix), proofB)
+	if err != nil {
+		t.Fatalf("Failed to revive trie %v", err)
+	}
+	
+	// Check both values exist
+	resVal, err = trie.TryGet([]byte("abcd"))
+	if err != nil {
+		t.Fatalf("Failed to get value %v", err)
+	}
+
+	if string(resVal) != "new value" {
+		t.Fatalf("expected value 'new value' for key: %x", "abcd")
+	}
+
+	resVal, err = trie.TryGet([]byte("abdf"))
+	if err != nil {
+		t.Fatalf("Failed to get value %v", err)
+	}
+
+	if string(resVal) != "D" {
+		t.Fatalf("expected value 'D' for key: %x", "abdf")
+	}
+}
+
+// TestPartialReviveFullProof tests that a partial path can
+// be revived when the full proof is provided 
+func TestPartialReviveFullProof(t *testing.T){
+	trie := new(Trie)
+
+	data := map[string]string{
+		"abcd": "A",
+		"abce": "B",
+		"abde": "C",
+		"abdf": "D",
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+	for k, v := range data {
+		updateString(trie, k, v)
+	}
+
+	var partialProof proofList
+	var fullProof proofList
+
+	// Get partial proof 
+	commonPrefix := keybytesToHex([]byte("abcd"))[:2]
+	trie.ProveStorageWitness([]byte("abcd"), commonPrefix, &partialProof)
+
+	// Get full proof of another key
+	trie.ProveStorageWitness([]byte("abdf"), nil, &fullProof)
+
+	// Expire using prefix
+	trie.ExpireByPrefix(commonPrefix)
+
+	// Revive abcd using partial proof
+	err := trie.ReviveTrie(commonPrefix, partialProof)
+	if err != nil {
+		t.Fatalf("Failed to revive trie %v", err)
+	}
+
+	// Revive abdf using full proof
+	err = trie.ReviveTrie(nil, fullProof)
 	if err != nil {
 		t.Fatalf("Failed to revive trie %v", err)
 	}
 
 	// Validate trie
-	resVal, err := trie.TryGet([]byte(key))
+	resVal, err := trie.TryGet([]byte("abcd"))
 	if err != nil {
 		t.Fatalf("Failed to get value %v", err)
 	}
-	if string(resVal) != val {
-		t.Fatalf("Value mismatch, got %s, expected %s", resVal, val)
+	if string(resVal) != "A" {
+		t.Fatalf("expected value 'A' for key: %x", "abcd")
+	}
+
+	resVal, err = trie.TryGet([]byte("abdf"))
+	if err != nil {
+		t.Fatalf("Failed to get value %v", err)
+	}
+	if string(resVal) != "D" {
+		t.Fatalf("expected value 'D' for key: %x", "abdf")
+	}
+} 
+
+// TestReviveBadPrefixKey tests that a path cannot be revived
+// when the prefix key is incorrect
+func TestReviveBadPrefixKey(t *testing.T) {
+	trie := new(Trie)
+
+	data := map[string]string{
+		"abcd": "A",
+		"abce": "B",
+		"abde": "C",
+		"abdf": "D",
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+	for k, v := range data {
+		updateString(trie, k, v)
+	}
+
+	var proof proofList
+
+	badPrefixKey := keybytesToHex([]byte("wxyz"))[:2]
+	goodPrefixKey := keybytesToHex([]byte("abcd"))[:2]
+	trie.ProveStorageWitness([]byte("abcd"), goodPrefixKey, &proof)
+
+	trie.ExpireByPrefix(goodPrefixKey)
+
+	err := trie.ReviveTrie(badPrefixKey, proof)
+	if err == nil {
+		t.Fatalf("Expected error when reviving trie with bad prefix key")
 	}
 }
 
-// TODO: TestReviveAtRoot
-func TestReviveAtRoot(t *testing.T) {
-}
-
-// TODO: TestReviveInvalidProof
-func TestReviveInvalidProof(t *testing.T) {
-	return
-}
-
-// TODO: TestReviveAllProofsExist
-func TestReviveAllProofsExist(t *testing.T) {
-	return
-}
-
-// TODO: TestReviveSomeProofsExist
-func TestReviveSomeProofsExist(t *testing.T) {
-	return
-}
-
-// TODO: TestReviveInvalidPrefixKey
-func TestReviveInvalidPrefixKey(t *testing.T) {
-	return
-}
-
-// TODO: TestReviveInvalidPrefixKeyLength
-func TestReviveInvalidPrefixKeyLength(t *testing.T) {
-	return
-}
-
-// TODO: TestReviveEmptyPrefixKey
-func TestReviveEmptyPrefixKey(t *testing.T) {
-	return
-}
-
-// TODO: TestReviveEmptyProof
+// TestReviveEmptyProof tests that a path cannot be revived
+// when the proof is empty
 func TestReviveEmptyProof(t *testing.T) {
-	return
-}
+	trie := new(Trie)
 
-// TODO: test revive expired tree but updated value, so with similar node path
+	updateString(trie, "abcd", "A")
+
+	prefixKey := keybytesToHex([]byte("abcd"))[:2]
+
+	trie.ExpireByPrefix(prefixKey)
+
+	err := trie.ReviveTrie(nil, proofList{})
+	if err != nil {
+		t.Fatalf("Expected nil when reviving trie with empty proof")
+	}
+}
 
 // BenchmarkCommitAfterHashFixedSize benchmarks the Commit (after Hash) of a fixed number of updates to a trie.
 // This benchmark is meant to capture the difference on efficiency of small versus large changes. Typically,

@@ -493,7 +493,10 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 }
 
 func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) {
-	_, err := t.expireByPrefix(t.root, prefixKeyHex)
+	hn, err := t.expireByPrefix(t.root, prefixKeyHex)
+	if prefixKeyHex == nil && hn != nil {
+		t.root = hn
+	}
 	if err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 	}
@@ -511,24 +514,29 @@ func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 		var hn node
 		_, hn = hasher.proofHash(n)
 
-		return hn, nil 
+		// If the node is a hash node, return the hash node
+		if _, ok := hn.(hashNode); ok {
+			return hn, nil 
+		}
+		return nil, nil
 	}
 
 	switch n := n.(type) {
 	case *shortNode:
-		matchLen := prefixLen(prefixKeyHex, n.Key)
-		if matchLen == len(prefixKeyHex) {
-			return nil, fmt.Errorf("")// Found the node to expire
-		}
-
+		matchLen := prefixLen(prefixKeyHex, n.Key) // get matching length
 		hn, err := t.expireByPrefix(n.Val, prefixKeyHex[matchLen:])
 		if err != nil {
 			return nil, err
 		}
 
 		if hn != nil {
-			return nil, fmt.Errorf("short node's child cannot be expired")
+			n.Val = hn
 		}
+
+		// only expiring full node
+		// if hn != nil {
+		// 	return nil, fmt.Errorf("short node's child cannot be expired")
+		// }
 
 		return nil, err
 	case *fullNode:
@@ -609,10 +617,13 @@ findFirstHashNode:
 					}
 				}
 			}
-			// go to the next proof element
+			// go to the next node
 			index, err := getFullNodeSuffixKey(proof, proofIndex)
 			if err != nil {
 				return err
+			}
+			if index == -1 {
+				return nil
 			}
 
 			startNode = n.Children[index]
@@ -622,7 +633,7 @@ findFirstHashNode:
 				startNode = n
 				break findFirstHashNode
 			} else {
-				return fmt.Errorf("proof is invalid")
+				proofIndex += 1 
 			}
 		default:
 			return fmt.Errorf("invalid node type: %T", n)
@@ -646,6 +657,12 @@ findFirstHashNode:
 		}
 
 		// Attach the decoded node to the parent node
+		if parent == nil && prefixKeyHex == nil {
+			t.root = decodedNode
+			parent = t.root
+			continue
+		}
+
 		switch n := parent.(type) {
 		case *shortNode:
 			n.Val = decodedNode
@@ -678,7 +695,7 @@ func getFullNodeSuffixKey(proof [][]byte, index int) (int, error) {
 
 	// Check if index is out of range
 	if index < 0 || index + 1 >= len(proof) {
-		return -1, fmt.Errorf("index out of range")
+		return -1, nil
 	}
 
 	proofElement := proof[index]
@@ -809,4 +826,13 @@ func (t *Trie) Reset() {
 func (t *Trie) Size() int {
 	return estimateSize(t.root)
 }
-// copy makes a deep copy of the trie.func (t *Trie) copy() *Trie {	nt := &Trie{		db:       t.db,		root:     t.root,		unhashed: t.unhashed,	}	return nt}
+
+// copy makes a deep copy of the trie.
+func (t *Trie) copy() *Trie {
+	nt := &Trie{
+		db:       t.db,
+		root:     t.root,
+		unhashed: t.unhashed,
+	}
+	return nt
+}
