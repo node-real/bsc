@@ -723,6 +723,9 @@ func (t *Trie) resolve(n node, prefix []byte) (node, error) {
 
 func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
 	hash := common.BytesToHash(n)
+	if t.db == nil {
+		return nil, fmt.Errorf("empty trie database") 
+	}
 	if node := t.db.node(hash); node != nil {
 		return node, nil
 	}
