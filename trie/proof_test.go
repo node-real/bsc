@@ -1099,7 +1099,6 @@ func TestUnexpiredStorageProof(t *testing.T) {
 		"abdf": "D",
 	}
 
-
 	unexpiredData := map[string]string{
 		"defg": "E",
 		"defh": "F",
@@ -1130,6 +1129,55 @@ func TestUnexpiredStorageProof(t *testing.T) {
 	}
 	if !bytes.Equal(val, []byte("H")) {
 		t.Fatalf("verified value mismatch: have %x, want %v", val, "H")
+	}
+}
+
+// TestValueAtFullNodeStorageProof tests the storage proof of a key where the
+// value is stored at full node. The prover is expected to give valid proof.
+func TestValueAtFullNodeStorageProof(t *testing.T){
+
+	hexKeys := [][]byte{
+		{6,1,6,2,6,3,6,4,16},
+		{6,1,6,2,6,3,6,5,16},
+		{6,1,6,2,6,4,6,5,16},
+		{6,1,6,2,6,4,6,6,16},
+		{6,4,6,5,6,6,6,7,16},
+		{6,4,6,5,6,6,6,8,16},
+		{6,4,6,5,6,7,6,8,16},
+		{6,4,6,5,6,7,6,9,16},
+		{6,1,6,2,6,3,6,4,16},
+		{6,1,6,2,16}, // This is the key that has a value at a full node
+	}
+
+	byteKeys := make([][]byte, len(hexKeys))
+
+	vals := []string{
+		"A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+	}
+
+	trie := new(Trie)
+
+	// Convert hex keys to byte keys
+	for i, key := range hexKeys {
+		key = hexToKeybytes(key)
+		byteKeys[i] = key
+	}
+
+	// Insert the keys and values into the trie
+	for i, key := range byteKeys {
+		trie.Update(key, []byte(vals[i]))
+	}
+
+	proof := memorydb.New()
+	key := byteKeys[9]
+
+	trie.ProveStorageWitness(key, nil, proof)
+	val, err := trie.VerifyStorageWitness(key, nil, proof)
+	if err != nil {
+		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proof)
+	}
+	if !bytes.Equal(val, []byte("J")) {
+		t.Fatalf("verified value mismatch: have %x, want %v", val, "J")
 	}
 }
 
