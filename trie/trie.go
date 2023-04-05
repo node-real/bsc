@@ -561,12 +561,12 @@ func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 // It supports partial revival of a trie by specifying the prefix key.
 func (t *Trie) ReviveTrie(prefixKeyHex []byte, proof [][]byte) error {
 	// Using the prefixKeyHex, traverse down the trie until the start node has been found
-	// TODO: When RootNode is introduced, parent node will be the RootNode instead of nil
 	var parent node
 	startNode := t.root
-	parent = nil
+	parent = nil // TODO: When RootNode is introduced, parent node will be the RootNode instead of nil
 
-	// Iterate through the prefix key
+	// Iterate through the prefix key to get the start node
+	// parent node will be the node before the start node
 	for len(prefixKeyHex) > 0 {
 		switch n := startNode.(type) {
 			case *shortNode:
@@ -595,10 +595,10 @@ func (t *Trie) ReviveTrie(prefixKeyHex []byte, proof [][]byte) error {
 		}
 	}
 
-	// Initialize proof index to 0
+	// Keep track of the first valid proof index
 	proofIndex := 0
 
-	// keep iterating until a hash node is found
+	// Keep iterating until a hash node is found
 findFirstHashNode:
 	for proofIndex < len(proof) {
 		proofElementHash := crypto.Keccak256(proof[proofIndex])
@@ -608,9 +608,9 @@ findFirstHashNode:
 			proofIndex += 1
 		case *fullNode:
 			for i := 0; i < 16; i++ {
-				// if child is a hashNode
+				// Check if the child node is a hash node
 				if hn, ok := n.Children[i].(hashNode); ok {
-					// Compare proof element hash with hash of child node
+					// Check if the hash node matches the hash of the proof element
 					if bytes.Equal(proofElementHash, hn) {
 						startNode = hn
 						parent = n
@@ -627,7 +627,6 @@ findFirstHashNode:
 			if index == -1 {
 				return nil
 			}
-
 			startNode = n.Children[index]
 			proofIndex += 1
 		case hashNode: // only when index is 0
@@ -666,16 +665,13 @@ findFirstHashNode:
 			parent = t.root
 			continue
 		}
-
 		switch n := parent.(type) {
 		case *shortNode:
 			n.Val = decodedNode
 			parent = n.Val
 		case *fullNode:
 			for i := 0; i < 16; i++ {
-				// if child is a hashNode
 				if hn, ok := n.Children[i].(hashNode); ok {
-					// Compare proof element hash with hash of child node
 					if bytes.Equal(proofElementHash, hn) {
 						n.Children[i] = decodedNode
 						parent = n.Children[i]
