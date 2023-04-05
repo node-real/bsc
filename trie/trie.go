@@ -588,6 +588,8 @@ func (t *Trie) ReviveTrie(prefixKeyHex []byte, proof [][]byte) error {
 					log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 					return err
 				}
+			case valueNode:
+				return nil // value already exists
 			default:
 				return fmt.Errorf("invalid node type: %T", n)
 		}
@@ -635,6 +637,8 @@ findFirstHashNode:
 			} else {
 				proofIndex += 1 
 			}
+		case valueNode:
+			return nil // value already exists
 		default:
 			return fmt.Errorf("invalid node type: %T", n)
 		}
@@ -682,6 +686,8 @@ findFirstHashNode:
 			if parent == n{
 				return fmt.Errorf("cannot find hash node in full node")
 			}
+		case valueNode:
+			return nil // value already exists
 		default: 
 			return fmt.Errorf("invalid node type: %T", n)
 		}

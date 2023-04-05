@@ -960,7 +960,7 @@ func TestReviveTrie(t *testing.T){
 	}
 }
 
-// TestReviveAtRool tests that a key can be revived at root when 
+// TestReviveAtRoot tests that a key can be revived at root when 
 // whole trie is expired
 func TestReviveAtRoot(t *testing.T) {
 	trie, vals := randomTrie(500)
@@ -1271,6 +1271,69 @@ func TestReviveEmptyProof(t *testing.T) {
 	err := trie.ReviveTrie(nil, proofList{})
 	if err != nil {
 		t.Fatalf("Expected nil when reviving trie with empty proof")
+	}
+}
+
+func TestReviveValueAtFullNode(t *testing.T){
+
+	hexKeys := [][]byte{
+		{6,1,6,2,6,3,6,4,16},
+		{6,1,6,2,6,3,6,5,16},
+		{6,1,6,2,6,4,6,5,16},
+		{6,1,6,2,6,4,6,6,16},
+		{6,4,6,5,6,6,6,7,16},
+		{6,4,6,5,6,6,6,8,16},
+		{6,4,6,5,6,7,6,8,16},
+		{6,4,6,5,6,7,6,9,16},
+		{6,1,6,2,6,3,6,4,16},
+		{6,1,6,2,16}, // This is the key that has a value at a full node
+	}
+
+	byteKeys := make([][]byte, len(hexKeys))
+
+	vals := []string{
+		"A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+	}
+
+	trie := new(Trie)
+
+	// Convert hex keys to byte keys
+	for i, key := range hexKeys {
+		key = hexToKeybytes(key)
+		byteKeys[i] = key
+	}
+
+	// Insert keys into trie
+	for i, key := range byteKeys {
+		trie.Update(key, []byte(vals[i]))
+	}
+
+	key := byteKeys[9]
+	val := vals[9]
+
+	prefixKeys := getPrefixKeys(trie, []byte(key))
+
+	for _, prefixKey := range prefixKeys {
+		fmt.Printf("prefixKey: %x\n", prefixKey)
+		var proof proofList
+		trie.ProveStorageWitness(key, nil, &proof)
+
+		trie.ExpireByPrefix(prefixKey)
+
+		// Revive trie
+		err := trie.ReviveTrie(prefixKey, proof)
+		if err != nil {
+			t.Fatalf("Failed to revive trie %v", err)
+		}
+
+		// Validate trie
+		resVal, err := trie.TryGet(key)
+		if err != nil {
+			t.Fatalf("Failed to get value %v", err)
+		}
+		if string(resVal) != val {
+			t.Fatalf("expected value '%s' for key: %x", val, key)
+		}
 	}
 }
 
