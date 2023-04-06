@@ -782,6 +782,8 @@ type Rules struct {
 	IsNano                                                  bool
 	IsMoran                                                 bool
 	IsPlanck                                                bool
+	IsClaude                                                bool
+	IsElwood                                                bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -806,5 +808,7 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool) Rules {
 		IsNano:           c.IsNano(num),
 		IsMoran:          c.IsMoran(num),
 		IsPlanck:         c.IsPlanck(num),
+		IsClaude:         c.IsClaude(num),
+		IsElwood:         c.IsElwood(num),
 	}
 }

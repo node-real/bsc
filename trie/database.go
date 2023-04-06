@@ -109,6 +109,10 @@ func (n rawNode) EncodeRLP(w io.Writer) error {
 	return err
 }
 
+func (n rawNode) nodeType() int {
+	return rawNodeType
+}
+
 // rawFullNode represents only the useful data content of a full node, with the
 // caches and flags stripped out to minimize its data storage. This type honors
 // the same RLP encoding as the original parent.
@@ -116,6 +120,10 @@ type rawFullNode [17]node
 
 func (n rawFullNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawFullNode) fstring(ind string) string { panic("this should never end up in a live trie") }
+
+func (n rawFullNode) nodeType() int {
+	return rawFullNodeType
+}
 
 func (n rawFullNode) EncodeRLP(w io.Writer) error {
 	eb := rlp.NewEncoderBuffer(w)
@@ -133,6 +141,10 @@ type rawShortNode struct {
 
 func (n rawShortNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawShortNode) fstring(ind string) string { panic("this should never end up in a live trie") }
+
+func (n rawShortNode) nodeType() int {
+	return rawShortNodeType
+}
 
 // cachedNode is all the information we know about a single cached trie node
 // in the memory database write layer.

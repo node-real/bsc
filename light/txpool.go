@@ -18,6 +18,7 @@ package light
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -69,6 +70,7 @@ type TxPool struct {
 
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
+	isElwood bool // Fork indicator whether we are in the BEP-216 stage.
 }
 
 // TxRelayBackend provides an interface to the mechanism that forwards transacions
@@ -318,6 +320,7 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 	next := new(big.Int).Add(head.Number, big.NewInt(1))
 	pool.istanbul = pool.config.IsIstanbul(next)
 	pool.eip2718 = pool.config.IsBerlin(next)
+	pool.isElwood = pool.config.IsElwood(next)
 }
 
 // Stop stops the light transaction pool
@@ -385,12 +388,25 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	}
 
 	// Should supply enough intrinsic gas
-	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.WitnessList(), tx.To() == nil, true, pool.istanbul)
+	witnessList := tx.WitnessList()
+	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), witnessList, tx.To() == nil, true, pool.istanbul)
 	if err != nil {
 		return err
 	}
 	if tx.Gas() < gas {
 		return core.ErrIntrinsicGas
+	}
+
+	// check witness and hard fork
+	if witnessList != nil {
+		if !pool.isElwood {
+			return errors.New("cannot allow witness before Elwood fork")
+		}
+		for i := range witnessList {
+			if err := witnessList[i].VerifyWitness(); err != nil {
+				return err
+			}
+		}
 	}
 	return currentState.Error()
 }

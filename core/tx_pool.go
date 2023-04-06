@@ -263,6 +263,7 @@ type TxPool struct {
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
 	eip1559  bool // Fork indicator whether we are using EIP-1559 type transactions.
+	isElwood bool // Fork indicator whether we are using BEP-216 type transactions.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	pendingNonces *txNoncer      // Pending state tracking virtual nonces
@@ -706,12 +707,25 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 
 	// Ensure the transaction has more gas than the basic tx fee.
-	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.WitnessList(), tx.To() == nil, true, pool.istanbul)
+	witnessList := tx.WitnessList()
+	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), witnessList, tx.To() == nil, true, pool.istanbul)
 	if err != nil {
 		return err
 	}
 	if tx.Gas() < intrGas {
 		return ErrIntrinsicGas
+	}
+
+	// check witness and hard fork
+	if witnessList != nil {
+		if !pool.isElwood {
+			return errors.New("cannot allow witness before Elwood fork")
+		}
+		for i := range witnessList {
+			if err := witnessList[i].VerifyWitness(); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -1433,6 +1447,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.istanbul = pool.chainconfig.IsIstanbul(next)
 	pool.eip2718 = pool.chainconfig.IsBerlin(next)
 	pool.eip1559 = pool.chainconfig.IsLondon(next)
+	pool.isElwood = pool.chainconfig.IsElwood(next)
 }
 
 // promoteExecutables moves transactions that have become processable from the

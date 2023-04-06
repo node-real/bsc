@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -78,7 +79,7 @@ func (t *SecureTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWri
 	return t.trie.Prove(key, fromLevel, proofDb)
 }
 
-// ProveStorageWitness constructs a merkle proof for a storage key. If the prefix key is specified, 
+// ProveStorageWitness constructs a merkle proof for a storage key. If the prefix key is specified,
 // the proof will start from the node that contains the prefix key to get the partial proof.
 // The result contains all encoded nodes from the starting node to the node that contains
 // the value. The value itself is also included in the last node and can be retrieved by
@@ -103,7 +104,7 @@ func (t *Trie) ProveStorageWitness(key []byte, prefixKeyHex []byte, proofDb ethd
 
 	// traverse through the suffix key
 	_, err = t.traverseNodes(startNode, key, &nodes)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -159,7 +160,147 @@ func VerifyProof(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueReader)
 	}
 }
 
-// VerifyStorageWitness checks a merkle proof for a storage key. If the prefix key is specified, 
+// MPTProofNub include fullNode shortNode, revive n1 first if exist,
+// revive n2 later if exist, include node hash
+type MPTProofNub struct {
+	RootHexKey []byte // root hex key, max 64bytes
+	n1         node
+	n2         node
+}
+
+type MPTProofCache struct {
+	types.MPTProof
+
+	cacheHexPath [][]byte       // cache path for performance
+	cacheHashes  [][]byte       // cache hash for performance
+	cacheNodes   []node         // cache node for performance
+	cacheNubs    []*MPTProofNub // cache proof nubs to check revive duplicate
+}
+
+// VerifyProof verify proof in MPT witness
+// 1. calculate hash
+// 2. decode trie node
+// 3. verify partial merkle proof of the witness
+// 4. split to partial witness
+// TODO later revive state could revive KV from fullNode[0-15] or fullNode[16] shortNode.Val, return KVs for cache & snap
+// another easy method is that revive direct to Trie/Trie cache, query later and set to KV cache
+func (m *MPTProofCache) VerifyProof() error {
+	m.cacheHashes = make([][]byte, len(m.Proof))
+	m.cacheNodes = make([]node, len(m.Proof))
+	m.cacheHexPath = make([][]byte, len(m.Proof))
+	hasher := newHasher(false)
+	defer returnHasherToPool(hasher)
+
+	var child []byte
+	for i := len(m.Proof) - 1; i >= 0; i-- {
+		m.cacheHashes[i] = hasher.hashData(m.Proof[i])
+		n, err := decodeNode(m.cacheHashes[i], m.Proof[i])
+		if err != nil {
+			return err
+		}
+		m.cacheNodes[i] = n
+
+		switch t := n.(type) {
+		case *shortNode:
+			m.cacheHexPath[i] = t.Key
+			if err := matchHashNodeInShortNode(child, t); err != nil {
+				return err
+			}
+		case *fullNode:
+			index, err := matchHashNodeInFullNode(child, t)
+			if err != nil {
+				return err
+			}
+			if index >= 0 {
+				m.cacheHexPath[i] = []byte{byte(index)}
+			}
+		case valueNode:
+			if child != nil {
+				return errors.New("proof wrong child in valueNode")
+			}
+		default:
+			return fmt.Errorf("proof got wrong trie node: %v", t.nodeType())
+		}
+
+		child = m.cacheHashes[i]
+	}
+
+	// cache proof nubs
+	m.cacheNubs = make([]*MPTProofNub, 0, len(m.Proof))
+	prefix := keybytesToHex(m.RootKey)
+	prefix = prefix[:len(prefix)-1]
+	for i := 0; i < len(m.cacheNodes); i++ {
+		prefix = append(prefix, m.cacheHexPath[i]...)
+		n1 := m.cacheNodes[i]
+		nub := MPTProofNub{
+			RootHexKey: prefix,
+			n1:         n1,
+			n2:         nil,
+		}
+		if needMergeNextNode(m.cacheNodes, i) {
+			i++
+			prefix = append(prefix, m.cacheHexPath[i]...)
+			nub.n2 = m.cacheNodes[i]
+		}
+		m.cacheNubs = append(m.cacheNubs, &nub)
+	}
+
+	return nil
+}
+
+func needMergeNextNode(nodes []node, i int) bool {
+	if i >= len(nodes) || i+1 >= len(nodes) {
+		return false
+	}
+
+	n1 := nodes[i]
+	n2 := nodes[i+1]
+
+	if n2.nodeType() == valueNodeType {
+		return true
+	}
+
+	// check extended node
+	if n1.nodeType() == shortNodeType {
+		return true
+	}
+
+	return false
+}
+
+func matchHashNodeInFullNode(child []byte, n *fullNode) (int, error) {
+	if child == nil {
+		return -1, nil
+	}
+
+	for i := 0; i < BranchNodeLength-1; i++ {
+		switch v := n.Children[i].(type) {
+		case hashNode:
+			if bytes.Equal(child, v) {
+				return i, nil
+			}
+		}
+	}
+	return -1, errors.New("proof cannot find target child in fullNode")
+}
+
+func matchHashNodeInShortNode(child []byte, n *shortNode) error {
+	if child == nil {
+		return nil
+	}
+
+	switch v := n.Val.(type) {
+	case *hashNode:
+		if !bytes.Equal(child, *v) {
+			return errors.New("proof wrong child in shortNode")
+		}
+	default:
+		return errors.New("proof must hashNode when meet shortNode")
+	}
+	return nil
+}
+
+// VerifyStorageWitness checks a merkle proof for a storage key. If the prefix key is specified,
 // it will traverse down to the node that contains the prefix key. From there, proof will be verified.
 // VerifyStorageProof returns an error if the proof contains invalid trie nodes.
 func (t *Trie) VerifyStorageWitness(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueReader) (value []byte, err error) {
@@ -167,7 +308,7 @@ func (t *Trie) VerifyStorageWitness(key []byte, prefixKeyHex []byte, proofDb eth
 	if len(key) == 0 {
 		return nil, fmt.Errorf("empty key provided")
 	}
-	
+
 	key = keybytesToHex(key)
 
 	tn := t.root
@@ -216,7 +357,7 @@ func (t *Trie) VerifyStorageWitness(key []byte, prefixKeyHex []byte, proofDb eth
 func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node) (node, error) {
 	for len(key) > 0 && tn != nil {
 		switch n := tn.(type) {
-		case *shortNode:	
+		case *shortNode:
 			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
 				// The trie doesn't contain the key.
 				tn = nil
@@ -224,13 +365,13 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node) (node, error) {
 				tn = n.Val
 				key = key[len(n.Key):]
 			}
-			if nodes != nil{
+			if nodes != nil {
 				*nodes = append(*nodes, n)
 			}
 		case *fullNode:
 			tn = n.Children[key[0]]
 			key = key[1:]
-			if nodes != nil{
+			if nodes != nil {
 				*nodes = append(*nodes, n)
 			}
 		case hashNode:

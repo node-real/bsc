@@ -40,7 +40,9 @@ func (tx *ReviveStateTx) copy() TxData {
 		S:           new(big.Int),
 	}
 
-	copy(cpy.WitnessList, tx.WitnessList)
+	for i := range tx.WitnessList {
+		cpy.WitnessList[i] = tx.WitnessList[i].Copy()
+	}
 	if tx.Value != nil {
 		cpy.Value.Set(tx.Value)
 	}
@@ -111,14 +113,15 @@ func (tx *ReviveStateTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	tx.V, tx.R, tx.S = v, r, s
 }
 
-func WitnessIntrinsicGas(wits WitnessList) uint64 {
+func WitnessIntrinsicGas(wits WitnessList) (uint64, error) {
 	totalGas := uint64(0)
 	for i := 0; i < len(wits); i++ {
-		// witness size cost
 		totalGas += wits[i].Size() * params.TxWitnessListStorageGasPerByte
-		// witness verify cost
-		count, words := wits[i].ProofWords()
-		totalGas += count*params.TxWitnessListVerifyBaseGas + words*params.TxWitnessListVerifyGasPerWord
+		addGas, err := wits[i].AdditionalIntrinsicGas()
+		if err != nil {
+			return 0, err
+		}
+		totalGas += addGas
 	}
-	return totalGas
+	return totalGas, nil
 }

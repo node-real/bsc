@@ -25,17 +25,32 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+const (
+	BranchNodeLength = 17
+)
+
+const (
+	shortNodeType = iota
+	fullNodeType
+	hashNodeType
+	valueNodeType
+	rawNodeType
+	rawShortNodeType
+	rawFullNodeType
+)
+
 var indices = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "[17]"}
 
 type node interface {
 	cache() (hashNode, bool)
 	encode(w rlp.EncoderBuffer)
 	fstring(string) string
+	nodeType() int
 }
 
 type (
 	fullNode struct {
-		Children [17]node // Actual trie node data to encode/decode (needs custom encoder)
+		Children [BranchNodeLength]node // Actual trie node data to encode/decode (needs custom encoder)
 		flags    nodeFlag
 	}
 	shortNode struct {
@@ -97,6 +112,22 @@ func (n hashNode) fstring(ind string) string {
 }
 func (n valueNode) fstring(ind string) string {
 	return fmt.Sprintf("%x ", []byte(n))
+}
+
+func (n *shortNode) nodeType() int {
+	return shortNodeType
+}
+
+func (n *fullNode) nodeType() int {
+	return fullNodeType
+}
+
+func (n hashNode) nodeType() int {
+	return hashNodeType
+}
+
+func (n valueNode) nodeType() int {
+	return valueNodeType
 }
 
 // mustDecodeNode is a wrapper of decodeNode and panic if any error is encountered.

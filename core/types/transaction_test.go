@@ -575,15 +575,23 @@ func TestReviveStateTxAndSigner(t *testing.T) {
 		from      = crypto.PubkeyToAddress(key.PublicKey)
 		addr      = common.HexToAddress("0x0000000000000000000000000000000000000001")
 		recipient = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
-		witness   = WitnessList{{
-			WitnessType: 0,
-			Address:     &addr,
-			ProofList: []MPTProof{{
-				Key:   common.Hex2Bytes("095e7baea6a6c7c4c2"),
-				Proof: [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
-			}},
-		}}
 	)
+	wit := StorageTrieWitness{
+		Address: addr,
+		ProofList: []MPTProof{{
+			RootKey: common.Hex2Bytes("095e7baea6a6c7c4c2"),
+			Proof:   [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
+		}},
+	}
+
+	enc, err := rlp.EncodeToBytes(wit)
+	if err != nil {
+		panic(err)
+	}
+	witness := WitnessList{{
+		WitnessType: 0,
+		Data:        enc,
+	}}
 	for i := uint64(0); i < 500; i++ {
 		var txdata TxData
 		switch i % 5 {

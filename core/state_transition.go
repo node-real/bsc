@@ -17,7 +17,9 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie"
 	"math"
 	"math/big"
 
@@ -158,7 +160,10 @@ func IntrinsicGas(data []byte, accessList types.AccessList, witnessList types.Wi
 	}
 
 	if witnessList != nil {
-		witGas := types.WitnessIntrinsicGas(witnessList)
+		witGas, err := types.WitnessIntrinsicGas(witnessList)
+		if err != nil {
+			return 0, err
+		}
 		if (math.MaxUint64 - gas) < witGas {
 			return 0, ErrGasUintOverflow
 		}
@@ -268,6 +273,20 @@ func (st *StateTransition) preCheck() error {
 			}
 		}
 	}
+
+	// check witness and hard fork
+	if st.msg.WitnessList() != nil {
+		if !st.evm.ChainConfig().IsElwood(st.evm.Context.BlockNumber) {
+			return errors.New("cannot allow witness before Elwood fork")
+		}
+		witnessList := st.msg.WitnessList()
+		for i := range witnessList {
+			if err := witnessList[i].VerifyWitness(); err != nil {
+				return err
+			}
+		}
+	}
+
 	return st.buyGas()
 }
 
@@ -342,6 +361,42 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if rules.IsBerlin {
 		st.state.PrepareAccessList(msg.From(), msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
 	}
+
+	// revive state before execution
+	if rules.IsElwood {
+		witnessList := msg.WitnessList()
+		for i := range witnessList {
+			wit := witnessList[i]
+			// got specify witness, verify proof and check if revive success
+			switch wit.WitnessType {
+			case types.StorageTrieWitnessType:
+				data, err := wit.WitnessData()
+				if err != nil {
+					return nil, err
+				}
+				stWit, ok := data.(*types.StorageTrieWitness)
+				if !ok {
+					return nil, errors.New("got StorageTrieWitnessType data error")
+				}
+				proofCaches := make([]trie.MPTProofCache, len(stWit.ProofList))
+				for j := range stWit.ProofList {
+					proofCaches[j] = trie.MPTProofCache{
+						MPTProof: stWit.ProofList[j],
+					}
+					if err := proofCaches[j].VerifyProof(); err != nil {
+						return nil, err
+					}
+
+					// TODO revive trie nodes by witness in the same contract storage trie
+					// 1. check expired hash;
+					// 2. append trie nodes & rebuild shadow nodes;
+				}
+			default:
+				return nil, errors.New("unsupported WitnessType")
+			}
+		}
+	}
+
 	var (
 		ret   []byte
 		vmerr error // vm errors do not effect consensus and are therefore not assigned to err

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -16,14 +17,22 @@ func makeMerkleProofWitness(addr *common.Address, keyLen, witSize, proofCount, p
 			proof[j] = bytes.Repeat([]byte{'p'}, proofLen)
 		}
 		proofList[i] = types.MPTProof{
-			Key:   bytes.Repeat([]byte{'k'}, keyLen),
-			Proof: proof,
+			RootKey: bytes.Repeat([]byte{'k'}, keyLen),
+			Proof:   proof,
 		}
 	}
+	wit := types.StorageTrieWitness{
+		Address:   *addr,
+		ProofList: proofList,
+	}
+
+	enc, err := rlp.EncodeToBytes(wit)
+	if err != nil {
+		panic(err)
+	}
 	return types.ReviveWitness{
-		WitnessType: types.MPTWitnessType,
-		Address:     addr,
-		ProofList:   proofList,
+		WitnessType: types.StorageTrieWitnessType,
+		Data:        enc,
 	}
 }
 
@@ -50,7 +59,7 @@ func TestIntrinsicGas_WitnessList(t *testing.T) {
 			isContractCreation: true,
 			isHomestead:        true,
 			isEIP2028:          true,
-			gas:                53416,
+			gas:                53464,
 		},
 		{
 			data:       common.Hex2Bytes("1234567890"),
@@ -61,7 +70,18 @@ func TestIntrinsicGas_WitnessList(t *testing.T) {
 			isContractCreation: true,
 			isHomestead:        true,
 			isEIP2028:          true,
-			gas:                55016,
+			gas:                55176,
+		},
+		{
+			data:       common.Hex2Bytes("1234567890"),
+			accessList: nil,
+			witnessList: []types.ReviveWitness{
+				makeMerkleProofWitness(&address, 100, 1, 1, 0),
+			},
+			isContractCreation: true,
+			isHomestead:        true,
+			isEIP2028:          true,
+			gas:                55252,
 		},
 		{
 			data:       nil,
@@ -73,7 +93,7 @@ func TestIntrinsicGas_WitnessList(t *testing.T) {
 			isContractCreation: false,
 			isHomestead:        true,
 			isEIP2028:          true,
-			gas:                25948,
+			gas:                26412,
 		},
 	}
 
