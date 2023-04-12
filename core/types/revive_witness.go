@@ -24,7 +24,7 @@ const (
 // will verify the whole path later
 // Attention: The proof could revive multi-vals, although it's a single trie path witness
 type MPTProof struct {
-	RootKey []byte   // root key, target the revival path root, max 32bytes
+	RootKeyHex []byte   // prefix key in nibbles format, max 65 bytes. TODO: optimize witness size
 	Proof   [][]byte // list of RLP-encoded nodes
 }
 

@@ -900,7 +900,7 @@ func TestAllElementsEmptyValueRangeProof(t *testing.T) {
 func TestStorageProof(t *testing.T) {
 	trie, vals := randomTrie(500)
 	for _, kv := range vals {
-		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
+		prefixKeys := getPrefixKeysHex(trie, []byte(kv.k))
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
 			key := kv.k
@@ -1002,7 +1002,7 @@ func TestBadStorageProof(t *testing.T) {
 
 	trie, vals := randomTrie(500)
 	for _, kv := range vals {
-		prefixKeys := getPrefixKeys(trie, []byte(kv.k))
+		prefixKeys := getPrefixKeysHex(trie, []byte(kv.k))
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
 			key := []byte(kv.k)
@@ -1344,7 +1344,7 @@ func TestRangeProofKeysWithSharedPrefix(t *testing.T) {
 	}
 }
 
-func getPrefixKeys(t *Trie, key []byte) [][]byte {
+func getPrefixKeysHex(t *Trie, key []byte) [][]byte {
 	var prefixKeys [][]byte
 	key = keybytesToHex(key)
 	tn := t.root
@@ -1417,7 +1417,7 @@ func makeMPTProofCache(key []byte, proofs []string) MPTProofCache {
 	}
 	return MPTProofCache{
 		MPTProof: types.MPTProof{
-			RootKey: key,
+			RootKeyHex: key,
 			Proof:   proof,
 		},
 	}

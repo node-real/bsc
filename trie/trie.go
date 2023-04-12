@@ -492,36 +492,40 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 	}
 }
 
-func (t *Trie) ExpireByPrefix(prefixKey []byte) {
-	_, err := t.expireByPrefix(t.root, prefixKey)
-	if err != nil {
-		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) error {
+	hn, err := t.expireByPrefix(t.root, prefixKeyHex)
+	if prefixKeyHex == nil && hn != nil {
+		t.root = hn
 	}
+	if err != nil {
+		return err 
+	}
+	return nil
 }
 
-func (t *Trie) expireByPrefix(n node, prefixKey []byte) (node, error) {
+func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 	// Loop through prefix key
 	// When prefix key is empty, generate the hash node of the current node
 	// Replace current node with the hash node
 	
 	// If length of prefix key is empty
-	if len(prefixKey) == 0 {
+	if len(prefixKeyHex) == 0 {
 		hasher := newHasher(false)
 		defer returnHasherToPool(hasher)
 		var hn node
 		_, hn = hasher.proofHash(n)
 
-		return hn, nil 
+		if _, ok := hn.(hashNode); ok {
+			return hn, nil
+		}
+
+		return nil, nil 
 	}
 
 	switch n := n.(type) {
 	case *shortNode:
-		matchLen := prefixLen(prefixKey, n.Key)
-		if matchLen == len(prefixKey) {
-			return nil, fmt.Errorf("")// Found the node to expire
-		}
-
-		hn, err := t.expireByPrefix(n.Val, prefixKey[matchLen:])
+		matchLen := prefixLen(prefixKeyHex, n.Key)
+		hn, err := t.expireByPrefix(n.Val, prefixKeyHex[matchLen:])
 		if err != nil {
 			return nil, err
 		}
@@ -533,14 +537,14 @@ func (t *Trie) expireByPrefix(n node, prefixKey []byte) (node, error) {
 
 		return nil, err
 	case *fullNode:
-		hn, err := t.expireByPrefix(n.Children[prefixKey[0]], prefixKey[1:])
+		hn, err := t.expireByPrefix(n.Children[prefixKeyHex[0]], prefixKeyHex[1:])
 		if err != nil {
 			return nil, err
 		}
 
 		// Replace child node with hash node
 		if hn != nil {
-			n.Children[prefixKey[0]] = hn
+			n.Children[prefixKeyHex[0]] = hn
 		}
 
 		return nil, err
@@ -566,6 +570,9 @@ func (t *Trie) resolve(n node, prefix []byte) (node, error) {
 
 func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
 	hash := common.BytesToHash(n)
+	if t.db == nil {
+		return nil, fmt.Errorf("empty trie database")
+	}
 	if node := t.db.node(hash); node != nil {
 		return node, nil
 	}
@@ -649,3 +656,90 @@ func (t *Trie) Reset() {
 func (t *Trie) Size() int {
 	return estimateSize(t.root)
 }
+
+// ReviveTrie revives the trie from the proof cache
+func (t *Trie) ReviveTrie(proof MPTProofCache) error {
+	
+	var parent node
+	var childIndex int // If parent is a fullNode, childIndex is the index of the child node
+	
+	cacheHashIndex := 0 // Keep track of the index of the cachedHash
+	nubs := proof.cacheNubs
+
+loopNubs:
+	for _, nub := range nubs {
+		key := nub.RootHexKey
+		startNode := t.root
+		parent = nil // TODO (asyukii): When RootNode is introduced, parent node will be the RootNode instead of nil
+		childIndex = -1
+		// Traverse through the trie using RootHexKey
+
+		// Loop through the key to find hash node
+		for len(key) > 0 {
+			switch n := startNode.(type) {
+			case *shortNode:
+				if len(key) < len(n.Key) || !bytes.Equal(key[:len(n.Key)], n.Key) {
+					return fmt.Errorf("key %v not found", key)
+				} else {
+					parent = n
+					startNode = n.Val
+					key = key[len(n.Key):]
+				}
+			case *fullNode:
+				startNode = n.Children[key[0]]
+				parent = n
+				childIndex = int(key[0])
+				key = key[1:]
+			case hashNode:
+				tn, err := t.resolveHash(n, nil)
+				if err == nil {
+					startNode = tn
+				} else {
+					continue loopNubs
+				}
+			default:
+				continue loopNubs
+			}
+		}
+
+		// TODO (asyukii): check if the node is expired
+		// Attach node to parent
+		if _, ok := startNode.(hashNode); ok {
+			cachedHash := proof.cacheHashes[cacheHashIndex]
+			if bytes.Equal(cachedHash, startNode.(hashNode)) {
+				// Attach n1 to the trie
+				switch n := parent.(type) {
+				case *shortNode:
+					n.Val = nub.n1
+					parent = n.Val
+				case *fullNode:
+					n.Children[childIndex] = nub.n1
+					parent = n.Children[childIndex]
+					// TODO (asyukii): build shadow node
+				}
+
+				// Attach n2 to the trie if exists
+				if nub.n2 != nil {
+				switch n := parent.(type) {
+				case *shortNode:
+					n.Val = nub.n2
+				default:
+					return fmt.Errorf("n2 should only be attached to a shortNode")
+				}
+				// TODO (asyukii): build shadow node if n2 is a fullNode
+				}
+			}
+		}
+
+		// Increment cacheHashIndex
+		if nub.n1 != nil {
+			cacheHashIndex++
+		}
+		if nub.n2 != nil {
+			cacheHashIndex++
+		}
+	}
+
+	return nil
+}
+

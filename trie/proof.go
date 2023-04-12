@@ -227,10 +227,12 @@ func (m *MPTProofCache) VerifyProof() error {
 
 	// cache proof nubs
 	m.cacheNubs = make([]*MPTProofNub, 0, len(m.Proof))
-	prefix := keybytesToHex(m.RootKey)
-	prefix = prefix[:len(prefix)-1]
+	prefix := m.RootKeyHex
 	for i := 0; i < len(m.cacheNodes); i++ {
-		prefix = append(prefix, m.cacheHexPath[i]...)
+		if i - 1 >= 0 {
+			prefix = append(prefix, m.cacheHexPath[i-1]...)
+		}
+		// prefix = append(prefix, m.cacheHexPath[i]...)
 		n1 := m.cacheNodes[i]
 		nub := MPTProofNub{
 			RootHexKey: prefix,
@@ -239,7 +241,7 @@ func (m *MPTProofCache) VerifyProof() error {
 		}
 		if needMergeNextNode(m.cacheNodes, i) {
 			i++
-			prefix = append(prefix, m.cacheHexPath[i]...)
+			prefix = append(prefix, m.cacheHexPath[i-1]...)
 			nub.n2 = m.cacheNodes[i]
 		}
 		m.cacheNubs = append(m.cacheNubs, &nub)
@@ -290,8 +292,8 @@ func matchHashNodeInShortNode(child []byte, n *shortNode) error {
 	}
 
 	switch v := n.Val.(type) {
-	case *hashNode:
-		if !bytes.Equal(child, *v) {
+	case hashNode:
+		if !bytes.Equal(child, v) {
 			return errors.New("proof wrong child in shortNode")
 		}
 	default:

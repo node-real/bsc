@@ -1753,3 +1753,40 @@ func (s *StateDB) GetDirtyAccounts() []common.Address {
 func (s *StateDB) GetStorage(address common.Address) *sync.Map {
 	return s.storagePool.getStorage(address)
 }
+
+// ReviveTrie revive a trie with a given witness list
+func (s *StateDB) ReviveTrie(witnessList types.WitnessList) error{
+	for i := range witnessList {
+		wit := witnessList[i]
+		// got specify witness, verify proof and check if revive success
+		switch wit.WitnessType {
+		case types.StorageTrieWitnessType:
+			data, err := wit.WitnessData()
+			if err != nil {
+				return err
+			}
+			stWit, ok := data.(*types.StorageTrieWitness)
+			if !ok {
+				return errors.New("got StorageTrieWitnessType data error")
+			}
+			proofCaches := make([]trie.MPTProofCache, len(stWit.ProofList))
+			for j := range stWit.ProofList {
+				proofCaches[j] = trie.MPTProofCache{
+					MPTProof: stWit.ProofList[j],
+				}
+				if err := proofCaches[j].VerifyProof(); err != nil {
+					return err
+				}
+
+				trie := s.StorageTrie(stWit.Address)
+				if err := trie.ReviveTrie(proofCaches[j]); err != nil {
+					return err
+				}
+			}
+		default:
+			return errors.New("unsupported WitnessType")
+		}
+	}
+
+	return nil
+}

@@ -579,7 +579,7 @@ func TestReviveStateTxAndSigner(t *testing.T) {
 	wit := StorageTrieWitness{
 		Address: addr,
 		ProofList: []MPTProof{{
-			RootKey: common.Hex2Bytes("095e7baea6a6c7c4c2"),
+			RootKeyHex: []byte{0x09, 0x5e, 0x7b, 0xae, 0xa6, 0xa6, 0xc7, 0xc4, 0xc2},
 			Proof:   [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
 		}},
 	}

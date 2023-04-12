@@ -19,6 +19,7 @@ package trie
 import (
 	"bytes"
 	"encoding/binary"
+	// "encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
@@ -39,6 +40,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
+	"github.com/stretchr/testify/assert"
 )
 
 func init() {
@@ -470,6 +472,367 @@ func TestRandom(t *testing.T) {
 			t.Fatalf("random test iteration %d failed: %s", cerr.Count, spew.Sdump(cerr.In))
 		}
 		t.Fatal(err)
+	}
+}
+
+
+// TestExpireByPrefix tests that the trie is not corrupted after 
+// expiring a key by prefix.
+func TestExpireByPrefix(t *testing.T){
+	data := map[string]string{
+		"abcd": "A",
+		"abce": "B",
+		"abde": "C",
+		"abdf": "D",
+		"defg": "E",
+		"defh": "F",
+		"degh": "G",
+		"degi": "H",
+	}
+
+	trie := createCustomTrie(data)
+	rootHash := trie.Hash()
+
+	for k := range data {
+		prefixKeys :=  getPrefixKeysHex(trie, []byte(k))
+		for _, prefixKey := range prefixKeys {
+			trie.ExpireByPrefix(prefixKey)
+			currHash := trie.Hash()
+			// Validate root hash
+			assert.Equal(t, rootHash, currHash, "Root hash mismatch, got %x, expected %x", currHash, rootHash)
+
+			// Reset trie
+			trie = createCustomTrie(data)
+		}
+	}
+}
+
+func createCustomTrie(data map[string]string) *Trie{
+	trie := new(Trie)
+	for k, v := range data {
+		trie.Update([]byte(k), []byte(v))
+	}
+
+	return trie
+}
+
+type proofList [][]byte
+
+func (n *proofList) Put(key []byte, value []byte) error {
+	*n = append(*n, value)
+	return nil
+}
+
+func (n *proofList) Delete(key []byte) error {
+	panic("not supported")
+}
+
+func makeRawMPTProofCache(rootKeyHex []byte, proof [][]byte) MPTProofCache {
+	return MPTProofCache{
+		MPTProof: types.MPTProof{
+			RootKeyHex: rootKeyHex,
+			Proof:   proof,
+		},
+	}
+}
+
+// TestReviveTrie tests that a trie can be revived from a proof
+func TestReviveTrie(t *testing.T){
+
+	trie, vals := nonRandomTrie(500)
+
+	oriRootHash := trie.Hash()
+
+	for _, kv := range vals {
+		key := []byte(kv.k)
+		val := []byte(kv.v)
+		prefixKeys := getPrefixKeysHex(trie, key)
+		for _, prefixKey := range prefixKeys {
+			// Generate proof
+			var proof proofList
+			err := trie.ProveStorageWitness(key, prefixKey, &proof)
+			assert.NoError(t, err)
+
+			// Expire trie
+			trie.ExpireByPrefix(prefixKey)
+
+			// Construct MPTProofCache
+			proofCache := makeRawMPTProofCache(prefixKey, proof)
+
+			// VerifyProof
+			err = proofCache.VerifyProof()
+			assert.NoError(t, err)
+
+			// Revive trie
+			err = trie.ReviveTrie(proofCache)
+			assert.NoError(t, err)
+
+			// Verify value exists after revive
+			v := trie.Get(key)
+			assert.Equal(t, val, v)
+
+			// Verify root hash
+			currRootHash := trie.Hash()
+			assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x", currRootHash, oriRootHash)
+
+			// Reset trie
+			trie, _ = nonRandomTrie(500)
+		}
+	}		
+}
+
+// TODO (asyukii): TestReviveAtRoot tests that a key can be revived at root when 
+// the whole trie is expired. This test will fail because the parent node in
+// ReviveTrie is nil, set to RootNode when available
+// func TestReviveAtRoot(t *testing.T) {
+// 	trie, vals := nonRandomTrie(500)
+
+// 	oriRootHash := trie.Hash()
+
+// 	for _, kv := range vals {
+// 		key := []byte(kv.k)
+// 		val := []byte(kv.v)
+
+// 		fmt.Printf("key: %x, val: %x", key, val)
+// 		var proof proofList
+
+// 		err := trie.ProveStorageWitness(key, nil, &proof)
+// 		assert.NoError(t, err)
+
+// 		// Expire trie
+// 		trie.ExpireByPrefix(nil)
+
+// 		// Construct MPTProofCache
+// 		proofCache := makeRawMPTProofCache(nil, proof)
+
+// 		// VerifyProof
+// 		err = proofCache.VerifyProof()
+// 		assert.NoError(t, err)
+
+// 		// Revive trie
+// 		err = trie.ReviveTrie(proofCache)
+// 		assert.NoError(t, err)
+
+
+// 		// Verify value exists after revive
+// 		v := trie.Get(key)
+// 		assert.Equal(t, val, v)
+
+// 		// Verify root hash
+// 		currRootHash := trie.Hash()
+// 		assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x", currRootHash, oriRootHash)
+
+// 		// Reset trie
+// 		trie, _ = nonRandomTrie(500)
+// 	}
+
+// }
+
+// TestReviveBadProof tests that a trie cannot be revived from a bad proof
+func TestReviveBadProof(t *testing.T) {
+	
+	dataA := map[string]string{
+		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
+		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
+	}
+
+	dataB := map[string]string{
+		"qwer": "A", "qwet": "B", "qwrt": "C", "qwry": "D",
+		"abcd": "E", "abce": "F", "abde": "G", "abdf": "H",
+	}
+
+	trieA := createCustomTrie(dataA)
+	trieB := createCustomTrie(dataB)
+
+	var proofB proofList
+
+	err := trieB.ProveStorageWitness([]byte("abcd"), nil, &proofB)
+	assert.NoError(t, err)
+
+	// Expire trie A
+	trieA.ExpireByPrefix(nil)
+
+	// Construct MPTProofCache
+	proofCache := makeRawMPTProofCache(nil, proofB)
+
+	// VerifyProof
+	err = proofCache.VerifyProof()
+	assert.NoError(t, err)
+
+	// Revive trie
+	err = trieA.ReviveTrie(proofCache)
+	assert.NoError(t, err)
+
+	// Verify value does exists after revive
+	_, err = trieA.TryGet([]byte("abcd"))
+	assert.Error(t, err)
+
+}
+
+// TestReviveOneElement tests that a trie with a single element
+// can be revived from a proof
+func TestReviveOneElement(t *testing.T) {
+	trie := new(Trie)
+	key := []byte("k")
+	val := []byte("v")
+	trie.Update(key, val)
+
+	// Generate proof
+	var proof proofList
+
+	err := trie.ProveStorageWitness(key, nil, &proof)
+	assert.NoError(t, err)
+
+	err = trie.ExpireByPrefix(nil)
+	assert.NoError(t, err)
+
+	proofCache := makeRawMPTProofCache(nil, proof)
+
+	err = proofCache.VerifyProof()
+	assert.NoError(t, err)
+
+	err = trie.ReviveTrie(proofCache)
+	assert.NoError(t, err)
+
+	v := trie.Get(key)
+	assert.Equal(t, val, v)
+}
+
+// TestReviveBadProofAfterUpdate tests that after reviving a path and 
+// then update the value, old proof should be invalid
+func TestReviveBadProofAfterUpdate(t *testing.T) {
+	trie, vals := nonRandomTrie(500)
+	for _, kv := range vals {
+		key := []byte(kv.k)
+		prefixKeys := getPrefixKeysHex(trie, key)
+		for _, prefixKey := range prefixKeys {
+			var proof proofList
+			err := trie.ProveStorageWitness(key, prefixKey, &proof)
+			assert.NoError(t, err)
+
+			// Expire trie
+			err = trie.ExpireByPrefix(prefixKey)
+			assert.NoError(t, err)
+
+			// Construct MPTProofCache
+			proofCache := makeRawMPTProofCache(prefixKey, proof)
+
+			err = proofCache.VerifyProof()
+			assert.NoError(t, err)
+
+			err = trie.ReviveTrie(proofCache)
+			assert.NoError(t, err)
+
+			trie.Update(key, []byte("new value"))
+
+			// Revive again with old proof
+			err = trie.ReviveTrie(proofCache)
+			assert.NoError(t, err)
+
+			// Validate trie
+			resVal, err := trie.TryGet(key)
+			assert.NoError(t, err)
+			assert.Equal(t, []byte("new value"), resVal)
+		}
+	}
+}
+
+// TestPartialReviveFullProof tests that a path can be revived
+// with full proof even when the trie is partially expired
+func TestPartialReviveFullProof(t *testing.T) {
+	data := map[string]string{
+		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
+		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
+	}
+
+	trie := createCustomTrie(data)
+
+	// Get proof
+	var proof proofList
+	err := trie.ProveStorageWitness([]byte("abcd"), nil, &proof)
+	assert.NoError(t, err)
+
+	// Expire trie
+	err = trie.ExpireByPrefix([]byte{6,1})
+	assert.NoError(t, err)
+
+	// Construct MPTProofCache
+	proofCache := makeRawMPTProofCache(nil, proof)
+
+	// Verify proof
+	err = proofCache.VerifyProof()
+	assert.NoError(t, err)
+
+	// Revive trie
+	err = trie.ReviveTrie(proofCache)
+	assert.NoError(t, err)
+
+	// Validate trie
+	resVal, err := trie.TryGet([]byte("abcd"))
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("A"), resVal)
+}
+
+// TestReviveValueAtFullNode tests that a value that is at
+// full node can be revived properly
+func TestReviveValueAtFullNode(t *testing.T) {
+	hexKeys := [][]byte{
+		{6,1,6,2,6,3,6,4,16},
+		{6,1,6,2,6,3,6,5,16},
+		{6,1,6,2,6,4,6,5,16},
+		{6,1,6,2,6,4,6,6,16},
+		{6,4,6,5,6,6,6,7,16},
+		{6,4,6,5,6,6,6,8,16},
+		{6,4,6,5,6,7,6,8,16},
+		{6,4,6,5,6,7,6,9,16},
+		{6,1,6,2,6,3,6,4,16},
+		{6,1,6,2,16}, // This is the key that has a value at a full node
+	}
+
+	byteKeys := make([][]byte, len(hexKeys))
+
+	vals := []string{
+		"A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+	}
+
+	trie := new(Trie)
+	for i, hexKey := range hexKeys {
+		hexKey = hexToKeybytes(hexKey)
+		byteKeys[i] = hexKey
+	}
+
+	// Insert keys into trie
+	for i, hexKey := range byteKeys {
+		trie.Update(hexKey, []byte(vals[i]))
+	}
+
+	key := byteKeys[9]
+	val := vals[9]
+
+	prefixKeys := getPrefixKeysHex(trie, key)
+
+	for _, prefixKey := range prefixKeys {
+		var proof proofList
+		err := trie.ProveStorageWitness(key, prefixKey, &proof)
+		assert.NoError(t, err)
+
+		// Expire trie
+		err = trie.ExpireByPrefix(prefixKey)
+		assert.NoError(t, err)
+
+		// Construct MPTProofCache
+		proofCache := makeRawMPTProofCache(prefixKey, proof)
+
+		err = proofCache.VerifyProof()
+		assert.NoError(t, err)
+
+		err = trie.ReviveTrie(proofCache)
+		assert.NoError(t, err)
+
+		// Validate trie
+		resVal, err := trie.TryGet(key)
+		assert.NoError(t, err)
+		assert.Equal(t, []byte(val), resVal)
 	}
 }
 

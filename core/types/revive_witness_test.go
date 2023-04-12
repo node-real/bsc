@@ -34,7 +34,7 @@ func makeStorageTrieWitness(addr common.Address, proofCount int, proofLen ...int
 			proof[j] = bytes.Repeat([]byte{'f'}, proofLen[j])
 		}
 		proofList[i] = MPTProof{
-			RootKey: nil,
+			RootKeyHex: nil,
 			Proof:   proof,
 		}
 	}

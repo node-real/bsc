@@ -9,6 +9,17 @@ import (
 	"testing"
 )
 
+func keybytesToHex(str []byte) []byte {
+	l := len(str)*2 + 1
+	var nibbles = make([]byte, l)
+	for i, b := range str {
+		nibbles[i*2] = b / 16
+		nibbles[i*2+1] = b % 16
+	}
+	nibbles[l-1] = 16
+	return nibbles
+}
+
 func makeMerkleProofWitness(addr *common.Address, keyLen, witSize, proofCount, proofLen int) types.ReviveWitness {
 	proofList := make([]types.MPTProof, witSize)
 	for i := range proofList {
@@ -17,7 +28,7 @@ func makeMerkleProofWitness(addr *common.Address, keyLen, witSize, proofCount, p
 			proof[j] = bytes.Repeat([]byte{'p'}, proofLen)
 		}
 		proofList[i] = types.MPTProof{
-			RootKey: bytes.Repeat([]byte{'k'}, keyLen),
+			RootKeyHex: keybytesToHex(bytes.Repeat([]byte{'k'}, keyLen)),
 			Proof:   proof,
 		}
 	}

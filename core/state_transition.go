@@ -19,7 +19,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/trie"
 	"math"
 	"math/big"
 
@@ -364,37 +363,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	// revive state before execution
 	if rules.IsElwood {
-		witnessList := msg.WitnessList()
-		for i := range witnessList {
-			wit := witnessList[i]
-			// got specify witness, verify proof and check if revive success
-			switch wit.WitnessType {
-			case types.StorageTrieWitnessType:
-				data, err := wit.WitnessData()
-				if err != nil {
-					return nil, err
-				}
-				stWit, ok := data.(*types.StorageTrieWitness)
-				if !ok {
-					return nil, errors.New("got StorageTrieWitnessType data error")
-				}
-				proofCaches := make([]trie.MPTProofCache, len(stWit.ProofList))
-				for j := range stWit.ProofList {
-					proofCaches[j] = trie.MPTProofCache{
-						MPTProof: stWit.ProofList[j],
-					}
-					if err := proofCaches[j].VerifyProof(); err != nil {
-						return nil, err
-					}
-
-					// TODO revive trie nodes by witness in the same contract storage trie
-					// 1. check expired hash;
-					// 2. append trie nodes & rebuild shadow nodes;
-				}
-			default:
-				return nil, errors.New("unsupported WitnessType")
-			}
-		}
+		st.state.ReviveTrie(msg.WitnessList())
 	}
 
 	var (

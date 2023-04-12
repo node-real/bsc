@@ -103,3 +103,7 @@ func (t *EmptyTrie) NodeIterator(start []byte) NodeIterator {
 func (t *EmptyTrie) TryUpdateAccount(key []byte, account *types.StateAccount) error {
 	return nil
 }
+
+func (t *EmptyTrie) ReviveTrie(proof MPTProofCache) error {
+	return nil
+}
