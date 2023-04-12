@@ -46,21 +46,33 @@ type node interface {
 	encode(w rlp.EncoderBuffer)
 	fstring(string) string
 	nodeType() int
+	setEpoch(epoch uint16)
+	getEpoch() uint16
 }
 
 type (
 	fullNode struct {
-		Children [BranchNodeLength]node // Actual trie node data to encode/decode (needs custom encoder)
-		flags    nodeFlag
+		Children   [BranchNodeLength]node // Actual trie node data to encode/decode (needs custom encoder)
+		flags      nodeFlag
+		epoch      uint16            `rlp:"-" json:"-"`
+		shadowNode *shadowBranchNode `rlp:"-" json:"-"`
 	}
 	shortNode struct {
-		Key   []byte
-		Val   node
-		flags nodeFlag
+		Key        []byte
+		Val        node
+		flags      nodeFlag
+		epoch      uint16               `rlp:"-" json:"-"`
+		shadowNode *shadowExtensionNode `rlp:"-" json:"-"`
 	}
 	hashNode  []byte
 	valueNode []byte
 )
+
+type RootNode struct {
+	Epoch      uint16
+	TrieHash   common.Hash
+	ShadowHash common.Hash
+}
 
 // nilValueNode is used when collapsing internal trie nodes for hashing, since
 // unset children need to serialize correctly.
@@ -71,6 +83,26 @@ func (n *fullNode) EncodeRLP(w io.Writer) error {
 	eb := rlp.NewEncoderBuffer(w)
 	n.encode(eb)
 	return eb.Flush()
+}
+
+func (n *fullNode) GetShadowNode() *shadowBranchNode {
+	return &shadowBranchNode{}
+}
+
+func (n *fullNode) IsChildExpired(pos int) (bool, error) {
+	return false, nil
+}
+
+func (n *fullNode) GetChildEpoch(pos int) uint16 {
+	return n.GetShadowNode().EpochMap[pos]
+}
+
+func (n *fullNode) UpdateChildEpoch(pos int, epoch uint16) {
+	n.GetShadowNode().EpochMap[pos] = epoch
+}
+
+func (n *shortNode) GetShadowNode() *shadowExtensionNode {
+	return &shadowExtensionNode{}
 }
 
 func (n *fullNode) copy() *fullNode   { copy := *n; return &copy }
@@ -92,6 +124,16 @@ func (n *fullNode) String() string  { return n.fstring("") }
 func (n *shortNode) String() string { return n.fstring("") }
 func (n hashNode) String() string   { return n.fstring("") }
 func (n valueNode) String() string  { return n.fstring("") }
+
+func (n *fullNode) setEpoch(epoch uint16)  { n.epoch = epoch }
+func (n *shortNode) setEpoch(epoch uint16) { n.epoch = epoch }
+func (n hashNode) setEpoch(epoch uint16)   {}
+func (n valueNode) setEpoch(epoch uint16)  {}
+
+func (n *fullNode) getEpoch() uint16  { return n.epoch }
+func (n *shortNode) getEpoch() uint16 { return n.epoch }
+func (n hashNode) getEpoch() uint16   { return 0 }
+func (n valueNode) getEpoch() uint16  { return 0 }
 
 func (n *fullNode) fstring(ind string) string {
 	resp := fmt.Sprintf("[\n%s  ", ind)
@@ -186,21 +228,24 @@ func decodeShort(hash, elems []byte) (node, error) {
 	if err != nil {
 		return nil, err
 	}
-	flag := nodeFlag{hash: hash}
+	n := &shortNode{flags: nodeFlag{hash: hash}}
 	key := compactToHex(kbuf)
+	n.Key = key
 	if hasTerm(key) {
 		// value node
 		val, _, err := rlp.SplitString(rest)
 		if err != nil {
 			return nil, fmt.Errorf("invalid value node: %v", err)
 		}
-		return &shortNode{key, valueNode(val), flag}, nil
+		n.Val = valueNode(val)
+		return n, nil
 	}
 	r, _, err := decodeRef(rest)
 	if err != nil {
 		return nil, wrapError(err, "val")
 	}
-	return &shortNode{key, r, flag}, nil
+	n.Val = r
+	return n, nil
 }
 
 func decodeFull(hash, elems []byte) (*fullNode, error) {

@@ -103,6 +103,8 @@ type rawNode []byte
 
 func (n rawNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawNode) fstring(ind string) string { panic("this should never end up in a live trie") }
+func (n rawNode) setEpoch(epcoh uint16)     { panic("this should never end up in a live trie") }
+func (n rawNode) getEpoch() uint16          { panic("this should never end up in a live trie") }
 
 func (n rawNode) EncodeRLP(w io.Writer) error {
 	_, err := w.Write(n)
@@ -120,6 +122,8 @@ type rawFullNode [17]node
 
 func (n rawFullNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawFullNode) fstring(ind string) string { panic("this should never end up in a live trie") }
+func (n rawFullNode) setEpoch(epcoh uint16)     { panic("this should never end up in a live trie") }
+func (n rawFullNode) getEpoch() uint16          { panic("this should never end up in a live trie") }
 
 func (n rawFullNode) nodeType() int {
 	return rawFullNodeType
@@ -141,6 +145,8 @@ type rawShortNode struct {
 
 func (n rawShortNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawShortNode) fstring(ind string) string { panic("this should never end up in a live trie") }
+func (n rawShortNode) setEpoch(epoch uint16)     { panic("this should never end up in a live trie") }
+func (n rawShortNode) getEpoch() uint16          { panic("this should never end up in a live trie") }
 
 func (n rawShortNode) nodeType() int {
 	return rawShortNodeType
@@ -419,6 +425,10 @@ func (db *Database) node(hash common.Hash) node {
 	// The returned value from database is in its own copy,
 	// safe to use mustDecodeNodeUnsafe for decoding.
 	return mustDecodeNodeUnsafe(hash[:], enc)
+}
+
+func (db *Database) RootNode(hash common.Hash) *RootNode {
+	return nil
 }
 
 // Node retrieves an encoded cached trie node from memory. If it cannot be found

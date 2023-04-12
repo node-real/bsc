@@ -33,3 +33,13 @@ type MissingNodeError struct {
 func (err *MissingNodeError) Error() string {
 	return fmt.Sprintf("missing trie node %x (path %x)", err.NodeHash, err.Path)
 }
+
+type ExpiredNodeError struct {
+	ExpiredNode node   // node of the expired node
+	Path        []byte // hex-encoded path to the expired node
+	Epoch       uint16
+}
+
+func (err *ExpiredNodeError) Error() string {
+	return fmt.Sprintf("expired trie ndoe ")
+}

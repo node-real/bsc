@@ -86,8 +86,13 @@ func New(root common.Hash, db *Database) (*Trie, error) {
 	trie := &Trie{
 		db: db,
 	}
+	epoch := uint16(0)
+	if rootNode := db.RootNode(root); rootNode != nil {
+		root = rootNode.TrieHash
+		epoch = rootNode.Epoch
+	}
 	if root != (common.Hash{}) && root != emptyRoot {
-		rootnode, err := trie.resolveHash(root[:], nil)
+		rootnode, err := trie.resolveHash(root[:], nil, epoch)
 		if err != nil {
 			return nil, err
 		}
@@ -116,14 +121,14 @@ func (t *Trie) Get(key []byte) []byte {
 // The value bytes must not be modified by the caller.
 // If a node was not found in the database, a MissingNodeError is returned.
 func (t *Trie) TryGet(key []byte) ([]byte, error) {
-	value, newroot, didResolve, err := t.tryGet(t.root, keybytesToHex(key), 0)
+	value, newroot, didResolve, err := t.tryGet(t.root, keybytesToHex(key), 0, t.root.getEpoch())
 	if err == nil && didResolve {
 		t.root = newroot
 	}
 	return value, err
 }
 
-func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode node, didResolve bool, err error) {
+func (t *Trie) tryGet(origNode node, key []byte, pos int, epoch uint16) (value []byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
 		return nil, nil, false, nil
@@ -134,25 +139,28 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode
 			// key not found in trie
 			return nil, n, false, nil
 		}
-		value, newnode, didResolve, err = t.tryGet(n.Val, key, pos+len(n.Key))
+		value, newnode, didResolve, err = t.tryGet(n.Val, key, pos+len(n.Key), n.epoch)
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Val = newnode
 		}
 		return value, n, didResolve, err
 	case *fullNode:
-		value, newnode, didResolve, err = t.tryGet(n.Children[key[pos]], key, pos+1)
+		if expired, err := n.IsChildExpired(pos); expired {
+			return nil, n, false, err
+		}
+		value, newnode, didResolve, err = t.tryGet(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(pos))
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Children[key[pos]] = newnode
 		}
 		return value, n, didResolve, err
 	case hashNode:
-		child, err := t.resolveHash(n, key[:pos])
+		child, err := t.resolveHash(n, key[:pos], epoch)
 		if err != nil {
 			return nil, n, true, err
 		}
-		value, newnode, _, err := t.tryGet(child, key, pos)
+		value, newnode, _, err := t.tryGet(child, key, pos, epoch)
 		return value, newnode, true, err
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
@@ -300,7 +308,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 			if !dirty || err != nil {
 				return false, n, err
 			}
-			return true, &shortNode{n.Key, nn, t.newFlag()}, nil
+			return true, &shortNode{Key: n.Key, Val: nn, flags: t.newFlag()}, nil
 		}
 		// Otherwise branch out at the index where they differ.
 		branch := &fullNode{flags: t.newFlag()}
@@ -318,7 +326,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 			return true, branch, nil
 		}
 		// Otherwise, replace it with a short node leading up to the branch.
-		return true, &shortNode{key[:matchlen], branch, t.newFlag()}, nil
+		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag()}, nil
 
 	case *fullNode:
 		dirty, nn, err := t.insert(n.Children[key[0]], append(prefix, key[0]), key[1:], value)
@@ -331,7 +339,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 		return true, n, nil
 
 	case nil:
-		return true, &shortNode{key, value, t.newFlag()}, nil
+		return true, &shortNode{Key: key, Val: value, flags: t.newFlag()}, nil
 
 	case hashNode:
 		// We've hit a part of the trie that isn't loaded yet. Load
@@ -401,9 +409,9 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 			// always creates a new slice) instead of append to
 			// avoid modifying n.Key since it might be shared with
 			// other nodes.
-			return true, &shortNode{concat(n.Key, child.Key...), child.Val, t.newFlag()}, nil
+			return true, &shortNode{Key: concat(n.Key, child.Key...), Val: child.Val, flags: t.newFlag()}, nil
 		default:
-			return true, &shortNode{n.Key, child, t.newFlag()}, nil
+			return true, &shortNode{Key: n.Key, Val: child, flags: t.newFlag()}, nil
 		}
 
 	case *fullNode:
@@ -457,12 +465,12 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 				}
 				if cnode, ok := cnode.(*shortNode); ok {
 					k := append([]byte{byte(pos)}, cnode.Key...)
-					return true, &shortNode{k, cnode.Val, t.newFlag()}, nil
+					return true, &shortNode{Key: k, Val: cnode.Val, flags: t.newFlag()}, nil
 				}
 			}
 			// Otherwise, n is replaced by a one-nibble short node
 			// containing the child.
-			return true, &shortNode{[]byte{byte(pos)}, n.Children[pos], t.newFlag()}, nil
+			return true, &shortNode{Key: []byte{byte(pos)}, Val: n.Children[pos], flags: t.newFlag()}, nil
 		}
 		// n still contains at least two values and cannot be reduced.
 		return true, n, nil
@@ -507,19 +515,18 @@ func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 	// Loop through prefix key
 	// When prefix key is empty, generate the hash node of the current node
 	// Replace current node with the hash node
-	
+
 	// If length of prefix key is empty
 	if len(prefixKeyHex) == 0 {
 		hasher := newHasher(false)
 		defer returnHasherToPool(hasher)
 		var hn node
 		_, hn = hasher.proofHash(n)
-
 		if _, ok := hn.(hashNode); ok {
 			return hn, nil
 		}
 
-		return nil, nil 
+		return nil, nil
 	}
 
 	switch n := n.(type) {
@@ -553,7 +560,6 @@ func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
 	}
 }
 
-
 func concat(s1 []byte, s2 ...byte) []byte {
 	r := make([]byte, len(s1)+len(s2))
 	copy(r, s1)
@@ -568,12 +574,13 @@ func (t *Trie) resolve(n node, prefix []byte) (node, error) {
 	return n, nil
 }
 
-func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
+func (t *Trie) resolveHash(n hashNode, prefix []byte, epoch uint16) (node, error) {
 	hash := common.BytesToHash(n)
 	if t.db == nil {
 		return nil, fmt.Errorf("empty trie database")
 	}
 	if node := t.db.node(hash); node != nil {
+		node.setEpoch(epoch)
 		return node, nil
 	}
 	return nil, &MissingNodeError{NodeHash: hash, Path: prefix}
