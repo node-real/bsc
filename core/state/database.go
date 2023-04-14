@@ -126,7 +126,7 @@ type Trie interface {
 	// nodes of the longest existing prefix of the key (at least the root), ending
 	// with the node that proves the absence of the key.
 	Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error
-	
+
 	ProveStorageWitness(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error
 
 	ReviveTrie(trie.MPTProofCache) error

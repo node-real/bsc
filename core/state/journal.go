@@ -139,6 +139,13 @@ type (
 		address *common.Address
 		slot    *common.Hash
 	}
+	reviveStorageTrieNodeChange struct {
+		address *common.Address
+	}
+	accessedStorageStateChange struct {
+		address *common.Address
+		slot    *common.Hash
+	}
 )
 
 func (ch createObjectChange) revert(s *StateDB) {
@@ -271,4 +278,28 @@ func (ch accessListAddSlotChange) revert(s *StateDB) {
 
 func (ch accessListAddSlotChange) dirtied() *common.Address {
 	return nil
+}
+
+func (ch reviveStorageTrieNodeChange) revert(s *StateDB) {
+	s.getStateObject(*ch.address).dirtyReviveState = make(Storage)
+	s.getStateObject(*ch.address).dirtyReviveTrie = nil
+}
+
+func (ch reviveStorageTrieNodeChange) dirtied() *common.Address {
+	return ch.address
+}
+
+func (ch accessedStorageStateChange) revert(s *StateDB) {
+	if count, ok := s.getStateObject(*ch.address).dirtyAccessedState[*ch.slot]; ok {
+		if count > 1 {
+			s.getStateObject(*ch.address).dirtyAccessedState[*ch.slot] = count - 1
+		} else {
+			delete(s.getStateObject(*ch.address).dirtyAccessedState, *ch.slot)
+		}
+	}
+
+}
+
+func (ch accessedStorageStateChange) dirtied() *common.Address {
+	return ch.address
 }

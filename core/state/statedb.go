@@ -473,6 +473,7 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 }
 
 // GetState retrieves a value from the given account's storage trie.
+// TODO access in shadow node
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
@@ -507,7 +508,7 @@ func (s *StateDB) GetStorageWitness(a common.Address, prefixKeyHex []byte, key c
 	return proof, err
 }
 
-//  TODO: GetStorageProof returns the combined Merkle proof and Shadow Tree proof for given storage slot.
+// TODO: GetStorageProof returns the combined Merkle proof and Shadow Tree proof for given storage slot.
 func (s *StateDB) GetStorageProof(a common.Address, key common.Hash) ([][]byte, error) {
 	var proof proofList
 	trie := s.StorageTrie(a)
@@ -593,6 +594,7 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	}
 }
 
+// TODO access state and check insert duplicated
 func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
@@ -1456,6 +1458,7 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 					tasks <- func() {
 						// Write any storage changes in the state object to its storage trie
 						if !s.noTrie {
+							// TODO commit revive state cache to Trie
 							if _, err := obj.CommitTrie(s.db); err != nil {
 								taskResults <- err
 								return
@@ -1568,6 +1571,7 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 				diffLayer.Destructs, diffLayer.Accounts, diffLayer.Storages = s.SnapToDiffLayer()
 				// Only update if there's a state transition (skip empty Clique blocks)
 				if parent := s.snap.Root(); parent != s.expectedRoot {
+					// TODO snap support epoch index
 					err := s.snaps.Update(s.expectedRoot, parent, s.snapDestructs, s.snapAccounts, s.snapStorage, verified)
 
 					if err != nil {
@@ -1755,7 +1759,7 @@ func (s *StateDB) GetStorage(address common.Address) *sync.Map {
 }
 
 // ReviveTrie revive a trie with a given witness list
-func (s *StateDB) ReviveTrie(witnessList types.WitnessList) error{
+func (s *StateDB) ReviveStorageTrie(witnessList types.WitnessList) error {
 	for i := range witnessList {
 		wit := witnessList[i]
 		// got specify witness, verify proof and check if revive success
@@ -1778,8 +1782,11 @@ func (s *StateDB) ReviveTrie(witnessList types.WitnessList) error{
 					return err
 				}
 
-				trie := s.StorageTrie(stWit.Address)
-				if err := trie.ReviveTrie(proofCaches[j]); err != nil {
+				stateObject := s.getStateObject(stWit.Address)
+				if stateObject == nil {
+					return errors.New("contract object not found")
+				}
+				if err := stateObject.ReviveStorageTrie(proofCaches[j]); err != nil {
 					return err
 				}
 			}

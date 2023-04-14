@@ -180,8 +180,8 @@ type MPTProofCache struct {
 // VerifyProof verify proof in MPT witness
 // 1. calculate hash
 // 2. decode trie node
-// 3. verify partial merkle proof of the witness
-// 4. split to partial witness
+// 3. verify partial merkle proof of the witness, TODO match algo will check inner mem node scene, until meet hash node or value node or nil?
+// 4. split to partial witness, TODO check if satisfy partial witness rules?
 // TODO later revive state could revive KV from fullNode[0-15] or fullNode[16] shortNode.Val, return KVs for cache & snap
 // another easy method is that revive direct to Trie/Trie cache, query later and set to KV cache
 func (m *MPTProofCache) VerifyProof() error {
@@ -229,7 +229,7 @@ func (m *MPTProofCache) VerifyProof() error {
 	m.cacheNubs = make([]*MPTProofNub, 0, len(m.Proof))
 	prefix := m.RootKeyHex
 	for i := 0; i < len(m.cacheNodes); i++ {
-		if i - 1 >= 0 {
+		if i-1 >= 0 {
 			prefix = append(prefix, m.cacheHexPath[i-1]...)
 		}
 		// prefix = append(prefix, m.cacheHexPath[i]...)
@@ -244,6 +244,7 @@ func (m *MPTProofCache) VerifyProof() error {
 			prefix = append(prefix, m.cacheHexPath[i-1]...)
 			nub.n2 = m.cacheNodes[i]
 		}
+		// TODO check short node must with child in same nub
 		m.cacheNubs = append(m.cacheNubs, &nub)
 	}
 

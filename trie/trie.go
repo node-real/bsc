@@ -506,7 +506,7 @@ func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) error {
 		t.root = hn
 	}
 	if err != nil {
-		return err 
+		return err
 	}
 	return nil
 }
@@ -666,10 +666,10 @@ func (t *Trie) Size() int {
 
 // ReviveTrie revives the trie from the proof cache
 func (t *Trie) ReviveTrie(proof MPTProofCache) error {
-	
+
 	var parent node
 	var childIndex int // If parent is a fullNode, childIndex is the index of the child node
-	
+
 	cacheHashIndex := 0 // Keep track of the index of the cachedHash
 	nubs := proof.cacheNubs
 
@@ -717,6 +717,7 @@ loopNubs:
 				// Attach n1 to the trie
 				switch n := parent.(type) {
 				case *shortNode:
+					// TODO should copy node and parent point to new node
 					n.Val = nub.n1
 					parent = n.Val
 				case *fullNode:
@@ -727,13 +728,13 @@ loopNubs:
 
 				// Attach n2 to the trie if exists
 				if nub.n2 != nil {
-				switch n := parent.(type) {
-				case *shortNode:
-					n.Val = nub.n2
-				default:
-					return fmt.Errorf("n2 should only be attached to a shortNode")
-				}
-				// TODO (asyukii): build shadow node if n2 is a fullNode
+					switch n := parent.(type) {
+					case *shortNode:
+						n.Val = nub.n2
+					default:
+						return fmt.Errorf("n2 should only be attached to a shortNode")
+					}
+					// TODO (asyukii): build shadow node if n2 is a fullNode
 				}
 			}
 		}
@@ -749,4 +750,3 @@ loopNubs:
 
 	return nil
 }
-

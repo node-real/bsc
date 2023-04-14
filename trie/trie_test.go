@@ -39,8 +39,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/sha3"
 )
 
 func init() {
@@ -475,10 +475,9 @@ func TestRandom(t *testing.T) {
 	}
 }
 
-
-// TestExpireByPrefix tests that the trie is not corrupted after 
+// TestExpireByPrefix tests that the trie is not corrupted after
 // expiring a key by prefix.
-func TestExpireByPrefix(t *testing.T){
+func TestExpireByPrefix(t *testing.T) {
 	data := map[string]string{
 		"abcd": "A",
 		"abce": "B",
@@ -494,7 +493,7 @@ func TestExpireByPrefix(t *testing.T){
 	rootHash := trie.Hash()
 
 	for k := range data {
-		prefixKeys :=  getPrefixKeysHex(trie, []byte(k))
+		prefixKeys := getPrefixKeysHex(trie, []byte(k))
 		for _, prefixKey := range prefixKeys {
 			trie.ExpireByPrefix(prefixKey)
 			currHash := trie.Hash()
@@ -507,7 +506,7 @@ func TestExpireByPrefix(t *testing.T){
 	}
 }
 
-func createCustomTrie(data map[string]string) *Trie{
+func createCustomTrie(data map[string]string) *Trie {
 	trie := new(Trie)
 	for k, v := range data {
 		trie.Update([]byte(k), []byte(v))
@@ -531,13 +530,13 @@ func makeRawMPTProofCache(rootKeyHex []byte, proof [][]byte) MPTProofCache {
 	return MPTProofCache{
 		MPTProof: types.MPTProof{
 			RootKeyHex: rootKeyHex,
-			Proof:   proof,
+			Proof:      proof,
 		},
 	}
 }
 
 // TestReviveTrie tests that a trie can be revived from a proof
-func TestReviveTrie(t *testing.T){
+func TestReviveTrie(t *testing.T) {
 
 	trie, vals := nonRandomTrie(500)
 
@@ -578,10 +577,10 @@ func TestReviveTrie(t *testing.T){
 			// Reset trie
 			trie, _ = nonRandomTrie(500)
 		}
-	}		
+	}
 }
 
-// TODO (asyukii): TestReviveAtRoot tests that a key can be revived at root when 
+// TODO (asyukii): TestReviveAtRoot tests that a key can be revived at root when
 // the whole trie is expired. This test will fail because the parent node in
 // ReviveTrie is nil, set to RootNode when available
 // func TestReviveAtRoot(t *testing.T) {
@@ -613,7 +612,6 @@ func TestReviveTrie(t *testing.T){
 // 		err = trie.ReviveTrie(proofCache)
 // 		assert.NoError(t, err)
 
-
 // 		// Verify value exists after revive
 // 		v := trie.Get(key)
 // 		assert.Equal(t, val, v)
@@ -630,7 +628,7 @@ func TestReviveTrie(t *testing.T){
 
 // TestReviveBadProof tests that a trie cannot be revived from a bad proof
 func TestReviveBadProof(t *testing.T) {
-	
+
 	dataA := map[string]string{
 		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
 		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
@@ -698,7 +696,7 @@ func TestReviveOneElement(t *testing.T) {
 	assert.Equal(t, val, v)
 }
 
-// TestReviveBadProofAfterUpdate tests that after reviving a path and 
+// TestReviveBadProofAfterUpdate tests that after reviving a path and
 // then update the value, old proof should be invalid
 func TestReviveBadProofAfterUpdate(t *testing.T) {
 	trie, vals := nonRandomTrie(500)
@@ -753,7 +751,7 @@ func TestPartialReviveFullProof(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Expire trie
-	err = trie.ExpireByPrefix([]byte{6,1})
+	err = trie.ExpireByPrefix([]byte{6, 1})
 	assert.NoError(t, err)
 
 	// Construct MPTProofCache
@@ -777,16 +775,16 @@ func TestPartialReviveFullProof(t *testing.T) {
 // full node can be revived properly
 func TestReviveValueAtFullNode(t *testing.T) {
 	hexKeys := [][]byte{
-		{6,1,6,2,6,3,6,4,16},
-		{6,1,6,2,6,3,6,5,16},
-		{6,1,6,2,6,4,6,5,16},
-		{6,1,6,2,6,4,6,6,16},
-		{6,4,6,5,6,6,6,7,16},
-		{6,4,6,5,6,6,6,8,16},
-		{6,4,6,5,6,7,6,8,16},
-		{6,4,6,5,6,7,6,9,16},
-		{6,1,6,2,6,3,6,4,16},
-		{6,1,6,2,16}, // This is the key that has a value at a full node
+		{6, 1, 6, 2, 6, 3, 6, 4, 16},
+		{6, 1, 6, 2, 6, 3, 6, 5, 16},
+		{6, 1, 6, 2, 6, 4, 6, 5, 16},
+		{6, 1, 6, 2, 6, 4, 6, 6, 16},
+		{6, 4, 6, 5, 6, 6, 6, 7, 16},
+		{6, 4, 6, 5, 6, 6, 6, 8, 16},
+		{6, 4, 6, 5, 6, 7, 6, 8, 16},
+		{6, 4, 6, 5, 6, 7, 6, 9, 16},
+		{6, 1, 6, 2, 6, 3, 6, 4, 16},
+		{6, 1, 6, 2, 16}, // This is the key that has a value at a full node
 	}
 
 	byteKeys := make([][]byte, len(hexKeys))

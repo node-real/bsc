@@ -363,7 +363,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	// revive state before execution
 	if rules.IsElwood {
-		st.state.ReviveTrie(msg.WitnessList())
+		st.state.ReviveStorageTrie(msg.WitnessList())
 	}
 
 	var (

@@ -1386,6 +1386,13 @@ func getPrefixKeysHex(t *Trie, key []byte) [][]byte {
 	return prefixKeys
 }
 
+// TODO add more UTs
+// 1. whole trie expired without root node
+// 2. whole trie expired with root node
+// 3. witness with one short node, val is full node
+// 3. witness with one short node, val is value node
+// 3. witness with one short node, val is recursive full node + short node + value node
+// 4. witness with one full node with val node, children is short node and recursive full node + short node + value node
 func TestMPTProofCache_VerifyProof_normalCase(t *testing.T) {
 	cache := makeMPTProofCache(nil, []string{
 		"0xf90211a03697534056039e03300557bd69fe16e18ce4a6ccd5522db4dfa97dfe1fad3d3aa0b1bf1f230b98b9034738d599177ae817c08143b9395a47f300636b0dd2fb3c5ea0aa04a4966751d4c50063fe13a96a6c7924f665819733f556849b5eb9fa1d6839a0e162e080d1c12c59dc984fb2246d8ad61209264bee40d3fdd07c4ea4ff411b6aa0e5c3f2dde71bf303423f34674748567dcdf8379129653b8213f698468738d492a068a3e3059b6e7115a055a7874f81c5a1e84ddc1967527973f8c78cd86a1c9f8fa0d734bd63b7be8e8471091b792f5bbcbc7b0ce582f6d985b7a15a3c0155242c56a00143c06f57a65c8485dbae750aa51df5dff1bf7bdf28060129a20de9e51364eda07b416f79b3f4e39d0159efff351009d44002d9e83530fb5a5778eb55f5f4432ca036706b52196fa0b73feb2e7ff8f1379c7176d427dd44ad63c7b65e66693904a1a0fd6c8b815e2769ce379a20eaccdba1f145fb11f77c280553f15ee4f1ee135375a02f5233009f082177e5ed2bfa6e180bf1a7310e6bc3c079cb85a4ac6fee4ae379a03f07f1bb33fa26ebd772fa874914dc7a08581095e5159fdcf9221be6cbeb6648a097557eec1ac08c3bfe45ce8e34cd329164a33928ac83fef1009656536ef6907fa028196bfb31aa7f14a0a8000b00b0aa5d09450c32d537e45eebee70b14313ff1ca0126ce265ca7bbb0e0b01f068d1edef1544cbeb2f048c99829713c18d7abc049a80",
@@ -1406,7 +1413,9 @@ func TestMPTProofCache_VerifyProof_normalCase(t *testing.T) {
 	h.sha.Reset()
 	h.sha.Write(key)
 	h.sha.Read(hash)
-	assert.Equal(t, hash, hexToKeybytes(cache.cacheNubs[6].RootHexKey))
+	ln := cache.cacheNubs[6].n1.(*shortNode)
+	hexKey := append(cache.cacheNubs[6].RootHexKey, ln.Key...)
+	assert.Equal(t, hash, hexToKeybytes(hexKey))
 }
 
 func makeMPTProofCache(key []byte, proofs []string) MPTProofCache {
@@ -1418,7 +1427,7 @@ func makeMPTProofCache(key []byte, proofs []string) MPTProofCache {
 	return MPTProofCache{
 		MPTProof: types.MPTProof{
 			RootKeyHex: key,
-			Proof:   proof,
+			Proof:      proof,
 		},
 	}
 }

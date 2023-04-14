@@ -19,6 +19,7 @@ package state
 import (
 	"bytes"
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie"
 	"io"
 	"math/big"
 	"sync"
@@ -79,7 +80,7 @@ type StateObject struct {
 	dbErr error
 
 	// Write caches.
-	trie Trie // storage trie, which becomes non-nil on first access
+	trie Trie // storage trie, which becomes non-nil on first access, it's committed trie
 	code Code // contract bytecode, which gets set when code is loaded
 
 	sharedOriginStorage *sync.Map // Point to the entry of the stateObject in sharedPool
@@ -88,6 +89,17 @@ type StateObject struct {
 	pendingStorage Storage // Storage entries that need to be flushed to disk, at the end of an entire block
 	dirtyStorage   Storage // Storage entries that have been modified in the current transaction execution
 	fakeStorage    Storage // Fake storage which constructed by caller for debugging purpose.
+
+	// revive state
+	pendingReviveTrie Trie // pendingReviveTrie it contains pending revive trie nodes, could update & commit later
+	dirtyReviveTrie   Trie // dirtyReviveTrie for tx
+
+	// TODO when R&W, access revive state first
+	pendingReviveState Storage // pendingReviveState for block, it cannot flush to trie, just cache
+	dirtyReviveState   Storage // dirtyReviveState for tx, for cache dirtyReviveTrie
+
+	pendingAccessedState map[common.Hash]int // pendingAccessedState record which state is accessed, it will update epoch index late
+	dirtyAccessedState   map[common.Hash]int // dirtyAccessedState record which state is accessed, it will update epoch index later, attention: don't record revive state
 
 	// Cache flags.
 	// When an object is marked suicided it will be delete from the trie
@@ -131,6 +143,8 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *St
 		originStorage:       make(Storage),
 		pendingStorage:      make(Storage),
 		dirtyStorage:        make(Storage),
+		dirtyReviveState:    make(Storage),
+		pendingReviveState:  make(Storage),
 	}
 }
 
@@ -181,6 +195,20 @@ func (s *StateObject) getTrie(db Database) Trie {
 		}
 	}
 	return s.trie
+}
+
+func (s *StateObject) getPendingReviveTrie(db Database) Trie {
+	if s.pendingReviveTrie == nil {
+		s.pendingReviveTrie = s.db.db.CopyTrie(s.getTrie(db))
+	}
+	return s.pendingReviveTrie
+}
+
+func (s *StateObject) getDirtyReviveTrie(db Database) Trie {
+	if s.dirtyReviveTrie == nil {
+		s.dirtyReviveTrie = s.db.db.CopyTrie(s.getPendingReviveTrie(db))
+	}
+	return s.dirtyReviveTrie
 }
 
 // GetState retrieves a value from the account storage trie.
@@ -338,6 +366,14 @@ func (s *StateObject) finalise(prefetch bool) {
 			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
 		}
 	}
+	for key, value := range s.dirtyReviveState {
+		s.pendingReviveState[key] = value
+	}
+	for key, value := range s.dirtyAccessedState {
+		count := s.pendingAccessedState[key]
+		count += value
+		s.pendingAccessedState[key] = count
+	}
 
 	prefetcher := s.db.prefetcher
 	if prefetcher != nil && prefetch && len(slotsToPrefetch) > 0 && s.data.Root != emptyRoot {
@@ -345,6 +381,16 @@ func (s *StateObject) finalise(prefetch bool) {
 	}
 	if len(s.dirtyStorage) > 0 {
 		s.dirtyStorage = make(Storage)
+	}
+	if len(s.dirtyReviveState) > 0 {
+		s.dirtyReviveState = make(Storage)
+	}
+	if len(s.dirtyAccessedState) > 0 {
+		s.dirtyAccessedState = make(map[common.Hash]int)
+	}
+	if s.dirtyReviveTrie != nil {
+		s.pendingReviveTrie = s.dirtyReviveTrie
+		s.dirtyReviveTrie = nil
 	}
 }
 
@@ -364,8 +410,8 @@ func (s *StateObject) updateTrie(db Database) Trie {
 			s.db.MetricsMux.Unlock()
 		}(time.Now())
 	}
-	// Insert all the pending updates into the trie
-	tr := s.getTrie(db)
+	// Insert all the pending updates into the pending trie
+	tr := s.getPendingReviveTrie(db)
 
 	usedStorage := make([][]byte, 0, len(s.pendingStorage))
 	dirtyStorage := make(map[common.Hash][]byte)
@@ -395,6 +441,16 @@ func (s *StateObject) updateTrie(db Database) Trie {
 			usedStorage = append(usedStorage, common.CopyBytes(key[:]))
 		}
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for key := range s.pendingAccessedState {
+			if _, ok := dirtyStorage[key]; ok {
+				continue
+			}
+			// TODO update accessed state epoch index
+		}
+	}()
 	if s.db.snap != nil {
 		// If state snapshotting is active, cache the data til commit
 		wg.Add(1)
@@ -422,6 +478,14 @@ func (s *StateObject) updateTrie(db Database) Trie {
 
 	if len(s.pendingStorage) > 0 {
 		s.pendingStorage = make(Storage)
+	}
+	if len(s.pendingAccessedState) > 0 {
+		s.pendingAccessedState = make(map[common.Hash]int)
+	}
+
+	// reset trie as pending trie, will commit later
+	if tr != nil {
+		s.trie = s.db.db.CopyTrie(tr)
 	}
 	return tr
 }
@@ -524,6 +588,15 @@ func (s *StateObject) deepCopy(db *StateDB) *StateObject {
 	stateObject.suicided = s.suicided
 	stateObject.dirtyCode = s.dirtyCode
 	stateObject.deleted = s.deleted
+
+	if s.dirtyReviveTrie != nil {
+		stateObject.dirtyReviveTrie = db.db.CopyTrie(s.dirtyReviveTrie)
+	}
+	if s.pendingReviveTrie != nil {
+		stateObject.pendingReviveTrie = db.db.CopyTrie(s.pendingReviveTrie)
+	}
+	stateObject.dirtyReviveState = s.dirtyReviveState.Copy()
+	stateObject.pendingReviveState = s.pendingReviveState.Copy()
 	return stateObject
 }
 
@@ -614,4 +687,16 @@ func (s *StateObject) Nonce() uint64 {
 // interface. Interfaces are awesome.
 func (s *StateObject) Value() *big.Int {
 	panic("Value on StateObject should never be called")
+}
+
+func (s *StateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
+	dr := s.getDirtyReviveTrie(s.db.db)
+	if err := dr.ReviveTrie(proofCache); err != nil {
+		s.dirtyReviveTrie = nil
+		return err
+	}
+	s.db.journal.append(reviveStorageTrieNodeChange{
+		address: &s.address,
+	})
+	return nil
 }
