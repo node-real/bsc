@@ -202,8 +202,8 @@ func (db *odrTrie) NoTries() bool {
 	return false
 }
 
-func (t *odrTrie) ReviveTrie(proof trie.MPTProofCache) error {
-	return t.trie.ReviveTrie(proof)
+func (t *odrTrie) ReviveTrie(proof trie.MPTProofCache) {
+	t.trie.ReviveTrie(proof)
 }
 
 type nodeIterator struct {

@@ -563,7 +563,7 @@ func TestReviveTrie(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Revive trie
-			err = trie.ReviveTrie(proofCache)
+			err = trie.TryRevive(proofCache)
 			assert.NoError(t, err)
 
 			// Verify value exists after revive
@@ -658,8 +658,8 @@ func TestReviveBadProof(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Revive trie
-	err = trieA.ReviveTrie(proofCache)
-	assert.NoError(t, err)
+	err = trieA.TryRevive(proofCache)
+	assert.Error(t, err)
 
 	// Verify value does exists after revive
 	_, err = trieA.TryGet([]byte("abcd"))
@@ -689,7 +689,7 @@ func TestReviveOneElement(t *testing.T) {
 	err = proofCache.VerifyProof()
 	assert.NoError(t, err)
 
-	err = trie.ReviveTrie(proofCache)
+	err = trie.TryRevive(proofCache)
 	assert.NoError(t, err)
 
 	v := trie.Get(key)
@@ -718,13 +718,13 @@ func TestReviveBadProofAfterUpdate(t *testing.T) {
 			err = proofCache.VerifyProof()
 			assert.NoError(t, err)
 
-			err = trie.ReviveTrie(proofCache)
+			err = trie.TryRevive(proofCache)
 			assert.NoError(t, err)
 
 			trie.Update(key, []byte("new value"))
 
 			// Revive again with old proof
-			err = trie.ReviveTrie(proofCache)
+			err = trie.TryRevive(proofCache)
 			assert.NoError(t, err)
 
 			// Validate trie
@@ -762,7 +762,7 @@ func TestPartialReviveFullProof(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Revive trie
-	err = trie.ReviveTrie(proofCache)
+	err = trie.TryRevive(proofCache)
 	assert.NoError(t, err)
 
 	// Validate trie
@@ -824,7 +824,7 @@ func TestReviveValueAtFullNode(t *testing.T) {
 		err = proofCache.VerifyProof()
 		assert.NoError(t, err)
 
-		err = trie.ReviveTrie(proofCache)
+		err = trie.TryRevive(proofCache)
 		assert.NoError(t, err)
 
 		// Validate trie
