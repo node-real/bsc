@@ -9,10 +9,18 @@ import (
 //}
 
 type shadowExtensionNode struct {
-	ShadowHash *common.Hash
+	ShadowHash common.Hash
+}
+
+func NewShadowExtensionNode(hash common.Hash) shadowExtensionNode {
+	return shadowExtensionNode{hash}
 }
 
 type shadowBranchNode struct {
-	ShadowHash *common.Hash
+	ShadowHash common.Hash
 	EpochMap   [16]uint16
+}
+
+func NewShadowBranchNode(hash common.Hash, epochMap [16]uint16) shadowBranchNode {
+	return shadowBranchNode{hash, epochMap}
 }

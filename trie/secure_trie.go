@@ -52,14 +52,28 @@ type SecureTrie struct {
 // Loaded nodes are kept around until their 'cache generation' expires.
 // A new cache generation is created by each call to Commit.
 // cachelimit sets the number of past cache generations to keep.
-func NewSecure(root common.Hash, db *Database) (*SecureTrie, error) {
+func NewSecure(root common.Hash, db *Database, isStorageTrie bool) (*SecureTrie, error) {
 	if db == nil {
 		panic("trie.NewSecure called without a database")
+	}
+	epoch := uint16(0)
+	shadowHash := common.Hash{}
+	if isStorageTrie {
+		if rootNode := db.RootNode(root); rootNode != nil {
+			root = rootNode.TrieHash
+			epoch = rootNode.Epoch
+			shadowHash = rootNode.ShadowHash
+		}
 	}
 	trie, err := New(root, db)
 	if err != nil {
 		return nil, err
 	}
+	if isStorageTrie {
+		trie.root.setEpoch(epoch)
+		trie.shadowHash = shadowHash
+	}
+	trie.isStorageTrie = isStorageTrie
 	return &SecureTrie{trie: *trie}, nil
 }
 

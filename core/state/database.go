@@ -216,7 +216,7 @@ func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 			return tr.(Trie).(*trie.SecureTrie).Copy(), nil
 		}
 	}
-	tr, err := trie.NewSecure(root, db.db)
+	tr, err := trie.NewSecure(root, db.db, false)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
 		}
 	}
 
-	tr, err := trie.NewSecure(root, db.db)
+	tr, err := trie.NewSecure(root, db.db, true)
 	if err != nil {
 		return nil, err
 	}

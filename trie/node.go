@@ -54,15 +54,15 @@ type (
 	fullNode struct {
 		Children   [BranchNodeLength]node // Actual trie node data to encode/decode (needs custom encoder)
 		flags      nodeFlag
-		epoch      uint16            `rlp:"-" json:"-"`
-		shadowNode *shadowBranchNode `rlp:"-" json:"-"`
+		epoch      uint16           `rlp:"-" json:"-"`
+		shadowNode shadowBranchNode `rlp:"-" json:"-"`
 	}
 	shortNode struct {
 		Key        []byte
 		Val        node
 		flags      nodeFlag
-		epoch      uint16               `rlp:"-" json:"-"`
-		shadowNode *shadowExtensionNode `rlp:"-" json:"-"`
+		epoch      uint16              `rlp:"-" json:"-"`
+		shadowNode shadowExtensionNode `rlp:"-" json:"-"`
 	}
 	hashNode  []byte
 	valueNode []byte
@@ -86,19 +86,28 @@ func (n *fullNode) EncodeRLP(w io.Writer) error {
 }
 
 func (n *fullNode) GetShadowNode() *shadowBranchNode {
+	// TODO:get shadow node from cache or disk if shadow node is nil
 	return &shadowBranchNode{}
 }
 
-func (n *fullNode) IsChildExpired(pos int) (bool, error) {
+func (n *fullNode) GetChildEpoch(index int) uint16 {
+	return n.GetShadowNode().EpochMap[index]
+}
+
+func (n *fullNode) UpdateChildEpoch(index int, epoch uint16) {
+	n.GetShadowNode().EpochMap[index] = epoch
+}
+
+func (n *fullNode) ChildExpired(prefix []byte, index int, currentEpoch uint16) (bool, error) {
+	childEpoch := n.GetChildEpoch(index)
+	if currentEpoch-childEpoch >= 2 {
+		return true, &ExpiredNodeError{
+			ExpiredNode: n.Children[index],
+			Path:        prefix,
+			Epoch:       childEpoch,
+		}
+	}
 	return false, nil
-}
-
-func (n *fullNode) GetChildEpoch(pos int) uint16 {
-	return n.GetShadowNode().EpochMap[pos]
-}
-
-func (n *fullNode) UpdateChildEpoch(pos int, epoch uint16) {
-	n.GetShadowNode().EpochMap[pos] = epoch
 }
 
 func (n *shortNode) GetShadowNode() *shadowExtensionNode {

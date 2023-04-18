@@ -487,7 +487,7 @@ func ServiceGetTrieNodesQuery(chain *core.BlockChain, req *GetTrieNodesPacket, s
 	// Make sure we have the state associated with the request
 	triedb := chain.StateCache().TrieDB()
 
-	accTrie, err := trie.NewSecure(req.Root, triedb)
+	accTrie, err := trie.NewSecure(req.Root, triedb, false)
 	if err != nil {
 		// We don't have the requested state available, bail out
 		return nil, nil
@@ -529,7 +529,7 @@ func ServiceGetTrieNodesQuery(chain *core.BlockChain, req *GetTrieNodesPacket, s
 			if err != nil || account == nil {
 				break
 			}
-			stTrie, err := trie.NewSecure(common.BytesToHash(account.Root), triedb)
+			stTrie, err := trie.NewSecure(common.BytesToHash(account.Root), triedb, true)
 			loads++ // always account database reads, even for failures
 			if err != nil {
 				break

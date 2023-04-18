@@ -58,7 +58,7 @@ func (s *shadowNodeStorageReaderWriterMock) Get(key []byte) ([]byte, error) {
 	val, ok := s.nodeMap[tmp]
 	if !ok {
 		n := shadowBranchNode{
-			ShadowHash: nil,
+			ShadowHash: common.Hash{},
 			EpochMap:   [16]uint16{},
 		}
 		for i := range n.EpochMap {

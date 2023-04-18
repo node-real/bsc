@@ -66,7 +66,10 @@ type Trie struct {
 	// Keep track of the number leafs which have been inserted since the last
 	// hashing operation. This number will not directly map to the number of
 	// actually unhashed nodes
-	unhashed int
+	unhashed      int
+	currentEpoch  uint16
+	isStorageTrie bool
+	shadowHash    common.Hash
 }
 
 // newFlag returns the cache flag value for a newly created node.
@@ -87,11 +90,6 @@ func New(root common.Hash, db *Database) (*Trie, error) {
 	trie := &Trie{
 		db:   db,
 		sndb: newShadowNodeStorageMock(0),
-	}
-	//epoch := uint16(0)
-	if rootNode := db.RootNode(root); rootNode != nil {
-		root = rootNode.TrieHash
-		//epoch = rootNode.Epoch
 	}
 	if root != (common.Hash{}) && root != emptyRoot {
 		rootnode, err := trie.resolveHash(root[:], nil)
@@ -122,19 +120,39 @@ func (t *Trie) Get(key []byte) []byte {
 // TryGet returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
 // If a node was not found in the database, a MissingNodeError is returned.
-func (t *Trie) TryGet(key []byte) ([]byte, error) {
-	var nextEpoch uint16
-	if t.root != nil {
-		nextEpoch = t.root.getEpoch()
+func (t *Trie) TryGet(key []byte) (value []byte, err error) {
+	var newroot node
+	var didResolve bool
+	if t.isStorageTrie {
+		var nextEpoch uint16
+		if t.root != nil {
+			nextEpoch = t.root.getEpoch()
+		}
+		value, newroot, didResolve, err = t.tryGetWithEpoch(t.root, keybytesToHex(key), 0, nextEpoch, false)
+	} else {
+		value, newroot, didResolve, err = t.tryGet(t.root, keybytesToHex(key), 0)
 	}
-	value, newroot, didResolve, err := t.tryGet(t.root, keybytesToHex(key), 0, nextEpoch)
+
 	if err == nil && didResolve {
 		t.root = newroot
 	}
 	return value, err
 }
 
-func (t *Trie) tryGet(origNode node, key []byte, pos int, epoch uint16) (value []byte, newnode node, didResolve bool, err error) {
+func (t *Trie) TryGetAndUpdateEpoch(key []byte)  ([]byte, error) {
+	var nextEpoch uint16
+	if t.root != nil {
+		nextEpoch = t.root.getEpoch()
+	}
+	value, newroot, didResolve, err := t.tryGetWithEpoch(t.root, keybytesToHex(key), 0, nextEpoch, true)
+
+	if err == nil && didResolve {
+		t.root = newroot
+	}
+	return value, err
+}
+
+func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
 		return nil, nil, false, nil
@@ -145,17 +163,14 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int, epoch uint16) (value [
 			// key not found in trie
 			return nil, n, false, nil
 		}
-		value, newnode, didResolve, err = t.tryGet(n.Val, key, pos+len(n.Key), n.epoch)
+		value, newnode, didResolve, err = t.tryGet(n.Val, key, pos+len(n.Key))
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Val = newnode
 		}
 		return value, n, didResolve, err
 	case *fullNode:
-		if expired, err := n.IsChildExpired(pos); expired {
-			return nil, n, false, err
-		}
-		value, newnode, didResolve, err = t.tryGet(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(pos))
+		value, newnode, didResolve, err = t.tryGet(n.Children[key[pos]], key, pos+1)
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Children[key[pos]] = newnode
@@ -166,7 +181,69 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int, epoch uint16) (value [
 		if err != nil {
 			return nil, n, true, err
 		}
-		value, newnode, _, err := t.tryGet(child, key, pos, epoch)
+		value, newnode, _, err := t.tryGet(child, key, pos)
+		return value, newnode, true, err
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
+	}
+}
+
+func (t *Trie) tryGetWithEpoch(origNode node, key []byte, pos int, epoch uint16, updateEpoch bool) (value []byte, newnode node, didResolve bool, err error) {
+	switch n := (origNode).(type) {
+	case nil:
+		return nil, nil, false, nil
+	case valueNode:
+		return n, n, false, nil
+	case *shortNode:
+		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
+			// key not found in trie
+			return nil, n, false, nil
+		}
+		// node is expired
+		if expired, err := t.nodeExpired(n, key[:pos]); expired {
+			return nil, n, false, err
+		}
+
+		if updateEpoch {
+			n.setEpoch(t.currentEpoch)
+			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), t.currentEpoch, true)
+		} else {
+			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), epoch, false)
+		}
+		if err == nil && didResolve {
+			n = n.copy()
+			n.Val = newnode
+		}
+		return value, n, didResolve, err
+	case *fullNode:
+		// full node is expired
+		if expired, err := t.nodeExpired(n, key[:pos]); expired {
+			return nil, n, false, err
+		}
+		// child node is expired
+		if expired, err := n.ChildExpired(key[:pos+1], int(key[pos]), t.currentEpoch); expired {
+			return nil, n, false, err
+		}
+
+		if updateEpoch {
+			n.setEpoch(t.currentEpoch)
+			n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
+			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, t.currentEpoch, true)
+		} else {
+			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(int(key[pos])), false)
+		}
+		if err == nil && didResolve {
+			n = n.copy()
+			n.Children[key[pos]] = newnode
+		}
+		return value, n, didResolve, err
+	case hashNode:
+		child, err := t.resolveHash(n, key[:pos])
+		if err != nil {
+			return nil, n, true, err
+		}
+		child.setEpoch(epoch)
+		value, newnode, _, err = t.tryGetWithEpoch(child, key, pos, epoch, updateEpoch)
 		return value, newnode, true, err
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
@@ -282,13 +359,13 @@ func (t *Trie) TryUpdate(key, value []byte) error {
 	t.unhashed++
 	k := keybytesToHex(key)
 	if len(value) != 0 {
-		_, n, err := t.insert(t.root, nil, k, valueNode(value))
+		_, n, err := t.insert(t.root, nil, k, valueNode(value), t.root.getEpoch())
 		if err != nil {
 			return err
 		}
 		t.root = n
 	} else {
-		_, n, err := t.delete(t.root, nil, k)
+		_, n, err := t.delete(t.root, nil, k, t.root.getEpoch())
 		if err != nil {
 			return err
 		}
@@ -297,7 +374,7 @@ func (t *Trie) TryUpdate(key, value []byte) error {
 	return nil
 }
 
-func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error) {
+func (t *Trie) insert(n node, prefix, key []byte, value node, epoch uint16) (bool, node, error) {
 	if len(key) == 0 {
 		if v, ok := n.(valueNode); ok {
 			return !bytes.Equal(v, value.(valueNode)), value, nil
@@ -306,36 +383,68 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 	}
 	switch n := n.(type) {
 	case *shortNode:
+		if t.isStorageTrie && t.currentEpoch >= 2 {
+			if expired, err := t.nodeExpired(n, prefix); expired {
+				return false, n, err
+			}
+		}
 		matchlen := prefixLen(key, n.Key)
 		// If the whole key matches, keep this short node as is
 		// and only update the value.
 		if matchlen == len(n.Key) {
-			dirty, nn, err := t.insert(n.Val, append(prefix, key[:matchlen]...), key[matchlen:], value)
+			n.setEpoch(t.currentEpoch)
+			dirty, nn, err := t.insert(n.Val, append(prefix, key[:matchlen]...), key[matchlen:], value, n.epoch)
 			if !dirty || err != nil {
 				return false, n, err
 			}
-			return true, &shortNode{Key: n.Key, Val: nn, flags: t.newFlag()}, nil
+			return true, &shortNode{Key: n.Key, Val: nn, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 		}
 		// Otherwise branch out at the index where they differ.
 		branch := &fullNode{flags: t.newFlag()}
 		var err error
-		_, branch.Children[n.Key[matchlen]], err = t.insert(nil, append(prefix, n.Key[:matchlen+1]...), n.Key[matchlen+1:], n.Val)
+		_, branch.Children[n.Key[matchlen]], err = t.insert(nil, append(prefix, n.Key[:matchlen+1]...), n.Key[matchlen+1:], n.Val, t.currentEpoch)
 		if err != nil {
 			return false, nil, err
 		}
-		_, branch.Children[key[matchlen]], err = t.insert(nil, append(prefix, key[:matchlen+1]...), key[matchlen+1:], value)
+		if t.isStorageTrie {
+			branch.setEpoch(t.currentEpoch)
+			branch.UpdateChildEpoch(int(n.Key[matchlen]), t.currentEpoch)
+		}
+		_, branch.Children[key[matchlen]], err = t.insert(nil, append(prefix, key[:matchlen+1]...), key[matchlen+1:], value, t.currentEpoch)
 		if err != nil {
 			return false, nil, err
+		}
+		if t.isStorageTrie {
+			branch.setEpoch(t.currentEpoch)
+			branch.UpdateChildEpoch(int(key[matchlen]), t.currentEpoch)
 		}
 		// Replace this shortNode with the branch if it occurs at index 0.
 		if matchlen == 0 {
 			return true, branch, nil
 		}
 		// Otherwise, replace it with a short node leading up to the branch.
-		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag()}, nil
+		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 
 	case *fullNode:
-		dirty, nn, err := t.insert(n.Children[key[0]], append(prefix, key[0]), key[1:], value)
+		if t.isStorageTrie {
+			if t.currentEpoch >= 2 {
+				// this full node is expired, return err
+				if expired, err := t.nodeExpired(n, prefix); expired {
+					return false, n, err
+				}
+			}
+			// else, set its epoch to current epoch.
+			n.setEpoch(t.currentEpoch)
+			if t.currentEpoch >= 2 {
+				// if child is expired, return err
+				if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
+					return false, n.Children[key[0]], err
+				}
+			}
+			// else, set child node's epoch to current epoch
+			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+		}
+		dirty, nn, err := t.insert(n.Children[key[0]], append(prefix, key[0]), key[1:], value, n.GetChildEpoch(int(key[0])))
 		if !dirty || err != nil {
 			return false, n, err
 		}
@@ -352,10 +461,11 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 		// the node and insert into it. This leaves all child nodes on
 		// the path to the value in the trie.
 		rn, err := t.resolveHash(n, prefix)
+		rn.setEpoch(epoch)
 		if err != nil {
 			return false, nil, err
 		}
-		dirty, nn, err := t.insert(rn, prefix, key, value)
+		dirty, nn, err := t.insert(rn, prefix, key, value, epoch)
 		if !dirty || err != nil {
 			return false, rn, err
 		}
@@ -378,7 +488,7 @@ func (t *Trie) Delete(key []byte) {
 func (t *Trie) TryDelete(key []byte) error {
 	t.unhashed++
 	k := keybytesToHex(key)
-	_, n, err := t.delete(t.root, nil, k)
+	_, n, err := t.delete(t.root, nil, k, t.root.getEpoch())
 	if err != nil {
 		return err
 	}
@@ -389,9 +499,15 @@ func (t *Trie) TryDelete(key []byte) error {
 // delete returns the new root of the trie with key deleted.
 // It reduces the trie to minimal form by simplifying
 // nodes on the way up after deleting recursively.
-func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
+func (t *Trie) delete(n node, prefix, key []byte, epoch uint16) (bool, node, error) {
 	switch n := n.(type) {
 	case *shortNode:
+		if t.isStorageTrie && t.currentEpoch >= 2 {
+			if expired, err := t.nodeExpired(n, prefix); expired {
+				return false, n, err
+			}
+			n.setEpoch(t.currentEpoch)
+		}
 		matchlen := prefixLen(key, n.Key)
 		if matchlen < len(n.Key) {
 			return false, n, nil // don't replace n on mismatch
@@ -403,7 +519,7 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 		// from the subtrie. Child can never be nil here since the
 		// subtrie must contain at least two other values with keys
 		// longer than n.Key.
-		dirty, child, err := t.delete(n.Val, append(prefix, key[:len(n.Key)]...), key[len(n.Key):])
+		dirty, child, err := t.delete(n.Val, append(prefix, key[:len(n.Key)]...), key[len(n.Key):], n.epoch)
 		if !dirty || err != nil {
 			return false, n, err
 		}
@@ -415,13 +531,31 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 			// always creates a new slice) instead of append to
 			// avoid modifying n.Key since it might be shared with
 			// other nodes.
-			return true, &shortNode{Key: concat(n.Key, child.Key...), Val: child.Val, flags: t.newFlag()}, nil
+			return true, &shortNode{Key: concat(n.Key, child.Key...), Val: child.Val, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 		default:
-			return true, &shortNode{Key: n.Key, Val: child, flags: t.newFlag()}, nil
+			return true, &shortNode{Key: n.Key, Val: child, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 		}
 
 	case *fullNode:
-		dirty, nn, err := t.delete(n.Children[key[0]], append(prefix, key[0]), key[1:])
+		if t.isStorageTrie {
+			if t.currentEpoch >= 2 {
+				// this full node is expired, return err
+				if expired, err := t.nodeExpired(n, prefix); expired {
+					return false, n, err
+				}
+			}
+			// else, set its epoch to current epoch.
+			n.setEpoch(t.currentEpoch)
+			if t.currentEpoch >= 2 {
+				// if child is expired, return err
+				if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
+					return false, n.Children[key[0]], err
+				}
+			}
+			// else, set child node's epoch to current epoch
+			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+		}
+		dirty, nn, err := t.delete(n.Children[key[0]], append(prefix, key[0]), key[1:], n.GetChildEpoch(int(key[0])))
 		if !dirty || err != nil {
 			return false, n, err
 		}
@@ -492,10 +626,11 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 		// the node and delete from it. This leaves all child nodes on
 		// the path to the value in the trie.
 		rn, err := t.resolveHash(n, prefix)
+		rn.setEpoch(epoch)
 		if err != nil {
 			return false, nil, err
 		}
-		dirty, nn, err := t.delete(rn, prefix, key)
+		dirty, nn, err := t.delete(rn, prefix, key, epoch)
 		if !dirty || err != nil {
 			return false, rn, err
 		}
@@ -589,6 +724,17 @@ func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
 		return node, nil
 	}
 	return nil, &MissingNodeError{NodeHash: hash, Path: prefix}
+}
+
+func (t *Trie) nodeExpired(n node, prefix []byte) (bool, error) {
+	if t.currentEpoch-n.getEpoch() >= 2 {
+		return true, &ExpiredNodeError{
+			ExpiredNode: n,
+			Path:        prefix,
+			Epoch:       n.getEpoch(),
+		}
+	}
+	return false, nil
 }
 
 // Hash returns the root hash of the trie. It does not write to the
