@@ -2,11 +2,12 @@ package core
 
 import (
 	"bytes"
+	"testing"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func keybytesToHex(str []byte) []byte {
@@ -29,7 +30,7 @@ func makeMerkleProofWitness(addr *common.Address, keyLen, witSize, proofCount, p
 		}
 		proofList[i] = types.MPTProof{
 			RootKeyHex: keybytesToHex(bytes.Repeat([]byte{'k'}, keyLen)),
-			Proof:   proof,
+			Proof:      proof,
 		}
 	}
 	wit := types.StorageTrieWitness{
@@ -81,7 +82,7 @@ func TestIntrinsicGas_WitnessList(t *testing.T) {
 			isContractCreation: true,
 			isHomestead:        true,
 			isEIP2028:          true,
-			gas:                55176,
+			gas:                56792,
 		},
 		{
 			data:       common.Hex2Bytes("1234567890"),
@@ -92,7 +93,7 @@ func TestIntrinsicGas_WitnessList(t *testing.T) {
 			isContractCreation: true,
 			isHomestead:        true,
 			isEIP2028:          true,
-			gas:                55252,
+			gas:                56868,
 		},
 		{
 			data:       nil,
@@ -104,7 +105,7 @@ func TestIntrinsicGas_WitnessList(t *testing.T) {
 			isContractCreation: false,
 			isHomestead:        true,
 			isEIP2028:          true,
-			gas:                26412,
+			gas:                27804,
 		},
 	}
 

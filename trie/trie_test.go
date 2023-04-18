@@ -19,6 +19,7 @@ package trie
 import (
 	"bytes"
 	"encoding/binary"
+
 	// "encoding/hex"
 	"errors"
 	"fmt"
@@ -543,8 +544,8 @@ func TestReviveTrie(t *testing.T) {
 	oriRootHash := trie.Hash()
 
 	for _, kv := range vals {
-		key := []byte(kv.k)
-		val := []byte(kv.v)
+		key := kv.k
+		val := kv.v
 		prefixKeys := getPrefixKeysHex(trie, key)
 		for _, prefixKey := range prefixKeys {
 			// Generate proof
@@ -701,7 +702,7 @@ func TestReviveOneElement(t *testing.T) {
 func TestReviveBadProofAfterUpdate(t *testing.T) {
 	trie, vals := nonRandomTrie(500)
 	for _, kv := range vals {
-		key := []byte(kv.k)
+		key := kv.k
 		prefixKeys := getPrefixKeysHex(trie, key)
 		for _, prefixKey := range prefixKeys {
 			var proof proofList

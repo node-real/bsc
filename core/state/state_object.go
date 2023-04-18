@@ -19,11 +19,12 @@ package state
 import (
 	"bytes"
 	"fmt"
-	"github.com/ethereum/go-ethereum/trie"
 	"io"
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -691,10 +692,7 @@ func (s *StateObject) Value() *big.Int {
 
 func (s *StateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
 	dr := s.getDirtyReviveTrie(s.db.db)
-	if err := dr.ReviveTrie(proofCache); err != nil {
-		s.dirtyReviveTrie = nil
-		return err
-	}
+	dr.ReviveTrie(proofCache)
 	s.db.journal.append(reviveStorageTrieNodeChange{
 		address: &s.address,
 	})

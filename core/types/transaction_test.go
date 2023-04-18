@@ -21,12 +21,13 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"math/rand"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -580,7 +581,7 @@ func TestReviveStateTxAndSigner(t *testing.T) {
 		Address: addr,
 		ProofList: []MPTProof{{
 			RootKeyHex: []byte{0x09, 0x5e, 0x7b, 0xae, 0xa6, 0xa6, 0xc7, 0xc4, 0xc2},
-			Proof:   [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
+			Proof:      [][]byte{common.Hex2Bytes("6a6c7c4c2dfe7c4c2dac326af552d87baea6a6c7c4c2")},
 		}},
 	}
 

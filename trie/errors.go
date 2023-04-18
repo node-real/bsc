@@ -41,5 +41,5 @@ type ExpiredNodeError struct {
 }
 
 func (err *ExpiredNodeError) Error() string {
-	return fmt.Sprintf("expired trie ndoe ")
+	return "expired trie node"
 }

@@ -2,10 +2,11 @@ package types
 
 import (
 	"bytes"
+	"testing"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func makeSimpleReviveWitness(witType byte, data []byte) ReviveWitness {
@@ -35,7 +36,7 @@ func makeStorageTrieWitness(addr common.Address, proofCount int, proofLen ...int
 		}
 		proofList[i] = MPTProof{
 			RootKeyHex: nil,
-			Proof:   proof,
+			Proof:      proof,
 		}
 	}
 	wit := StorageTrieWitness{

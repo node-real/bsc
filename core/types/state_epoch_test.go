@@ -1,10 +1,11 @@
 package types
 
 import (
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestStateForkConfig(t *testing.T) {

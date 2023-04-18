@@ -61,6 +61,7 @@ type LeafCallback func(paths [][]byte, hexpath []byte, leaf []byte, parent commo
 // Trie is not safe for concurrent use.
 type Trie struct {
 	db   *Database
+	sndb ShadowNodeStorage // only storage trie using it, account trie needn't the shadow node
 	root node
 	// Keep track of the number leafs which have been inserted since the last
 	// hashing operation. This number will not directly map to the number of
@@ -84,15 +85,16 @@ func New(root common.Hash, db *Database) (*Trie, error) {
 		panic("trie.New called without a database")
 	}
 	trie := &Trie{
-		db: db,
+		db:   db,
+		sndb: newShadowNodeStorageMock(0),
 	}
-	epoch := uint16(0)
+	//epoch := uint16(0)
 	if rootNode := db.RootNode(root); rootNode != nil {
 		root = rootNode.TrieHash
-		epoch = rootNode.Epoch
+		//epoch = rootNode.Epoch
 	}
 	if root != (common.Hash{}) && root != emptyRoot {
-		rootnode, err := trie.resolveHash(root[:], nil, epoch)
+		rootnode, err := trie.resolveHash(root[:], nil)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +123,11 @@ func (t *Trie) Get(key []byte) []byte {
 // The value bytes must not be modified by the caller.
 // If a node was not found in the database, a MissingNodeError is returned.
 func (t *Trie) TryGet(key []byte) ([]byte, error) {
-	value, newroot, didResolve, err := t.tryGet(t.root, keybytesToHex(key), 0, t.root.getEpoch())
+	var nextEpoch uint16
+	if t.root != nil {
+		nextEpoch = t.root.getEpoch()
+	}
+	value, newroot, didResolve, err := t.tryGet(t.root, keybytesToHex(key), 0, nextEpoch)
 	if err == nil && didResolve {
 		t.root = newroot
 	}
@@ -156,7 +162,7 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int, epoch uint16) (value [
 		}
 		return value, n, didResolve, err
 	case hashNode:
-		child, err := t.resolveHash(n, key[:pos], epoch)
+		child, err := t.resolveHash(n, key[:pos])
 		if err != nil {
 			return nil, n, true, err
 		}
@@ -574,13 +580,12 @@ func (t *Trie) resolve(n node, prefix []byte) (node, error) {
 	return n, nil
 }
 
-func (t *Trie) resolveHash(n hashNode, prefix []byte, epoch uint16) (node, error) {
+func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
 	hash := common.BytesToHash(n)
 	if t.db == nil {
 		return nil, fmt.Errorf("empty trie database")
 	}
 	if node := t.db.node(hash); node != nil {
-		node.setEpoch(epoch)
 		return node, nil
 	}
 	return nil, &MissingNodeError{NodeHash: hash, Path: prefix}
@@ -741,7 +746,7 @@ func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, cacheHashes [][]by
 		}
 		return n, didResolve, newCacheHashIndex, err
 	case hashNode:
-		tn, err := t.resolveHash(n, nil, 0) // TODO (asyukii): Revisit epoch index
+		tn, err := t.resolveHash(n, nil) // TODO (asyukii): Revisit epoch index
 		if err != nil {
 			return nil, false, cacheHashIndex, err
 		}

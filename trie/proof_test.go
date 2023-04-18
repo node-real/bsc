@@ -20,13 +20,14 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/stretchr/testify/assert"
 	mrand "math/rand"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -900,7 +901,7 @@ func TestAllElementsEmptyValueRangeProof(t *testing.T) {
 func TestStorageProof(t *testing.T) {
 	trie, vals := randomTrie(500)
 	for _, kv := range vals {
-		prefixKeys := getPrefixKeysHex(trie, []byte(kv.k))
+		prefixKeys := getPrefixKeysHex(trie, kv.k)
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
 			key := kv.k
@@ -912,7 +913,7 @@ func TestStorageProof(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to verify proof for key %x: prefix %x: %v\nraw proof: %x", key, prefixKey, err, proof)
 			}
-			if val != nil && !bytes.Equal(val, []byte(kv.v)) {
+			if val != nil && !bytes.Equal(val, kv.v) {
 				t.Fatalf("failed to verify proof for key %x: prefix %x: %v\nraw proof: %x", key, prefixKey, err, proof)
 			}
 		}
@@ -1002,10 +1003,10 @@ func TestBadStorageProof(t *testing.T) {
 
 	trie, vals := randomTrie(500)
 	for _, kv := range vals {
-		prefixKeys := getPrefixKeysHex(trie, []byte(kv.k))
+		prefixKeys := getPrefixKeysHex(trie, kv.k)
 		for _, prefixKey := range prefixKeys {
 			proof := memorydb.New()
-			key := []byte(kv.k)
+			key := kv.k
 			err := trie.ProveStorageWitness(key, prefixKey, proof)
 			if err != nil {
 				t.Fatalf("missing key %x while constructing proof", key)

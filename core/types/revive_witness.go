@@ -2,6 +2,7 @@ package types
 
 import (
 	"errors"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -25,7 +26,7 @@ const (
 // Attention: The proof could revive multi-vals, although it's a single trie path witness
 type MPTProof struct {
 	RootKeyHex []byte   // prefix key in nibbles format, max 65 bytes. TODO: optimize witness size
-	Proof   [][]byte // list of RLP-encoded nodes
+	Proof      [][]byte // list of RLP-encoded nodes
 }
 
 type StorageTrieWitness struct {
