@@ -128,6 +128,9 @@ type StateDB struct {
 	validRevisions []revision
 	nextRevisionId int
 
+	// state epoch
+	Epoch types.StateEpoch
+
 	// Measurements gathered during execution for debugging purposes
 	MetricsMux           sync.Mutex
 	AccountReads         time.Duration
@@ -148,14 +151,21 @@ type StateDB struct {
 	StorageDeleted int
 }
 
-// New creates a new state from a given trie.
+// NewWithEpoch creates a new state from a given trie.
+func NewWithEpoch(root common.Hash, db Database, snaps *snapshot.Tree, epoch types.StateEpoch) (*StateDB, error) {
+	return newStateDB(root, db, snaps, epoch)
+}
+
+// New creates a new state from a given trie, it inits at Epoch0
 func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) {
-	return newStateDB(root, db, snaps)
+	return newStateDB(root, db, snaps, types.StateEpoch0)
 }
 
 // NewWithSharedPool creates a new state with sharedStorge on layer 1.5
+// Deprecated: disable in state expiry, it inits at Epoch0
+// TODO(0xbundler) cannot use share pool in state revive now, need optimise later
 func NewWithSharedPool(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) {
-	statedb, err := newStateDB(root, db, snaps)
+	statedb, err := newStateDB(root, db, snaps, types.StateEpoch0)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +173,7 @@ func NewWithSharedPool(root common.Hash, db Database, snaps *snapshot.Tree) (*St
 	return statedb, nil
 }
 
-func newStateDB(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) {
+func newStateDB(root common.Hash, db Database, snaps *snapshot.Tree, epoch types.StateEpoch) (*StateDB, error) {
 	sdb := &StateDB{
 		db:                  db,
 		originalRoot:        root,
@@ -175,6 +185,7 @@ func newStateDB(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, 
 		preimages:           make(map[common.Hash][]byte),
 		journal:             newJournal(),
 		hasher:              crypto.NewKeccakState(),
+		Epoch:               epoch,
 	}
 
 	if sdb.snaps != nil {
@@ -473,13 +484,12 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 }
 
 // GetState retrieves a value from the given account's storage trie.
-// TODO access in shadow node
-func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
+func (s *StateDB) GetState(addr common.Address, hash common.Hash) (common.Hash, error) {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.GetState(s.db, hash)
 	}
-	return common.Hash{}
+	return common.Hash{}, nil
 }
 
 // GetProof returns the Merkle proof for a given account.
@@ -520,12 +530,12 @@ func (s *StateDB) GetStorageProof(a common.Address, key common.Hash) ([][]byte, 
 }
 
 // GetCommittedState retrieves a value from the given account's committed storage trie.
-func (s *StateDB) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+func (s *StateDB) GetCommittedState(addr common.Address, hash common.Hash) (common.Hash, error) {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.GetCommittedState(s.db, hash)
 	}
-	return common.Hash{}
+	return common.Hash{}, nil
 }
 
 // Database retrieves the low level database supporting the lower level trie ops.
@@ -594,12 +604,12 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	}
 }
 
-// TODO access state and check insert duplicated
-func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
+func (s *StateDB) SetState(addr common.Address, key, value common.Hash) error {
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
-		stateObject.SetState(s.db, key, value)
+		return stateObject.SetState(s.db, key, value)
 	}
+	return nil
 }
 
 // SetStorage replaces the entire storage for the specified account with given
@@ -1458,7 +1468,6 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 					tasks <- func() {
 						// Write any storage changes in the state object to its storage trie
 						if !s.noTrie {
-							// TODO commit revive state cache to Trie
 							if _, err := obj.CommitTrie(s.db); err != nil {
 								taskResults <- err
 								return

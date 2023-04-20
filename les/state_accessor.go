@@ -30,7 +30,7 @@ import (
 
 // stateAtBlock retrieves the state database associated with a certain block.
 func (leth *LightEthereum) stateAtBlock(ctx context.Context, block *types.Block, reexec uint64) (*state.StateDB, error) {
-	return light.NewState(ctx, block.Header(), leth.odr), nil
+	return light.NewState(ctx, leth.chainConfig, block.Header(), leth.odr), nil
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.

@@ -104,10 +104,10 @@ func TestNull(t *testing.T) {
 	s.state.AccountsIntermediateRoot()
 	s.state.Commit(nil)
 
-	if value := s.state.GetState(address, common.Hash{}); value != (common.Hash{}) {
+	if value, _ := s.state.GetState(address, common.Hash{}); value != (common.Hash{}) {
 		t.Errorf("expected empty current value, got %x", value)
 	}
-	if value := s.state.GetCommittedState(address, common.Hash{}); value != (common.Hash{}) {
+	if value, _ := s.state.GetCommittedState(address, common.Hash{}); value != (common.Hash{}) {
 		t.Errorf("expected empty committed value, got %x", value)
 	}
 }
@@ -130,19 +130,19 @@ func TestSnapshot(t *testing.T) {
 	s.state.SetState(stateobjaddr, storageaddr, data2)
 	s.state.RevertToSnapshot(snapshot)
 
-	if v := s.state.GetState(stateobjaddr, storageaddr); v != data1 {
+	if v, _ := s.state.GetState(stateobjaddr, storageaddr); v != data1 {
 		t.Errorf("wrong storage value %v, want %v", v, data1)
 	}
-	if v := s.state.GetCommittedState(stateobjaddr, storageaddr); v != (common.Hash{}) {
+	if v, _ := s.state.GetCommittedState(stateobjaddr, storageaddr); v != (common.Hash{}) {
 		t.Errorf("wrong committed storage value %v, want %v", v, common.Hash{})
 	}
 
 	// revert up to the genesis state and ensure correct content
 	s.state.RevertToSnapshot(genesis)
-	if v := s.state.GetState(stateobjaddr, storageaddr); v != (common.Hash{}) {
+	if v, _ := s.state.GetState(stateobjaddr, storageaddr); v != (common.Hash{}) {
 		t.Errorf("wrong storage value %v, want %v", v, common.Hash{})
 	}
-	if v := s.state.GetCommittedState(stateobjaddr, storageaddr); v != (common.Hash{}) {
+	if v, _ := s.state.GetCommittedState(stateobjaddr, storageaddr); v != (common.Hash{}) {
 		t.Errorf("wrong committed storage value %v, want %v", v, common.Hash{})
 	}
 }

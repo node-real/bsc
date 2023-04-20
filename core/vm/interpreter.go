@@ -20,6 +20,8 @@ import (
 	"hash"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/core/state"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/log"
@@ -172,6 +174,9 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	// so that it get's executed _after_: the capturestate needs the stacks before
 	// they are returned to the pools
 	defer func() {
+		if err != nil {
+			in.evm.AppendErr(NewEVMErr(contract, op, err))
+		}
 		returnStack(stack)
 	}()
 	contract.Input = input
@@ -235,6 +240,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			dynamicCost, err = operation.dynamicGas(in.evm, contract, stack, mem, memorySize)
 			cost += dynamicCost // for tracing
 			if err != nil || !contract.UseGas(dynamicCost) {
+				// capture expired state error
+				if _, ok := err.(*state.ExpiredStateError); ok {
+					break
+				}
 				return nil, ErrOutOfGas
 			}
 			if memorySize > 0 {

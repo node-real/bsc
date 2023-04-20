@@ -523,7 +523,10 @@ func opMstore8(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	loc := scope.Stack.peek()
 	hash := common.Hash(loc.Bytes32())
-	val := interpreter.evm.StateDB.GetState(scope.Contract.Address(), hash)
+	val, err := interpreter.evm.StateDB.GetState(scope.Contract.Address(), hash)
+	if err != nil {
+		return nil, err
+	}
 	loc.SetBytes(val.Bytes())
 	return nil, nil
 }

@@ -116,7 +116,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		return h
 	}
 	var (
-		statedb     = MakePreState(rawdb.NewMemoryDatabase(), pre.Pre)
+		statedb     = MakePreState(rawdb.NewMemoryDatabase(), pre, chainConfig)
 		signer      = types.MakeSigner(chainConfig, new(big.Int).SetUint64(pre.Env.Number))
 		gaspool     = new(core.GasPool)
 		blockHash   = common.Hash{0x13, 0x37}
@@ -270,10 +270,10 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 	return statedb, execRs, nil
 }
 
-func MakePreState(db ethdb.Database, accounts core.GenesisAlloc) *state.StateDB {
+func MakePreState(db ethdb.Database, pre *Prestate, config *params.ChainConfig) *state.StateDB {
 	sdb := state.NewDatabase(db)
-	statedb, _ := state.New(common.Hash{}, sdb, nil)
-	for addr, a := range accounts {
+	statedb, _ := state.NewWithEpoch(common.Hash{}, sdb, nil, types.GetStateEpoch(config, new(big.Int).SetUint64(pre.Env.Number-1)))
+	for addr, a := range pre.Pre {
 		statedb.SetCode(addr, a.Code)
 		statedb.SetNonce(addr, a.Nonce)
 		statedb.SetBalance(addr, a.Balance)
@@ -285,7 +285,7 @@ func MakePreState(db ethdb.Database, accounts core.GenesisAlloc) *state.StateDB 
 	statedb.Finalise(false)
 	statedb.AccountsIntermediateRoot()
 	root, _, _ := statedb.Commit(nil)
-	statedb, _ = state.New(root, sdb, nil)
+	statedb, _ = state.NewWithEpoch(root, sdb, nil, types.GetStateEpoch(config, new(big.Int).SetUint64(pre.Env.Number)))
 	return statedb
 }
 

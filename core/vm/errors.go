@@ -19,6 +19,8 @@ package vm
 import (
 	"errors"
 	"fmt"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // List evm execution errors
@@ -70,3 +72,23 @@ type ErrInvalidOpCode struct {
 }
 
 func (e *ErrInvalidOpCode) Error() string { return fmt.Sprintf("invalid opcode: %s", e.opcode) }
+
+type EVMError struct {
+	from   common.Address
+	to     common.Address
+	opcode OpCode
+	err    error
+}
+
+func NewEVMErr(contract *Contract, op OpCode, err error) *EVMError {
+	return &EVMError{
+		from:   contract.Caller(),
+		to:     contract.Address(),
+		opcode: op,
+		err:    err,
+	}
+}
+
+func (e *EVMError) Error() string {
+	return fmt.Sprintf("EVM err, from %v to %v at %v, got: %v", e.from, e.to, e.opcode, e.err)
+}

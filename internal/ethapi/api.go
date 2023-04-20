@@ -686,7 +686,11 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 			if storageError != nil {
 				return nil, storageError
 			}
-			storageProof[i] = StorageResult{key, (*hexutil.Big)(state.GetState(address, common.HexToHash(key)).Big()), toHexSlice(proof)}
+			val, stateErr := state.GetState(address, common.HexToHash(key))
+			if stateErr != nil {
+				return nil, stateErr
+			}
+			storageProof[i] = StorageResult{key, (*hexutil.Big)(val.Big()), toHexSlice(proof)}
 		} else {
 			storageProof[i] = StorageResult{key, &hexutil.Big{}, []string{}}
 		}
@@ -839,7 +843,10 @@ func (s *PublicBlockChainAPI) GetStorageAt(ctx context.Context, address common.A
 	if state == nil || err != nil {
 		return nil, err
 	}
-	res := state.GetState(address, common.HexToHash(key))
+	res, err := state.GetState(address, common.HexToHash(key))
+	if err != nil {
+		return nil, err
+	}
 	return res[:], state.Error()
 }
 
@@ -1197,11 +1204,11 @@ func (s *PublicBlockChainAPI) needToReplay(ctx context.Context, block *types.Blo
 	if err != nil {
 		return false, fmt.Errorf("block not found for block number (%d): %v", block.NumberU64()-1, err)
 	}
-	parentState, err := s.b.Chain().StateAt(parent.Root())
+	parentState, err := s.b.Chain().StateAt(parent.Root(), parent.Number())
 	if err != nil {
 		return false, fmt.Errorf("statedb not found for block number (%d): %v", block.NumberU64()-1, err)
 	}
-	currentState, err := s.b.Chain().StateAt(block.Root())
+	currentState, err := s.b.Chain().StateAt(block.Root(), block.Number())
 	if err != nil {
 		return false, fmt.Errorf("statedb not found for block number (%d): %v", block.NumberU64(), err)
 	}
@@ -1227,7 +1234,7 @@ func (s *PublicBlockChainAPI) replay(ctx context.Context, block *types.Block, ac
 	if err != nil {
 		return nil, nil, fmt.Errorf("block not found for block number (%d): %v", block.NumberU64()-1, err)
 	}
-	statedb, err := s.b.Chain().StateAt(parent.Root())
+	statedb, err := s.b.Chain().StateAt(parent.Root(), block.Number())
 	if err != nil {
 		return nil, nil, fmt.Errorf("state not found for block number (%d): %v", block.NumberU64()-1, err)
 	}

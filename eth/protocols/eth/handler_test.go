@@ -467,10 +467,10 @@ func testGetNodeData(t *testing.T, protocol uint) {
 	// Sanity check whether all state matches.
 	accounts := []common.Address{testAddr, acc1Addr, acc2Addr}
 	for i := uint64(0); i <= backend.chain.CurrentBlock().NumberU64(); i++ {
-		root := backend.chain.GetBlockByNumber(i).Root()
-		reconstructed, _ := state.New(root, state.NewDatabase(reconstructDB), nil)
+		block := backend.chain.GetBlockByNumber(i)
+		reconstructed, _ := state.New(block.Root(), state.NewDatabase(reconstructDB), nil)
 		for j, acc := range accounts {
-			state, _ := backend.chain.StateAt(root)
+			state, _ := backend.chain.StateAt(block.Root(), block.Number())
 			bw := state.GetBalance(acc)
 			bh := reconstructed.GetBalance(acc)
 

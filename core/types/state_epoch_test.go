@@ -60,13 +60,13 @@ func TestSimpleStateEpoch(t *testing.T) {
 	}
 	assert.NoError(t, temp.CheckConfigForkOrder())
 
-	assert.Equal(t, big.NewInt(0), GetCurrentEpoch(temp, big.NewInt(0)))
-	assert.Equal(t, big.NewInt(0), GetCurrentEpoch(temp, big.NewInt(1000)))
-	assert.Equal(t, big.NewInt(1), GetCurrentEpoch(temp, big.NewInt(10000)))
-	assert.Equal(t, big.NewInt(1), GetCurrentEpoch(temp, big.NewInt(19999)))
-	assert.Equal(t, big.NewInt(2), GetCurrentEpoch(temp, big.NewInt(20000)))
-	assert.Equal(t, big.NewInt(3), GetCurrentEpoch(temp, new(big.Int).Add(big.NewInt(20000), EpochPeriod)))
-	assert.Equal(t, big.NewInt(102), GetCurrentEpoch(temp, new(big.Int).Add(big.NewInt(20000), new(big.Int).Mul(big.NewInt(100), EpochPeriod))))
+	assert.Equal(t, StateEpoch0, GetStateEpoch(temp, big.NewInt(0)))
+	assert.Equal(t, StateEpoch(0), GetStateEpoch(temp, big.NewInt(1000)))
+	assert.Equal(t, StateEpoch(1), GetStateEpoch(temp, big.NewInt(10000)))
+	assert.Equal(t, StateEpoch(1), GetStateEpoch(temp, big.NewInt(19999)))
+	assert.Equal(t, StateEpoch(2), GetStateEpoch(temp, big.NewInt(20000)))
+	assert.Equal(t, StateEpoch(3), GetStateEpoch(temp, new(big.Int).Add(big.NewInt(20000), EpochPeriod)))
+	assert.Equal(t, StateEpoch(102), GetStateEpoch(temp, new(big.Int).Add(big.NewInt(20000), new(big.Int).Mul(big.NewInt(100), EpochPeriod))))
 }
 
 func TestNoZeroStateEpoch(t *testing.T) {
@@ -76,12 +76,12 @@ func TestNoZeroStateEpoch(t *testing.T) {
 	}
 	assert.NoError(t, temp.CheckConfigForkOrder())
 
-	assert.Equal(t, big.NewInt(0), GetCurrentEpoch(temp, big.NewInt(0)))
-	assert.Equal(t, big.NewInt(1), GetCurrentEpoch(temp, big.NewInt(1)))
-	assert.Equal(t, big.NewInt(2), GetCurrentEpoch(temp, big.NewInt(2)))
-	assert.Equal(t, big.NewInt(2), GetCurrentEpoch(temp, big.NewInt(10000)))
-	assert.Equal(t, big.NewInt(3), GetCurrentEpoch(temp, new(big.Int).Add(big.NewInt(2), EpochPeriod)))
-	assert.Equal(t, big.NewInt(102), GetCurrentEpoch(temp, new(big.Int).Add(big.NewInt(2), new(big.Int).Mul(big.NewInt(100), EpochPeriod))))
+	assert.Equal(t, StateEpoch(0), GetStateEpoch(temp, big.NewInt(0)))
+	assert.Equal(t, StateEpoch(1), GetStateEpoch(temp, big.NewInt(1)))
+	assert.Equal(t, StateEpoch(2), GetStateEpoch(temp, big.NewInt(2)))
+	assert.Equal(t, StateEpoch(2), GetStateEpoch(temp, big.NewInt(10000)))
+	assert.Equal(t, StateEpoch(3), GetStateEpoch(temp, new(big.Int).Add(big.NewInt(2), EpochPeriod)))
+	assert.Equal(t, StateEpoch(102), GetStateEpoch(temp, new(big.Int).Add(big.NewInt(2), new(big.Int).Mul(big.NewInt(100), EpochPeriod))))
 }
 
 func TestNearestStateEpoch(t *testing.T) {
@@ -91,9 +91,9 @@ func TestNearestStateEpoch(t *testing.T) {
 	}
 	assert.NoError(t, temp.CheckConfigForkOrder())
 
-	assert.Equal(t, big.NewInt(0), GetCurrentEpoch(temp, big.NewInt(0)))
-	assert.Equal(t, big.NewInt(1), GetCurrentEpoch(temp, big.NewInt(10000)))
-	assert.Equal(t, big.NewInt(2), GetCurrentEpoch(temp, big.NewInt(10001)))
-	assert.Equal(t, big.NewInt(3), GetCurrentEpoch(temp, new(big.Int).Add(big.NewInt(10001), EpochPeriod)))
-	assert.Equal(t, big.NewInt(102), GetCurrentEpoch(temp, new(big.Int).Add(big.NewInt(10001), new(big.Int).Mul(big.NewInt(100), EpochPeriod))))
+	assert.Equal(t, StateEpoch(0), GetStateEpoch(temp, big.NewInt(0)))
+	assert.Equal(t, StateEpoch(1), GetStateEpoch(temp, big.NewInt(10000)))
+	assert.Equal(t, StateEpoch(2), GetStateEpoch(temp, big.NewInt(10001)))
+	assert.Equal(t, StateEpoch(3), GetStateEpoch(temp, new(big.Int).Add(big.NewInt(10001), EpochPeriod)))
+	assert.Equal(t, StateEpoch(102), GetStateEpoch(temp, new(big.Int).Add(big.NewInt(10001), new(big.Int).Mul(big.NewInt(100), EpochPeriod))))
 }

@@ -122,7 +122,7 @@ func (p *LightStateProcessor) Process(block *types.Block, statedb *state.StateDB
 			// prepare new statedb
 			statedb.StopPrefetcher()
 			parent := p.bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
-			statedb, err = state.New(parent.Root, p.bc.stateCache, p.bc.snaps)
+			statedb, err = state.NewWithEpoch(parent.Root, p.bc.stateCache, p.bc.snaps, types.GetStateEpoch(p.config, block.Number()))
 			if err != nil {
 				return statedb, nil, nil, 0, err
 			}

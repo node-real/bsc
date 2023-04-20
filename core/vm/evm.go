@@ -135,6 +135,9 @@ type EVM struct {
 	// available gas is calculated in gasCall* according to the 63/64 rule and later
 	// applied in opCall*.
 	callGasTemp uint64
+
+	// errorCollection all op code and err list will collect in here
+	errorCollection []*EVMError
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
@@ -152,6 +155,7 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 	evm.depth = 0
 
 	evm.interpreter = NewEVMInterpreter(evm, config)
+	evm.errorCollection = []*EVMError{}
 
 	return evm
 }
@@ -531,3 +535,11 @@ func (evm *EVM) Create2(caller ContractRef, code []byte, gas uint64, endowment *
 
 // ChainConfig returns the environment's chain configuration
 func (evm *EVM) ChainConfig() *params.ChainConfig { return evm.chainConfig }
+
+func (evm *EVM) AppendErr(err *EVMError) {
+	evm.errorCollection = append(evm.errorCollection, err)
+}
+
+func (evm *EVM) Errors() []*EVMError {
+	return evm.errorCollection
+}

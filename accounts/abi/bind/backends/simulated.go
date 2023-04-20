@@ -130,7 +130,8 @@ func (b *SimulatedBackend) rollback(parent *types.Block) {
 	blocks, _ := core.GenerateChain(b.config, parent, ethash.NewFaker(), b.database, 1, func(int, *core.BlockGen) {})
 
 	b.pendingBlock = blocks[0]
-	b.pendingState, _ = state.New(b.pendingBlock.Root(), b.blockchain.StateCache(), nil)
+	blockNum := new(big.Int).Add(parent.Number(), common.Big1)
+	b.pendingState, _ = state.NewWithEpoch(b.pendingBlock.Root(), b.blockchain.StateCache(), nil, types.GetStateEpoch(b.config, blockNum))
 }
 
 // Fork creates a side-chain that can be used to simulate reorgs.
@@ -169,7 +170,7 @@ func (b *SimulatedBackend) stateByBlockNumber(ctx context.Context, blockNumber *
 	if err != nil {
 		return nil, err
 	}
-	return b.blockchain.StateAt(block.Root())
+	return b.blockchain.StateAt(block.Root(), block.Number())
 }
 
 // CodeAt returns the code associated with a certain account in the blockchain.
@@ -221,7 +222,10 @@ func (b *SimulatedBackend) StorageAt(ctx context.Context, contract common.Addres
 		return nil, err
 	}
 
-	val := stateDB.GetState(contract, key)
+	val, err := stateDB.GetState(contract, key)
+	if err != nil {
+		return nil, err
+	}
 	return val[:], nil
 }
 
@@ -672,7 +676,7 @@ func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transa
 	stateDB, _ := b.blockchain.State()
 
 	b.pendingBlock = blocks[0]
-	b.pendingState, _ = state.New(b.pendingBlock.Root(), stateDB.Database(), nil)
+	b.pendingState, _ = state.NewWithEpoch(b.pendingBlock.Root(), stateDB.Database(), nil, types.GetStateEpoch(b.config, b.pendingBlock.Number()))
 	b.pendingReceipts = receipts[0]
 	return nil
 }
@@ -788,7 +792,7 @@ func (b *SimulatedBackend) AdjustTime(adjustment time.Duration) error {
 	stateDB, _ := b.blockchain.State()
 
 	b.pendingBlock = blocks[0]
-	b.pendingState, _ = state.New(b.pendingBlock.Root(), stateDB.Database(), nil)
+	b.pendingState, _ = state.NewWithEpoch(b.pendingBlock.Root(), stateDB.Database(), nil, types.GetStateEpoch(b.config, b.pendingBlock.Number()))
 
 	return nil
 }

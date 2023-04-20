@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/params"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -35,8 +37,8 @@ var (
 	sha3Nil = crypto.Keccak256Hash(nil)
 )
 
-func NewState(ctx context.Context, head *types.Header, odr OdrBackend) *state.StateDB {
-	state, _ := state.New(head.Root, NewStateDatabase(ctx, head, odr), nil)
+func NewState(ctx context.Context, config *params.ChainConfig, head *types.Header, odr OdrBackend) *state.StateDB {
+	state, _ := state.NewWithEpoch(head.Root, NewStateDatabase(ctx, head, odr), nil, types.GetStateEpoch(config, head.Number))
 	return state
 }
 

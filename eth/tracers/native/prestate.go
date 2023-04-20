@@ -174,5 +174,10 @@ func (t *prestateTracer) lookupStorage(addr common.Address, key common.Hash) {
 	if _, ok := t.prestate[addr].Storage[key]; ok {
 		return
 	}
-	t.prestate[addr].Storage[key] = t.env.StateDB.GetState(addr, key)
+	// TODO when trace meet state err, just pass
+	val, err := t.env.StateDB.GetState(addr, key)
+	if err != nil {
+		return
+	}
+	t.prestate[addr].Storage[key] = val
 }

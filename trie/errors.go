@@ -19,6 +19,8 @@ package trie
 import (
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -37,7 +39,7 @@ func (err *MissingNodeError) Error() string {
 type ExpiredNodeError struct {
 	ExpiredNode node   // node of the expired node
 	Path        []byte // hex-encoded path to the expired node
-	Epoch       uint16
+	Epoch       types.StateEpoch
 }
 
 func (err *ExpiredNodeError) Error() string {
