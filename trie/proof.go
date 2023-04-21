@@ -252,6 +252,10 @@ func (m *MPTProofCache) VerifyProof() error {
 	return nil
 }
 
+func (m *MPTProofCache) CacheNubs() []*MPTProofNub {
+	return m.cacheNubs
+}
+
 func needMergeNextNode(nodes []node, i int) bool {
 	if i >= len(nodes) || i+1 >= len(nodes) {
 		return false

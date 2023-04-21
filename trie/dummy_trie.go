@@ -104,4 +104,6 @@ func (t *EmptyTrie) TryUpdateAccount(key []byte, account *types.StateAccount) er
 	return nil
 }
 
-func (t *EmptyTrie) ReviveTrie(proof MPTProofCache) {}
+func (t *EmptyTrie) ReviveTrie(proof []*MPTProofNub) []*MPTProofNub {
+	return nil
+}

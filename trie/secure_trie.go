@@ -229,6 +229,6 @@ func (t *SecureTrie) getSecKeyCache() map[string][]byte {
 	return t.secKeyCache
 }
 
-func (t *SecureTrie) ReviveTrie(proof MPTProofCache) {
-	t.trie.ReviveTrie(proof)
+func (t *SecureTrie) ReviveTrie(proof []*MPTProofNub) []*MPTProofNub {
+	return t.trie.ReviveTrie(proof)
 }

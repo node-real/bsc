@@ -669,36 +669,36 @@ func (t *Trie) Size() int {
 	return estimateSize(t.root)
 }
 
-func (t *Trie) ReviveTrie(proof MPTProofCache) {
-	if err := t.TryRevive(proof); err != nil {
+func (t *Trie) ReviveTrie(proof []*MPTProofNub) (successNubs []*MPTProofNub) {
+	successNubs, err := t.TryRevive(proof)
+	if err != nil {
 		log.Error(fmt.Sprintf("Failed to revive trie: %v", err))
 	}
+	return successNubs
 }
 
-func (t *Trie) TryRevive(proof MPTProofCache) error {
+func (t *Trie) TryRevive(proof []*MPTProofNub) (successNubs []*MPTProofNub, err error) {
 
-	cacheHashIndex := 0
-
-	for _, nub := range proof.cacheNubs {
-		newNode, didResolve, newCacheHashIndex, err := t.tryRevive(t.root, nub.RootHexKey, *nub, proof.cacheHashes, cacheHashIndex)
-		if err != nil {
-			return err
-		}
-		if didResolve {
+	for _, nub := range proof {
+		newNode, didResolve, err := t.tryRevive(t.root, nub.RootHexKey, *nub)
+		if didResolve && err == nil {
+			successNubs = append(successNubs, nub)
 			t.root = newNode
 		}
-		cacheHashIndex = newCacheHashIndex
 	}
 
-	return nil
+	if len(successNubs) == 0 && len(proof) != 0 {
+		return successNubs, fmt.Errorf("all nubs failed to revive trie")
+	}
 
+	return successNubs, nil
 }
 
-func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, cacheHashes [][]byte, cacheHashIndex int) (node, bool, int, error) {
+func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub) (node, bool, error) {
 	if len(key) == 0 {
 
 		if hashNode, ok := n.(hashNode); ok {
-			cachedHash := cacheHashes[cacheHashIndex]
+			cachedHash, _ := nub.n1.cache()
 			if bytes.Equal(cachedHash, hashNode) {
 
 				if nub.n2 != nil {
@@ -706,55 +706,45 @@ func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, cacheHashes [][]by
 					case *shortNode:
 						n1.Val = nub.n2
 					default:
-						return nil, false, cacheHashIndex, fmt.Errorf("invalid node type")
+						return nil, false, fmt.Errorf("invalid node type")
 					}
-					cacheHashIndex++
 				}
 
-				cacheHashIndex++
-
-				return nub.n1, true, cacheHashIndex, nil
+				return nub.n1, true, nil
 			}
 		}
 
-		if nub.n1 != nil {
-			cacheHashIndex++
-		}
-		if nub.n2 != nil {
-			cacheHashIndex++
-		}
-
-		return nil, false, cacheHashIndex, nil
+		return nil, false, nil
 	}
 	switch n := n.(type) {
 	case *shortNode:
 		if len(key) < len(n.Key) || !bytes.Equal(key[:len(n.Key)], n.Key) {
-			return nil, false, cacheHashIndex, fmt.Errorf("key %v not found", key)
+			return nil, false, fmt.Errorf("key %v not found", key)
 		}
-		newNode, didResolve, newCacheHashIndex, err := t.tryRevive(n.Val, key[len(n.Key):], nub, cacheHashes, cacheHashIndex)
+		newNode, didResolve, err := t.tryRevive(n.Val, key[len(n.Key):], nub)
 		if didResolve && err == nil {
 			n = n.copy()
 			n.Val = newNode
 		}
-		return n, didResolve, newCacheHashIndex, err
+		return n, didResolve, err
 	case *fullNode:
 		childIndex := int(key[0])
-		newNode, didResolve, newCacheHashIndex, err := t.tryRevive(n.Children[childIndex], key[1:], nub, cacheHashes, cacheHashIndex)
+		newNode, didResolve, err := t.tryRevive(n.Children[childIndex], key[1:], nub)
 		if didResolve && err == nil {
 			n = n.copy()
 			n.Children[childIndex] = newNode
 		}
-		return n, didResolve, newCacheHashIndex, err
+		return n, didResolve, err
 	case hashNode:
 		tn, err := t.resolveHash(n, nil) // TODO (asyukii): Revisit epoch index
 		if err != nil {
-			return nil, false, cacheHashIndex, err
+			return nil, false, err
 		}
-		return t.tryRevive(tn, key, nub, cacheHashes, cacheHashIndex)
+		return t.tryRevive(tn, key, nub)
 	case valueNode:
-		return nil, false, cacheHashIndex, nil
+		return nil, false, nil
 	case nil:
-		return nil, false, cacheHashIndex, nil
+		return nil, false, nil
 	default:
 		panic(fmt.Sprintf("invalid node: %T", n))
 	}

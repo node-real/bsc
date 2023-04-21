@@ -129,7 +129,7 @@ type Trie interface {
 
 	ProveStorageWitness(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error
 
-	ReviveTrie(trie.MPTProofCache)
+	ReviveTrie(proof []*trie.MPTProofNub) []*trie.MPTProofNub
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for

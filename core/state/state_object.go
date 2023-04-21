@@ -692,7 +692,7 @@ func (s *StateObject) Value() *big.Int {
 
 func (s *StateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
 	dr := s.getDirtyReviveTrie(s.db.db)
-	dr.ReviveTrie(proofCache)
+	dr.ReviveTrie(proofCache.CacheNubs())
 	s.db.journal.append(reviveStorageTrieNodeChange{
 		address: &s.address,
 	})

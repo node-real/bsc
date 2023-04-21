@@ -536,8 +536,8 @@ func makeRawMPTProofCache(rootKeyHex []byte, proof [][]byte) MPTProofCache {
 	}
 }
 
-// TestReviveTrie tests that a trie can be revived from a proof
-func TestReviveTrie(t *testing.T) {
+// TestTryRevive tests that a trie can be revived from a proof
+func TestTryRevive(t *testing.T) {
 
 	trie, vals := nonRandomTrie(500)
 
@@ -564,7 +564,7 @@ func TestReviveTrie(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Revive trie
-			err = trie.TryRevive(proofCache)
+			_, err = trie.TryRevive(proofCache.cacheNubs)
 			assert.NoError(t, err)
 
 			// Verify value exists after revive
@@ -583,7 +583,7 @@ func TestReviveTrie(t *testing.T) {
 
 // TODO (asyukii): TestReviveAtRoot tests that a key can be revived at root when
 // the whole trie is expired. This test will fail because the parent node in
-// ReviveTrie is nil, set to RootNode when available
+// TryRevive is nil, set to RootNode when available
 // func TestReviveAtRoot(t *testing.T) {
 // 	trie, vals := nonRandomTrie(500)
 
@@ -610,7 +610,7 @@ func TestReviveTrie(t *testing.T) {
 // 		assert.NoError(t, err)
 
 // 		// Revive trie
-// 		err = trie.ReviveTrie(proofCache)
+// 		err = trie.TryRevive(proofCache)
 // 		assert.NoError(t, err)
 
 // 		// Verify value exists after revive
@@ -659,7 +659,7 @@ func TestReviveBadProof(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Revive trie
-	err = trieA.TryRevive(proofCache)
+	_, err = trieA.TryRevive(proofCache.cacheNubs)
 	assert.Error(t, err)
 
 	// Verify value does exists after revive
@@ -668,9 +668,9 @@ func TestReviveBadProof(t *testing.T) {
 
 }
 
-// TestReviveOneElement tests that a trie with a single element
-// can be revived from a proof
-func TestReviveOneElement(t *testing.T) {
+// TestReviveAlreadyExists tests that a path cannot be revived
+// again if it already exists
+func TestReviveAlreadyExists(t *testing.T) {
 	trie := new(Trie)
 	key := []byte("k")
 	val := []byte("v")
@@ -682,16 +682,13 @@ func TestReviveOneElement(t *testing.T) {
 	err := trie.ProveStorageWitness(key, nil, &proof)
 	assert.NoError(t, err)
 
-	err = trie.ExpireByPrefix(nil)
-	assert.NoError(t, err)
-
 	proofCache := makeRawMPTProofCache(nil, proof)
 
 	err = proofCache.VerifyProof()
 	assert.NoError(t, err)
 
-	err = trie.TryRevive(proofCache)
-	assert.NoError(t, err)
+	_, err = trie.TryRevive(proofCache.cacheNubs)
+	assert.Error(t, err)
 
 	v := trie.Get(key)
 	assert.Equal(t, val, v)
@@ -719,14 +716,14 @@ func TestReviveBadProofAfterUpdate(t *testing.T) {
 			err = proofCache.VerifyProof()
 			assert.NoError(t, err)
 
-			err = trie.TryRevive(proofCache)
+			// Revive first
+			_, err = trie.TryRevive(proofCache.cacheNubs)
 			assert.NoError(t, err)
 
 			trie.Update(key, []byte("new value"))
 
 			// Revive again with old proof
-			err = trie.TryRevive(proofCache)
-			assert.NoError(t, err)
+			trie.TryRevive(proofCache.cacheNubs)
 
 			// Validate trie
 			resVal, err := trie.TryGet(key)
@@ -763,7 +760,7 @@ func TestPartialReviveFullProof(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Revive trie
-	err = trie.TryRevive(proofCache)
+	_, err = trie.TryRevive(proofCache.cacheNubs)
 	assert.NoError(t, err)
 
 	// Validate trie
@@ -825,7 +822,7 @@ func TestReviveValueAtFullNode(t *testing.T) {
 		err = proofCache.VerifyProof()
 		assert.NoError(t, err)
 
-		err = trie.TryRevive(proofCache)
+		_, err = trie.TryRevive(proofCache.cacheNubs)
 		assert.NoError(t, err)
 
 		// Validate trie
