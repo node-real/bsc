@@ -99,8 +99,8 @@ type StateObject struct {
 	dirtyReviveTrie   Trie // dirtyReviveTrie for tx
 
 	// when R&W, access revive state first
-	pendingReviveState Storage // pendingReviveState for block, it cannot flush to trie, just cache
-	dirtyReviveState   Storage // dirtyReviveState for tx, for cache dirtyReviveTrie
+	pendingReviveState map[string]common.Hash // pendingReviveState for block, it cannot flush to trie, just cache
+	dirtyReviveState   map[string]common.Hash // dirtyReviveState for tx, for cache dirtyReviveTrie
 
 	// accessed state, don't record revive state, don't record nonexist state or any err access
 	pendingAccessedState map[common.Hash]int // pendingAccessedState record which state is accessed, it will update epoch index late
@@ -149,8 +149,8 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *St
 		originStorage:        make(Storage),
 		pendingStorage:       make(Storage),
 		dirtyStorage:         make(Storage),
-		dirtyReviveState:     make(Storage),
-		pendingReviveState:   make(Storage),
+		dirtyReviveState:     make(map[string]common.Hash),
+		pendingReviveState:   make(map[string]common.Hash),
 		dirtyAccessedState:   make(map[common.Hash]int),
 		pendingAccessedState: make(map[common.Hash]int),
 		Epoch:                db.Epoch,
@@ -231,7 +231,7 @@ func (s *StateObject) GetState(db Database, key common.Hash) (common.Hash, error
 		s.accessState(key)
 		return value, nil
 	}
-	if revived, revive := s.dirtyReviveState[key]; revive {
+	if revived, revive := s.queryFromReviveState(db, s.dirtyReviveState, key); revive {
 		s.accessState(key)
 		return revived, nil
 	}
@@ -278,7 +278,7 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 	if value, pending := s.pendingStorage[key]; pending {
 		return value, nil
 	}
-	if revived, revive := s.pendingReviveState[key]; revive {
+	if revived, revive := s.queryFromReviveState(db, s.pendingReviveState, key); revive {
 		return revived, nil
 	}
 
@@ -322,7 +322,7 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 	}
 	if err != nil {
 		if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-			return common.Hash{}, NewExpiredStateError(s.address, enErr)
+			return common.Hash{}, NewExpiredStateError(s.address, key, enErr)
 		}
 		s.setError(err)
 		return common.Hash{}, nil
@@ -364,7 +364,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) error {
 		_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
 		if err != nil {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-				return NewInsertExpiredStateError(s.address, enErr)
+				return NewInsertExpiredStateError(s.address, key, enErr)
 			}
 			s.setError(err)
 			return nil
@@ -429,7 +429,7 @@ func (s *StateObject) finalise(prefetch bool) {
 		s.dirtyStorage = make(Storage)
 	}
 	if len(s.dirtyReviveState) > 0 {
-		s.dirtyReviveState = make(Storage)
+		s.dirtyReviveState = make(map[string]common.Hash)
 	}
 	if len(s.dirtyAccessedState) > 0 {
 		s.dirtyAccessedState = make(map[common.Hash]int)
@@ -530,7 +530,7 @@ func (s *StateObject) updateTrie(db Database) Trie {
 		s.pendingStorage = make(Storage)
 	}
 	if len(s.pendingReviveState) > 0 {
-		s.pendingReviveState = make(Storage)
+		s.pendingReviveState = make(map[string]common.Hash)
 	}
 	if len(s.pendingAccessedState) > 0 {
 		s.pendingAccessedState = make(map[common.Hash]int)
@@ -651,8 +651,14 @@ func (s *StateObject) deepCopy(db *StateDB) *StateObject {
 	if s.pendingReviveTrie != nil {
 		stateObject.pendingReviveTrie = db.db.CopyTrie(s.pendingReviveTrie)
 	}
-	stateObject.dirtyReviveState = s.dirtyReviveState.Copy()
-	stateObject.pendingReviveState = s.pendingReviveState.Copy()
+	stateObject.dirtyReviveState = make(map[string]common.Hash, len(s.dirtyReviveState))
+	for k, v := range s.dirtyReviveState {
+		stateObject.dirtyReviveState[k] = v
+	}
+	stateObject.pendingReviveState = make(map[string]common.Hash, len(s.pendingReviveState))
+	for k, v := range s.pendingReviveState {
+		stateObject.pendingReviveState[k] = v
+	}
 	stateObject.dirtyAccessedState = make(map[common.Hash]int, len(s.dirtyAccessedState))
 	for k, v := range s.dirtyAccessedState {
 		stateObject.dirtyAccessedState[k] = v
@@ -755,11 +761,27 @@ func (s *StateObject) Value() *big.Int {
 
 func (s *StateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
 	dr := s.getDirtyReviveTrie(s.db.db)
-	// TODO(0xbundler): revive nub and cache revive state
-	dr.ReviveTrie(proofCache.CacheNubs())
 	s.db.journal.append(reviveStorageTrieNodeChange{
 		address: &s.address,
 	})
+	// revive nub and cache revive state
+	for _, nub := range dr.ReviveTrie(proofCache.CacheNubs()) {
+		kv, err := nub.ResolveKV()
+		if err != nil {
+			return err
+		}
+		for k, enc := range kv {
+			var value common.Hash
+			if len(enc) > 0 {
+				_, content, _, err := rlp.Split(enc)
+				if err != nil {
+					return err
+				}
+				value.SetBytes(content)
+			}
+			s.dirtyReviveState[k] = value
+		}
+	}
 	return nil
 }
 
@@ -770,4 +792,11 @@ func (s *StateObject) accessState(key common.Hash) {
 	})
 	count := s.dirtyAccessedState[key]
 	s.dirtyAccessedState[key] = count + 1
+}
+
+// TODO(0xbundler): add hash key cache later
+func (s *StateObject) queryFromReviveState(db Database, reviveState map[string]common.Hash, key common.Hash) (common.Hash, bool) {
+	hashKey := string(s.getTrie(db).HashKey(key.Bytes()))
+	val, ok := reviveState[hashKey]
+	return val, ok
 }

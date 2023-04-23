@@ -74,6 +74,10 @@ func (t *EmptyTrie) GetKey(shaKey []byte) []byte {
 	return nil
 }
 
+func (t *EmptyTrie) HashKey(key []byte) []byte {
+	return nil
+}
+
 func (t *EmptyTrie) Commit(onleaf LeafCallback) (root common.Hash, committed int, err error) {
 	return common.Hash{}, 0, nil
 }

@@ -281,7 +281,7 @@ func (ch accessListAddSlotChange) dirtied() *common.Address {
 }
 
 func (ch reviveStorageTrieNodeChange) revert(s *StateDB) {
-	s.getStateObject(*ch.address).dirtyReviveState = make(Storage)
+	s.getStateObject(*ch.address).dirtyReviveState = make(map[string]common.Hash)
 	s.getStateObject(*ch.address).dirtyReviveTrie = nil
 }
 

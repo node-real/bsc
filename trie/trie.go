@@ -680,7 +680,7 @@ func (t *Trie) ReviveTrie(proof []*MPTProofNub) (successNubs []*MPTProofNub) {
 func (t *Trie) TryRevive(proof []*MPTProofNub) (successNubs []*MPTProofNub, err error) {
 
 	for _, nub := range proof {
-		newNode, didResolve, err := t.tryRevive(t.root, nub.RootHexKey, *nub)
+		newNode, didResolve, err := t.tryRevive(t.root, nub.n1PrefixKey, *nub)
 		if didResolve && err == nil {
 			successNubs = append(successNubs, nub)
 			t.root = newNode

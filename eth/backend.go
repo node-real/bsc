@@ -216,7 +216,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		bcOps = append(bcOps, core.EnableLightProcessor)
 	}
 	if config.PipeCommit {
-		bcOps = append(bcOps, core.EnablePipelineCommit)
+		// TODO(0xbundler): may support pipeCommit in state expiry later
+		log.Info("temporary not support pipeCommit in state expiry")
+		//bcOps = append(bcOps, core.EnablePipelineCommit)
 	}
 	if config.PersistDiff {
 		bcOps = append(bcOps, core.EnablePersistDiff(config.DiffBlock))

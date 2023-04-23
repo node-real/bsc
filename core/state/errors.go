@@ -25,20 +25,20 @@ func NewPlainExpiredStateError(addr common.Address, key common.Hash, epoch types
 	}
 }
 
-func NewExpiredStateError(addr common.Address, err *trie.ExpiredNodeError) *ExpiredStateError {
+func NewExpiredStateError(addr common.Address, key common.Hash, err *trie.ExpiredNodeError) *ExpiredStateError {
 	return &ExpiredStateError{
 		Addr:     addr,
-		Key:      common.Hash{},
+		Key:      key,
 		Path:     err.Path,
 		Epoch:    err.Epoch,
 		isInsert: false,
 	}
 }
 
-func NewInsertExpiredStateError(addr common.Address, err *trie.ExpiredNodeError) *ExpiredStateError {
+func NewInsertExpiredStateError(addr common.Address, key common.Hash, err *trie.ExpiredNodeError) *ExpiredStateError {
 	return &ExpiredStateError{
 		Addr:     addr,
-		Key:      common.Hash{},
+		Key:      key,
 		Path:     err.Path,
 		Epoch:    err.Epoch,
 		isInsert: true,

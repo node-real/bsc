@@ -175,6 +175,10 @@ func (t *odrTrie) GetKey(sha []byte) []byte {
 	return nil
 }
 
+func (t *odrTrie) HashKey(key []byte) []byte {
+	return nil
+}
+
 func (t *odrTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
 	return errors.New("not implemented, needs client/server interface split")
 }
