@@ -77,7 +77,7 @@ type EVMError struct {
 	from   common.Address
 	to     common.Address
 	opcode OpCode
-	err    error
+	Err    error
 }
 
 func NewEVMErr(contract *Contract, op OpCode, err error) *EVMError {
@@ -85,10 +85,10 @@ func NewEVMErr(contract *Contract, op OpCode, err error) *EVMError {
 		from:   contract.Caller(),
 		to:     contract.Address(),
 		opcode: op,
-		err:    err,
+		Err:    err,
 	}
 }
 
 func (e *EVMError) Error() string {
-	return fmt.Sprintf("EVM err, from %v to %v at %v, got: %v", e.from, e.to, e.opcode, e.err)
+	return fmt.Sprintf("EVM err, from %v to %v at %v, got: %v", e.from, e.to, e.opcode, e.Err)
 }

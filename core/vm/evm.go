@@ -136,8 +136,8 @@ type EVM struct {
 	// applied in opCall*.
 	callGasTemp uint64
 
-	// errorCollection all op code and err list will collect in here
-	errorCollection []*EVMError
+	// ErrorCollection all op code and err list will collect in here
+	ErrorCollection []*EVMError
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
@@ -155,7 +155,7 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 	evm.depth = 0
 
 	evm.interpreter = NewEVMInterpreter(evm, config)
-	evm.errorCollection = []*EVMError{}
+	evm.ErrorCollection = []*EVMError{}
 
 	return evm
 }
@@ -537,9 +537,9 @@ func (evm *EVM) Create2(caller ContractRef, code []byte, gas uint64, endowment *
 func (evm *EVM) ChainConfig() *params.ChainConfig { return evm.chainConfig }
 
 func (evm *EVM) AppendErr(err *EVMError) {
-	evm.errorCollection = append(evm.errorCollection, err)
+	evm.ErrorCollection = append(evm.ErrorCollection, err)
 }
 
 func (evm *EVM) Errors() []*EVMError {
-	return evm.errorCollection
+	return evm.ErrorCollection
 }

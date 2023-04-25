@@ -531,6 +531,100 @@ func TestEstimateGas(t *testing.T) {
 	}
 }
 
+// TODO (asyukii)
+// Need some smart way to modify state such that they can be expired
+// Add more tests:
+// [] - Test for gas estimation of fully expired contract
+// [] - Test for gas estimation of contract with partially expired storage
+func TestEstimateGasAndReviveState(t *testing.T) {
+	/*
+		pragma solidity ^0.8.0;
+		contract HardcodedStorage {
+			uint256 private _value1 = 10;
+			uint256 private _value2 = 20;
+			uint256 private _value3 = 30;
+			uint256 private _value5 = 50;
+			uint256 private _value6 = 60;
+			uint256 private _value7 = 70;
+			uint256 private _value8 = 80;
+
+			function getValue1() public view returns (uint256) {
+				return _value1;
+			}
+		}
+	*/
+	const contractAbi = "[{\"inputs\":[],\"name\":\"getValue1\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]"
+	const contractBin = "0x6080604052600a6000556014600155601e6002556032600355603c6004556046600555605060065534801561003357600080fd5b5060b6806100426000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c806360d586f814602d575b600080fd5b60336047565b604051603e91906067565b60405180910390f35b60008054905090565b6000819050919050565b6061816050565b82525050565b6000602082019050607a6000830184605a565b9291505056fea26469706673582212208ea04f86f5d169c7e3fde0277a16120a9cc6db59035dee70356b3b1e615fe6a664736f6c63430008120033"
+
+	key, _ := crypto.GenerateKey()
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	opts, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+
+	sim := NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(params.Ether)}}, 10000000)
+	defer sim.Close()
+
+	parsed, _ := abi.JSON(strings.NewReader(contractAbi))
+	contractAddr, _, _, _ := bind.DeployContract(opts, parsed, common.FromHex(contractBin), sim)
+	sim.Commit()
+
+	var cases = []struct {
+		name        string
+		message     ethereum.CallMsg
+		expect      uint64
+		expectError error
+		expectData  interface{}
+	}{
+		{"plain transfer(valid)", ethereum.CallMsg{
+			From:     addr,
+			To:       &addr,
+			Gas:      0,
+			GasPrice: big.NewInt(0),
+			Value:    big.NewInt(1),
+			Data:     nil,
+		}, params.TxGas, nil, nil},
+
+		{"plain transfer(invalid)", ethereum.CallMsg{
+			From:     addr,
+			To:       &contractAddr,
+			Gas:      0,
+			GasPrice: big.NewInt(0),
+			Value:    big.NewInt(1),
+			Data:     nil,
+		}, 0, errors.New("execution reverted"), nil},
+		{"call getValue1(valid)", ethereum.CallMsg{
+			From:     addr,
+			To:       &contractAddr,
+			Gas:      0,
+			GasPrice: big.NewInt(100000000000),
+			Value:    big.NewInt(0),
+			Data:     common.Hex2Bytes("60d586f8"),
+		}, 23479, nil, nil},
+	}
+
+	for _, c := range cases {
+		got, _, err := sim.EstimateGasAndReviveState(context.Background(), c.message)
+		if c.expectError != nil {
+			if err == nil {
+				t.Fatalf("Expect error, got nil")
+			}
+			if c.expectError.Error() != err.Error() {
+				t.Fatalf("Expect error, want %v, got %v", c.expectError, err)
+			}
+			if c.expectData != nil {
+				if err, ok := err.(*revertError); !ok {
+					t.Fatalf("Expect revert error, got %T", err)
+				} else if !reflect.DeepEqual(err.ErrorData(), c.expectData) {
+					t.Fatalf("Error data mismatch, want %v, got %v", c.expectData, err.ErrorData())
+				}
+			}
+			continue
+		}
+		if got != c.expect {
+			t.Fatalf("Gas estimation mismatch, want %d, got %d", c.expect, got)
+		}
+	}
+}
+
 func TestEstimateGasWithPrice(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	addr := crypto.PubkeyToAddress(key.PublicKey)

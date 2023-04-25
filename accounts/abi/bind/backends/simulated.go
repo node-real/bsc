@@ -42,6 +42,7 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -589,6 +590,172 @@ func (b *SimulatedBackend) EstimateGas(ctx context.Context, call ethereum.CallMs
 	return hi, nil
 }
 
+// EstimateGasAndReviveState executes the requested code against the currently pending block/state and
+// returns the used amount of gas. If the execution fails due to expired state, it will revive the state
+// and try again.
+func (b *SimulatedBackend) EstimateGasAndReviveState(ctx context.Context, call ethereum.CallMsg) (uint64, []types.ReviveWitness, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Initialize witnessList
+	var witnessList []types.ReviveWitness
+	if call.WitnessList != nil {
+		witnessList = call.WitnessList
+	}
+	witLen := len(witnessList)
+
+	// Determine the lowest and highest possible gas limits to binary search in between
+	var (
+		lo  uint64 = params.TxGas - 1
+		hi  uint64
+		cap uint64
+	)
+	if call.Gas >= params.TxGas {
+		hi = call.Gas
+	} else {
+		hi = b.pendingBlock.GasLimit()
+	}
+	// Normalize the max fee per gas the call is willing to spend.
+	var feeCap *big.Int
+	if call.GasPrice != nil && (call.GasFeeCap != nil || call.GasTipCap != nil) {
+		return 0, witnessList, errors.New("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified")
+	} else if call.GasPrice != nil {
+		feeCap = call.GasPrice
+	} else if call.GasFeeCap != nil {
+		feeCap = call.GasFeeCap
+	} else {
+		feeCap = common.Big0
+	}
+	// Recap the highest gas allowance with account's balance.
+	if feeCap.BitLen() != 0 {
+		balance := b.pendingState.GetBalance(call.From) // from can't be nil
+		available := new(big.Int).Set(balance)
+		if call.Value != nil {
+			if call.Value.Cmp(available) >= 0 {
+				return 0, witnessList, errors.New("insufficient funds for transfer")
+			}
+			available.Sub(available, call.Value)
+		}
+		allowance := new(big.Int).Div(available, feeCap)
+		if allowance.IsUint64() && hi > allowance.Uint64() {
+			transfer := call.Value
+			if transfer == nil {
+				transfer = new(big.Int)
+			}
+			log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
+				"sent", transfer, "feecap", feeCap, "fundable", allowance)
+			hi = allowance.Uint64()
+		}
+	}
+	cap = hi
+
+	// Create a helper to check if a gas allowance results in an executable transaction
+	executable := func(gas uint64, witnessList []types.ReviveWitness) (bool, *core.ExecutionResult, bool, error) {
+		call.Gas = gas
+
+		snapshot := b.pendingState.Snapshot()
+		res, evmErrors, err := b.callContractExpired(ctx, call, b.pendingBlock, b.pendingState)
+
+		// Create MPTProof
+		isExpiredError := false
+		if len(evmErrors) > 0 {
+			addressToProofMap := make(map[common.Address][]types.MPTProof)
+			for _, evmErr := range evmErrors {
+				if stateErr, ok := evmErr.Err.(*state.ExpiredStateError); ok {
+					isExpiredError = true
+					proof, err := b.pendingState.GetStorageWitness(stateErr.Addr, stateErr.Path, stateErr.Key) // TODO (asyukii): Is this key correct?
+					if err != nil {
+						return true, nil, isExpiredError, err
+					}
+					addressToProofMap[stateErr.Addr] = append(addressToProofMap[stateErr.Addr], types.MPTProof{
+						RootKeyHex: stateErr.Path,
+						Proof:      proof,
+					})
+				}
+			}
+
+			// TODO (asyukii): existing witnessList might already has ReviveWitness with the same address
+			// Might want to consider decoding it and merge them together
+
+			// Create a ReviveWitness object for each address and add it to witnessList
+			for addr, proofs := range addressToProofMap {
+				// Build a storageTrieWitness
+				storageTrieWitness := types.StorageTrieWitness{
+					Address:   addr,
+					ProofList: proofs,
+				}
+				// Encode StorageTrieWitness
+				enc, err := rlp.EncodeToBytes(storageTrieWitness)
+				if err != nil {
+					return true, nil, isExpiredError, err
+				}
+				// Create a ReviveWitness
+				reviveWitness := types.ReviveWitness{
+					WitnessType: types.StorageTrieWitnessType,
+					Data:        enc,
+				}
+				// Append to witness list
+				witnessList = append(witnessList, reviveWitness)
+			}
+		}
+
+		b.pendingState.RevertToSnapshot(snapshot)
+
+		if err != nil {
+			if _, ok := err.(*state.ExpiredStateError); ok || errors.Is(err, core.ErrIntrinsicGas) {
+				return true, nil, isExpiredError, nil // Special case, raise gas limit
+			}
+			return true, nil, isExpiredError, err // Bail out
+		}
+		return res.Failed(), res, isExpiredError, nil
+	}
+	// Execute the binary search and hone in on an executable gas limit
+	for lo+1 < hi {
+		mid := (hi + lo) / 2
+		failed, _, isExpiredError, err := executable(mid, witnessList)
+
+		if isExpiredError {
+			if witLen == len(witnessList) {
+				// If witnessList is not updated, it means that the proofs are not
+				// sufficient to revive the state.
+				return 0, witnessList, fmt.Errorf("cannot generate enough proofs to revive the state")
+			}
+			witLen = len(witnessList)
+			continue
+		}
+
+		// If the error is not nil(consensus error), it means the provided message
+		// call or transaction will never be accepted no matter how much gas it is
+		// assigned. Return the error directly, don't struggle any more
+		if err != nil {
+			return 0, witnessList, err
+		}
+		if failed {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	// Reject the transaction as invalid if it still fails at the highest allowance
+	if hi == cap {
+		failed, result, _, err := executable(hi, witnessList)
+		if err != nil {
+			return 0, witnessList, err
+		}
+		if failed {
+			if result != nil && result.Err != vm.ErrOutOfGas {
+				if len(result.Revert()) > 0 {
+					return 0, witnessList, newRevertError(result)
+				}
+				return 0, witnessList, result.Err
+			}
+			// Otherwise, the specified gas cap is too low
+			return 0, witnessList, fmt.Errorf("gas required exceeds allowance (%d)", cap)
+		}
+	}
+	return hi, witnessList, nil
+}
+
 // callContract implements common code between normal and pending contract calls.
 // state is modified during execution, make sure to copy it if necessary.
 func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallMsg, block *types.Block, stateDB *state.StateDB) (*core.ExecutionResult, error) {
@@ -644,6 +811,64 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallM
 	gasPool := new(core.GasPool).AddGas(math.MaxUint64)
 
 	return core.NewStateTransition(vmEnv, msg, gasPool).TransitionDb()
+}
+
+// callContractExpired implements common code between normal and pending contract calls.
+// state is modified during execution, make sure to copy it if necessary.
+// It will also return the EVM errors if any.
+func (b *SimulatedBackend) callContractExpired(ctx context.Context, call ethereum.CallMsg, block *types.Block, stateDB *state.StateDB) (*core.ExecutionResult, []*vm.EVMError, error) {
+	// Gas prices post 1559 need to be initialized
+	if call.GasPrice != nil && (call.GasFeeCap != nil || call.GasTipCap != nil) {
+		return nil, nil, errors.New("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified")
+	}
+	head := b.blockchain.CurrentHeader()
+	if !b.blockchain.Config().IsLondon(head.Number) {
+		// If there's no basefee, then it must be a non-1559 execution
+		if call.GasPrice == nil {
+			call.GasPrice = new(big.Int)
+		}
+		call.GasFeeCap, call.GasTipCap = call.GasPrice, call.GasPrice
+	} else {
+		// A basefee is provided, necessitating 1559-type execution
+		if call.GasPrice != nil {
+			// User specified the legacy gas field, convert to 1559 gas typing
+			call.GasFeeCap, call.GasTipCap = call.GasPrice, call.GasPrice
+		} else {
+			// User specified 1559 gas feilds (or none), use those
+			if call.GasFeeCap == nil {
+				call.GasFeeCap = new(big.Int)
+			}
+			if call.GasTipCap == nil {
+				call.GasTipCap = new(big.Int)
+			}
+			// Backfill the legacy gasPrice for EVM execution, unless we're all zeroes
+			call.GasPrice = new(big.Int)
+			if call.GasFeeCap.BitLen() > 0 || call.GasTipCap.BitLen() > 0 {
+				call.GasPrice = math.BigMin(new(big.Int).Add(call.GasTipCap, head.BaseFee), call.GasFeeCap)
+			}
+		}
+	}
+	// Ensure message is initialized properly.
+	if call.Gas == 0 {
+		call.Gas = 50000000
+	}
+	if call.Value == nil {
+		call.Value = new(big.Int)
+	}
+	// Set infinite balance to the fake caller account.
+	from := stateDB.GetOrNewStateObject(call.From)
+	from.SetBalance(math.MaxBig256)
+	// Execute the call.
+	msg := callMsg{call}
+
+	txContext := core.NewEVMTxContext(msg)
+	evmContext := core.NewEVMBlockContext(block.Header(), b.blockchain, nil)
+	// Create a new environment which holds all relevant information
+	// about the transaction and calling mechanisms.
+	vmEnv := vm.NewEVM(evmContext, txContext, stateDB, b.config, vm.Config{NoBaseFee: true})
+	gasPool := new(core.GasPool).AddGas(math.MaxUint64)
+	res, err := core.NewStateTransition(vmEnv, msg, gasPool).TransitionDb()
+	return res, vmEnv.ErrorCollection, err
 }
 
 // SendTransaction updates the pending block to include the given transaction.

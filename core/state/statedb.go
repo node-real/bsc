@@ -514,7 +514,7 @@ func (s *StateDB) GetStorageWitness(a common.Address, prefixKeyHex []byte, key c
 	if trie == nil {
 		return proof, errors.New("storage trie for requested address does not exist")
 	}
-	err := trie.ProveStorageWitness(crypto.Keccak256(key.Bytes()), prefixKeyHex, &proof)
+	err := trie.ProveStorageWitness(crypto.Keccak256(key.Bytes()), prefixKeyHex, &proof) // TODO (asyukii): Might not need the Keccak256 hash, revisit this
 	return proof, err
 }
 
