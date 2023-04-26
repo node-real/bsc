@@ -113,10 +113,10 @@ func (t *Trie) ProveStorageWitness(key []byte, prefixKeyHex []byte, proofDb ethd
 	defer returnHasherToPool(hasher)
 
 	// construct the proof
-	for i, n := range nodes {
+	for _, n := range nodes {
 		var hn node
 		n, hn = hasher.proofHash(n)
-		if hash, ok := hn.(hashNode); ok || i == 0 {
+		if hash, ok := hn.(hashNode); ok {
 			enc := nodeToBytes(n)
 			if !ok {
 				hash = hasher.hashData(enc)

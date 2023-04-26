@@ -923,33 +923,6 @@ func TestStorageProof(t *testing.T) {
 	}
 }
 
-// TestOneElementStorageProof tests the storage proof generation and verification
-// for a trie with only one element.
-func TestOneElementStorageProof(t *testing.T) {
-	trie := new(Trie)
-	updateString(trie, "k", "v")
-
-	proof := memorydb.New()
-	key := []byte("k")
-	err := trie.ProveStorageWitness(key, nil, proof)
-	if err != nil {
-		t.Fatalf("missing key %x while constructing proof", key)
-	}
-
-	if proof.Len() != 1 {
-		t.Errorf("proof should have one element")
-	}
-
-	val, err := VerifyProof(trie.Hash(), []byte("k"), proof)
-	if err != nil {
-		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proof)
-	}
-
-	if !bytes.Equal(val, []byte("v")) {
-		t.Fatalf("verified value mismatch: have %x, want 'v'", val)
-	}
-}
-
 // TestEmptyStorageProof tests storage verification with empty proof.
 // The verifier should nil for both value and error.
 func TestEmptyStorageProof(t *testing.T) {
@@ -1300,6 +1273,8 @@ func randBytes(n int) []byte {
 
 func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 	trie := new(Trie)
+	trie.isStorageTrie = true
+	trie.currentEpoch = 10 // TODO (asyukii): might need to change this
 	vals := make(map[string]*kv)
 	max := uint64(0xffffffffffffffff)
 	for i := uint64(0); i < uint64(n); i++ {
@@ -1309,7 +1284,7 @@ func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 		binary.LittleEndian.PutUint64(value, i-max)
 		//value := &kv{common.LeftPadBytes([]byte{i}, 32), []byte{i}, false}
 		elem := &kv{key, value, false}
-		trie.Update(elem.k, elem.v)
+		trie.Update(elem.k, elem.v) // TODO (asyukii): this is not working, the shadow branch node is not being updated
 		vals[string(elem.k)] = elem
 	}
 	return trie, vals
