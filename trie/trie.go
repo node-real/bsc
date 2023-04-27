@@ -440,10 +440,18 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 			// else, set its epoch to current epoch.
 			n.setEpoch(t.currentEpoch)
 			if t.currentEpoch >= 2 {
-				// if child is expired, return err
-				if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
-					return false, n.Children[key[0]], err
+				child := n.Children[key[0]]
+				childKey := key[1:]
+				// if inserting a new node to this full node, there is no need to check whether this child is expired.
+				if len(childKey) != 0 {
+					if _, ok := child.(valueNode); !ok {
+						// if child is expired, return err
+						if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
+							return false, n.Children[key[0]], err
+						}
+					}
 				}
+
 			}
 			// else, set child node's epoch to current epoch
 			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
