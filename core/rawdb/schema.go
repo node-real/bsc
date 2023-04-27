@@ -63,6 +63,9 @@ var (
 	// snapshotSyncStatusKey tracks the snapshot sync status across restarts.
 	snapshotSyncStatusKey = []byte("SnapshotSyncStatus")
 
+	// shadowNodeSnapshotJournalKey tracks the in-memory diff layers across restarts.
+	shadowNodeSnapshotJournalKey = []byte("ShadowNodeSnapshotJournalKey")
+
 	// txIndexTailKey tracks the oldest block whose transactions have been indexed.
 	txIndexTailKey = []byte("TransactionIndexTail")
 
