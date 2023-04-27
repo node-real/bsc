@@ -559,6 +559,24 @@ func (ec *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64
 	return uint64(hex), nil
 }
 
+// Result struct for EstimateGasAndReviveState
+type EstimateGasAndReviveStateResult struct {
+	Hex           hexutil.Uint64        `json:"gas"`
+	ReviveWitness []types.ReviveWitness `json:"reviveWitness"`
+}
+
+// EstimateGasAndReviveState returns an estimate of the amount of gas needed to execute the
+// given transaction against the current pending block. It also attempts to revive expired
+// storage trie and returns the revive witness list.
+func (ec *Client) EstimateGasAndReviveState(ctx context.Context, msg ethereum.CallMsg) (*EstimateGasAndReviveStateResult, error) {
+	var result EstimateGasAndReviveStateResult
+	err := ec.c.CallContext(ctx, &result, "eth_estimateGasAndReviveState", toCallArg(msg))
+	if err != nil {
+		return &result, err
+	}
+	return &result, nil
+}
+
 // SendTransaction injects a signed transaction into the pending pool for execution.
 //
 // If the transaction was a contract creation use the TransactionReceipt method to get the

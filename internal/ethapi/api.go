@@ -957,6 +957,61 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	return result, nil
 }
 
+func DoCallExpired(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64) (*core.ExecutionResult, []*vm.EVMError, error) {
+	defer func(start time.Time) { log.Debug("Executing EVM call finished", "runtime", time.Since(start)) }(time.Now())
+
+	state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, nil, err
+	}
+	if err := overrides.Apply(state); err != nil {
+		return nil, nil, err
+	}
+	// Setup context so it may be cancelled the call has completed
+	// or, in case of unmetered gas, setup a context with a timeout.
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	// Make sure the context is cancelled when the call has completed
+	// this makes sure resources are cleaned up.
+	defer cancel()
+
+	// Get a new instance of the EVM.
+	msg, err := args.ToMessage(globalGasCap, header.BaseFee)
+	if err != nil {
+		return nil, nil, err
+	}
+	evm, vmError, err := b.GetEVM(ctx, msg, state, header, &vm.Config{NoBaseFee: true})
+	if err != nil {
+		return nil, nil, err
+	}
+	// Wait for the context to be done and cancel the evm. Even if the
+	// EVM has finished, cancelling may be done (repeatedly)
+	gopool.Submit(func() {
+		<-ctx.Done()
+		evm.Cancel()
+	})
+
+	// Execute the message.
+	gp := new(core.GasPool).AddGas(math.MaxUint64)
+	result, err := core.ApplyMessage(evm, msg, gp)
+	if err := vmError(); err != nil {
+		return nil, evm.ErrorCollection, err
+	}
+
+	// If the timer caused an abort, return an appropriate error message
+	if evm.Cancelled() {
+		return nil, evm.ErrorCollection, fmt.Errorf("execution aborted (timeout = %v)", timeout)
+	}
+	if err != nil {
+		return result, evm.ErrorCollection, fmt.Errorf("err: %w (supplied gas %d)", err, msg.Gas())
+	}
+	return result, evm.ErrorCollection, nil
+}
+
 func newRevertError(result *core.ExecutionResult) *revertError {
 	reason, errUnpack := abi.UnpackRevert(result.Revert())
 	err := errors.New("execution reverted")
@@ -1133,6 +1188,211 @@ func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args TransactionA
 		bNrOrHash = *blockNrOrHash
 	}
 	return DoEstimateGas(ctx, s.b, args, bNrOrHash, s.b.RPCGasCap())
+}
+
+// Result structs for EstimateGasAndReviveState
+type EstimateGasAndReviveStateResult struct {
+	Hex           hexutil.Uint64        `json:"gas"`
+	ReviveWitness []types.ReviveWitness `json:"reviveWitness"`
+}
+
+// EstimateGasAndReviveState returns an estimate of the amount of gas needed to execute the
+// given transaction against the current pending block. It also attempts to revive expired
+// storage trie and returns the revive witness list.
+func DoEstimateGasAndReviveState(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, gasCap uint64) (*EstimateGasAndReviveStateResult, error) {
+
+	var result EstimateGasAndReviveStateResult
+	var stateDb *state.StateDB
+
+	// Initialize witnessList
+	var witnessList []types.ReviveWitness
+	if args.WitnessList != nil {
+		witnessList = *args.WitnessList
+	}
+	witLen := len(witnessList)
+
+	// Binary search the gas requirement, as it may be higher than the amount used
+	var (
+		lo  uint64 = params.TxGas - 1
+		hi  uint64
+		cap uint64
+	)
+	// Use zero address if sender unspecified.
+	if args.From == nil {
+		args.From = new(common.Address)
+	}
+	// Determine the highest gas limit can be used during the estimation.
+	if args.Gas != nil && uint64(*args.Gas) >= params.TxGas {
+		hi = uint64(*args.Gas)
+	} else {
+		// Retrieve the block to act as the gas ceiling
+		block, err := b.BlockByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
+			return nil, err
+		}
+		if block == nil {
+			return nil, errors.New("block not found")
+		}
+		hi = block.GasLimit()
+	}
+	// Normalize the max fee per gas the call is willing to spend.
+	var feeCap *big.Int
+	if args.GasPrice != nil && (args.MaxFeePerGas != nil || args.MaxPriorityFeePerGas != nil) {
+		return nil, errors.New("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified")
+	} else if args.GasPrice != nil {
+		feeCap = args.GasPrice.ToInt()
+	} else if args.MaxFeePerGas != nil {
+		feeCap = args.MaxFeePerGas.ToInt()
+	} else {
+		feeCap = common.Big0
+	}
+	// Recap the highest gas limit with account's available balance.
+	if feeCap.BitLen() != 0 {
+		stateDb, _, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
+			return nil, err
+		}
+		balance := stateDb.GetBalance(*args.From) // from can't be nil
+		available := new(big.Int).Set(balance)
+		if args.Value != nil {
+			if args.Value.ToInt().Cmp(available) >= 0 {
+				return nil, errors.New("insufficient funds for transfer")
+			}
+			available.Sub(available, args.Value.ToInt())
+		}
+		allowance := new(big.Int).Div(available, feeCap)
+
+		// If the allowance is larger than maximum uint64, skip checking
+		if allowance.IsUint64() && hi > allowance.Uint64() {
+			transfer := args.Value
+			if transfer == nil {
+				transfer = new(hexutil.Big)
+			}
+			log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
+				"sent", transfer.ToInt(), "maxFeePerGas", feeCap, "fundable", allowance)
+			hi = allowance.Uint64()
+		}
+	}
+	// Recap the highest gas allowance with specified gascap.
+	if gasCap != 0 && hi > gasCap {
+		log.Debug("Caller gas above allowance, capping", "requested", hi, "cap", gasCap)
+		hi = gasCap
+	}
+	cap = hi
+
+	// Create a helper to check if a gas allowance results in an executable transaction
+	executable := func(gas uint64, witnessList []types.ReviveWitness) (bool, *core.ExecutionResult, bool, error) {
+		args.Gas = (*hexutil.Uint64)(&gas)
+
+		result, evmErrors, err := DoCallExpired(ctx, b, args, blockNrOrHash, nil, 0, gasCap) // TODO (asyukii): Use a different call function to return EVM errors
+
+		// Create MPTProof
+		isExpiredError := false
+		if len(evmErrors) > 0 {
+			addressToProofMap := make(map[common.Address][]types.MPTProof)
+			for _, evmErr := range evmErrors {
+				if stateErr, ok := evmErr.Err.(*state.ExpiredStateError); ok {
+					isExpiredError = true
+					proof, err := stateDb.GetStorageWitness(stateErr.Addr, stateErr.Path, stateErr.Key)
+					if err != nil {
+						return true, nil, isExpiredError, err
+					}
+					addressToProofMap[stateErr.Addr] = append(addressToProofMap[stateErr.Addr], types.MPTProof{
+						RootKeyHex: stateErr.Path,
+						Proof:      proof,
+					})
+				}
+			}
+
+			// Create a ReviveWitness object for each address and add it to witnessList
+			for addr, proofs := range addressToProofMap {
+				// Build a storageTrieWitness
+				storageTrieWitness := types.StorageTrieWitness{
+					Address:   addr,
+					ProofList: proofs,
+				}
+				// Encode StorageTrieWitness
+				enc, err := rlp.EncodeToBytes(storageTrieWitness)
+				if err != nil {
+					return true, nil, isExpiredError, err
+				}
+				// Create a ReviveWitness
+				reviveWitness := types.ReviveWitness{
+					WitnessType: types.StorageTrieWitnessType,
+					Data:        enc,
+				}
+				// Append to witness list
+				witnessList = append(witnessList, reviveWitness)
+			}
+		}
+		if err != nil {
+			if errors.Is(err, core.ErrIntrinsicGas) {
+				return true, nil, isExpiredError, nil // Special case, raise gas limit
+			}
+			return true, nil, isExpiredError, err // Bail out
+		}
+		return result.Failed(), result, isExpiredError, nil
+	}
+	// Execute the binary search and hone in on an executable gas limit
+	for lo+1 < hi {
+		mid := (hi + lo) / 2
+		failed, _, isExpiredError, err := executable(mid, witnessList)
+
+		if isExpiredError {
+			if witLen == len(witnessList) {
+				// If witnessList is not updated, it means that the proofs are not
+				// sufficient to revive the state.
+				return nil, fmt.Errorf("cannot generate enough proofs to revive the state")
+			}
+			witLen = len(witnessList)
+			continue
+		}
+
+		// If the error is not nil(consensus error), it means the provided message
+		// call or transaction will never be accepted no matter how much gas it is
+		// assigned. Return the error directly, don't struggle any more.
+		if err != nil {
+			return nil, err
+		}
+		if failed {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	// Reject the transaction as invalid if it still fails at the highest allowance
+	if hi == cap {
+		failed, result, _, err := executable(hi, witnessList)
+		if err != nil {
+			return nil, err
+		}
+		if failed {
+			if result != nil && result.Err != vm.ErrOutOfGas {
+				if len(result.Revert()) > 0 {
+					return nil, newRevertError(result)
+				}
+				return nil, result.Err
+			}
+			// Otherwise, the specified gas cap is too low
+			return nil, fmt.Errorf("gas required exceeds allowance (%d)", cap)
+		}
+	}
+	result = EstimateGasAndReviveStateResult{
+		Hex:           hexutil.Uint64(hi),
+		ReviveWitness: witnessList,
+	}
+	return &result, nil
+}
+
+// EstimateGasAndReviveState returns an estimate of the amount of gas needed to execute the
+// given transaction against the current pending block. It will also revive the state
+// temporarily to estimate the gas.
+func (s *PublicBlockChainAPI) EstimateGasAndReviveState(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*EstimateGasAndReviveStateResult, error) {
+	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
+	if blockNrOrHash != nil {
+		bNrOrHash = *blockNrOrHash
+	}
+	return DoEstimateGasAndReviveState(ctx, s.b, args, bNrOrHash, s.b.RPCGasCap())
 }
 
 // GetDiffAccounts returns changed accounts in a specific block number.

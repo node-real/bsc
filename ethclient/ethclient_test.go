@@ -376,6 +376,9 @@ func TestEthClient(t *testing.T) {
 		"TestDiffAccounts": {
 			func(t *testing.T) { testDiffAccounts(t, client) },
 		},
+		"TestEstimateGasAndReviveState": {
+			func(t *testing.T) { testEstimateGasAndReviveState(t, client) },
+		},
 		// DO not have TestAtFunctions now, because we do not have pending block now
 	}
 
@@ -618,6 +621,26 @@ func testCallContract(t *testing.T, client *rpc.Client) {
 	if _, err := ec.PendingCallContract(context.Background(), msg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func testEstimateGasAndReviveState(t *testing.T, client *rpc.Client) {
+	ec := NewClient(client)
+
+	// EstimateGas
+	msg := ethereum.CallMsg{
+		From:  testAddr,
+		To:    &common.Address{},
+		Gas:   21000,
+		Value: big.NewInt(1),
+	}
+	result, err := ec.EstimateGasAndReviveState(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Hex != 21000 {
+		t.Fatalf("unexpected gas price: %v", result.Hex)
+	}
+	// TODO(asyukii): add more test cases here
 }
 
 func testDiffAccounts(t *testing.T, client *rpc.Client) {
