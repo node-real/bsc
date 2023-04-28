@@ -114,8 +114,8 @@ type StateObject struct {
 	deleted   bool
 
 	//encode
-	encodeData []byte
-	Epoch      types.StateEpoch
+	encodeData  []byte
+	targetEpoch types.StateEpoch
 }
 
 // empty returns whether the account is considered empty.
@@ -153,7 +153,7 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *St
 		pendingReviveState:   make(map[string]common.Hash),
 		dirtyAccessedState:   make(map[common.Hash]int),
 		pendingAccessedState: make(map[common.Hash]int),
-		Epoch:                db.Epoch,
+		targetEpoch:          db.targetEpoch,
 	}
 }
 
@@ -196,9 +196,9 @@ func (s *StateObject) getTrie(db Database) Trie {
 		}
 		if s.trie == nil {
 			var err error
-			s.trie, err = db.OpenStorageTrie(s.addrHash, s.data.Root)
+			s.trie, err = db.OpenStorageTrieWithShadowNode(s.addrHash, s.data.Root, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
 			if err != nil {
-				s.trie, _ = db.OpenStorageTrie(s.addrHash, common.Hash{})
+				s.trie, _ = db.OpenStorageTrieWithShadowNode(s.addrHash, common.Hash{}, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
 				s.setError(fmt.Errorf("can't create storage trie: %v", err))
 			}
 		}
@@ -303,7 +303,7 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 		}
 		if err == nil {
 			if snapVal, err := snapshot.ParseSnapValFromBytes(enc); err == nil {
-				if types.EpochExpired(snapVal.Epoch, s.Epoch) {
+				if types.EpochExpired(snapVal.Epoch, s.targetEpoch) {
 					return common.Hash{}, NewPlainExpiredStateError(s.address, key, snapVal.Epoch)
 				}
 				return snapVal.Val, nil
@@ -491,11 +491,11 @@ func (s *StateObject) updateTrie(db Database) Trie {
 			}
 			usedStorage = append(usedStorage, common.CopyBytes(key[:]))
 		}
-		// TODO(0xbundler): call TryUpdateEpoch later
-		//for key := range accessStorage {
-		//	s.setError(tr.TryUpdateEpoch(key[:]))
-		//	usedStorage = append(usedStorage, common.CopyBytes(key[:]))
-		//}
+		// refresh accessed slots' epoch
+		for key := range accessStorage {
+			s.setError(tr.TryUpdateEpoch(key[:]))
+			usedStorage = append(usedStorage, common.CopyBytes(key[:]))
+		}
 	}()
 	if s.db.snap != nil {
 		// If state snapshotting is active, cache the data til commit
@@ -511,7 +511,7 @@ func (s *StateObject) updateTrie(db Database) Trie {
 			}
 			s.db.snapStorageMux.Unlock()
 			for key, value := range dirtyStorage {
-				enc, err := snapshot.NewSnapValBytes(s.Epoch, value)
+				enc, err := snapshot.NewSnapValBytes(s.targetEpoch, value)
 				if err != nil {
 					s.setError(err)
 				}

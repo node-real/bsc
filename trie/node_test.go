@@ -20,6 +20,9 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
@@ -91,6 +94,37 @@ func TestDecodeFullNode(t *testing.T) {
 	_, err := decodeNode([]byte("testdecode"), buf.Bytes())
 	if err != nil {
 		t.Fatalf("decode full node err: %v", err)
+	}
+}
+
+func TestRootNodeEncodeDecode(t *testing.T) {
+	datas := []struct {
+		r *rootNode
+	}{
+		{
+			r: &rootNode{
+				Epoch:      100,
+				TrieHash:   makeHash("t1"),
+				ShadowHash: makeHash("s1"),
+				flags:      nodeFlag{hash: makeHash("h1").Bytes()},
+			},
+		},
+		{
+			r: &rootNode{
+				Epoch:      0,
+				TrieHash:   common.Hash{},
+				ShadowHash: common.Hash{},
+				flags:      nodeFlag{hash: makeHash("h1").Bytes()},
+			},
+		},
+	}
+
+	for _, item := range datas {
+		buf := rlp.NewEncoderBuffer(bytes.NewBuffer([]byte{}))
+		item.r.encode(buf)
+		p, err := decodeNode(makeHash("h1").Bytes(), buf.ToBytes())
+		assert.NoError(t, err)
+		assert.Equal(t, item.r, p)
 	}
 }
 

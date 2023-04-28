@@ -122,7 +122,7 @@ func (p *LightStateProcessor) Process(block *types.Block, statedb *state.StateDB
 			// prepare new statedb
 			statedb.StopPrefetcher()
 			parent := p.bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
-			statedb, err = state.NewWithEpoch(parent.Root, p.bc.stateCache, p.bc.snaps, types.GetStateEpoch(p.config, block.Number()))
+			statedb, err = state.NewWithEpoch(p.config, block.Number(), parent.Root, p.bc.stateCache, p.bc.snaps, p.bc.shadowNodeTree)
 			if err != nil {
 				return statedb, nil, nil, 0, err
 			}
@@ -261,6 +261,7 @@ func (p *LightStateProcessor) LightProcess(diffLayer *types.DiffLayer, block *ty
 				//update storage
 				latestRoot := common.BytesToHash(latestAccount.Root)
 				if latestRoot != previousAccount.Root {
+					// TODO(0xbundler): fix light process later
 					accountTrie, err := statedb.Database().OpenStorageTrie(addrHash, previousAccount.Root)
 					if err != nil {
 						errChan <- err

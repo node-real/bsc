@@ -192,6 +192,8 @@ type BlockChain struct {
 	gcproc     time.Duration  // Accumulates canonical block processing for trie dumping
 	commitLock sync.Mutex     // CommitLock is used to protect above field from being modified concurrently
 
+	shadowNodeTree *trie.ShadowNodeSnapTree
+
 	// txLookupLimit is the maximum number of blocks from head whose tx indices
 	// are reserved:
 	//  * 0:   means no limit and regenerate any missing indexes
@@ -362,9 +364,14 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		return nil, err
 	}
 
+	// load shadow node tree to R&W
+	if bc.shadowNodeTree, err = trie.NewShadowNodeSnapTree(db); err != nil {
+		return nil, err
+	}
+
 	// Make sure the state associated with the block is available
 	head := bc.CurrentBlock()
-	if _, err := state.NewWithEpoch(head.Root(), bc.stateCache, bc.snaps, types.GetStateEpoch(chainConfig, head.Number())); err != nil {
+	if _, err := state.NewWithEpoch(chainConfig, head.Number(), head.Root(), bc.stateCache, bc.snaps, bc.shadowNodeTree); err != nil {
 		// Head state is missing, before the state recovery, find out the
 		// disk layer point of snapshot(if it's enabled). Make sure the
 		// rewound point is lower than disk layer.
@@ -715,7 +722,7 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, root common.Hash, repair bo
 
 					enoughBeyondCount = beyondCount > maxBeyondBlocks
 
-					if _, err := state.NewWithEpoch(newHeadBlock.Root(), bc.stateCache, bc.snaps, types.GetStateEpoch(bc.chainConfig, header.Number)); err != nil {
+					if _, err := state.NewWithEpoch(bc.chainConfig, newHeadBlock.Number(), newHeadBlock.Root(), bc.stateCache, bc.snaps, bc.shadowNodeTree); err != nil {
 						log.Trace("Block state missing, rewinding further", "number", newHeadBlock.NumberU64(), "hash", newHeadBlock.Hash())
 						if pivot == nil || newHeadBlock.NumberU64() > *pivot {
 							parent := bc.GetBlock(newHeadBlock.ParentHash(), newHeadBlock.NumberU64()-1)
@@ -1072,6 +1079,11 @@ func (bc *BlockChain) Stop() {
 		var err error
 		if snapBase, err = bc.snaps.Journal(bc.CurrentBlock().Root()); err != nil {
 			log.Error("Failed to journal state snapshot", "err", err)
+		}
+	}
+	if bc.shadowNodeTree != nil {
+		if err := bc.shadowNodeTree.Journal(); err != nil {
+			log.Error("Failed to journal shadow node snapshot", "err", err)
 		}
 	}
 
@@ -1882,8 +1894,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		if parent == nil {
 			parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 		}
-		statedb, err := state.NewWithEpoch(parent.Root, bc.stateCache, bc.snaps,
-			types.GetStateEpoch(bc.chainConfig, block.Number()))
+		statedb, err := state.NewWithEpoch(bc.chainConfig, block.Number(), parent.Root, bc.stateCache, bc.snaps, bc.ShadowNodeTree())
 		if err != nil {
 			return it.index, err
 		}

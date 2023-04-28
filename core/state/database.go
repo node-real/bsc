@@ -55,6 +55,9 @@ type Database interface {
 	// OpenStorageTrie opens the storage trie of an account.
 	OpenStorageTrie(addrHash, root common.Hash) (Trie, error)
 
+	// OpenStorageTrieWithShadowNode opens the storage trie of an account and allow rw shadow nodes.
+	OpenStorageTrieWithShadowNode(addrHash, root common.Hash, curEpoch types.StateEpoch, sndb trie.ShadowNodeStorage) (Trie, error)
+
 	// CopyTrie returns an independent copy of the given trie.
 	CopyTrie(Trie) Trie
 
@@ -92,6 +95,9 @@ type Trie interface {
 	// not be modified by the caller. If a node was not found in the database, a
 	// trie.MissingNodeError is returned.
 	TryGet(key []byte) ([]byte, error)
+
+	// TryUpdateEpoch just update key's epoch, only using in storage trie
+	TryUpdateEpoch(key []byte) error
 
 	// TryUpdateAccount abstract an account write in the trie.
 	TryUpdateAccount(key []byte, account *types.StateAccount) error
@@ -133,6 +139,8 @@ type Trie interface {
 	ProveStorageWitness(key []byte, prefixKey []byte, proofDb ethdb.KeyValueWriter) error
 
 	ReviveTrie(proof []*trie.MPTProofNub) []*trie.MPTProofNub
+
+	Epoch() types.StateEpoch
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for
@@ -240,6 +248,29 @@ func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
 	}
 
 	tr, err := trie.NewSecure(root, db.db, true)
+	if err != nil {
+		return nil, err
+	}
+	return tr, nil
+}
+
+// OpenStorageTrieWithShadowNode opens the storage trie of an account.
+func (db *cachingDB) OpenStorageTrieWithShadowNode(addrHash, root common.Hash, curEpoch types.StateEpoch, sndb trie.ShadowNodeStorage) (Trie, error) {
+	if db.noTries {
+		return trie.NewEmptyTrie(), nil
+	}
+	if db.storageTrieCache != nil {
+		if tries, exist := db.storageTrieCache.Get(addrHash); exist {
+			triesPairs := tries.([3]*triePair)
+			for _, triePair := range triesPairs {
+				if triePair != nil && triePair.root == root && triePair.trie.Epoch() == curEpoch {
+					return triePair.trie.(*trie.SecureTrie).Copy(), nil
+				}
+			}
+		}
+	}
+
+	tr, err := trie.NewStorageSecure(curEpoch, root, db.db, sndb)
 	if err != nil {
 		return nil, err
 	}

@@ -79,6 +79,29 @@ func NewSecure(root common.Hash, db *Database, isStorageTrie bool) (*SecureTrie,
 	return &SecureTrie{trie: *trie}, nil
 }
 
+func NewStorageSecure(curEpoch types.StateEpoch, root common.Hash, db *Database, sndb ShadowNodeStorage) (*SecureTrie, error) {
+	if db == nil || sndb == nil {
+		panic("trie.NewSecure called without a database")
+	}
+
+	rn := rootNode{
+		Epoch:    types.StateEpoch0,
+		TrieHash: root,
+	}
+	hash := common.BytesToHash(root[:])
+	if n := db.node(hash); n != nil {
+		if tmp, ok := n.(*rootNode); ok {
+			rn = *tmp
+		}
+	}
+
+	trie, err := NewWithShadowNode(curEpoch, &rn, db, sndb)
+	if err != nil {
+		return nil, err
+	}
+	return &SecureTrie{trie: *trie}, nil
+}
+
 // Get returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
 func (t *SecureTrie) Get(key []byte) []byte {
@@ -94,6 +117,11 @@ func (t *SecureTrie) Get(key []byte) []byte {
 // If a node was not found in the database, a MissingNodeError is returned.
 func (t *SecureTrie) TryGet(key []byte) ([]byte, error) {
 	return t.trie.TryGet(t.HashKey(key))
+}
+
+func (t *SecureTrie) TryUpdateEpoch(key []byte) error {
+	_, err := t.trie.TryGetAndUpdateEpoch(t.HashKey(key))
+	return err
 }
 
 // TryGetNode attempts to retrieve a trie node by compact-encoded path. It is not
@@ -169,6 +197,10 @@ func (t *SecureTrie) GetKey(shaKey []byte) []byte {
 		return key
 	}
 	return t.trie.db.preimage(common.BytesToHash(shaKey))
+}
+
+func (t *SecureTrie) Epoch() types.StateEpoch {
+	return t.trie.currentEpoch
 }
 
 // Commit writes all nodes and the secure hash pre-images to the trie's database.

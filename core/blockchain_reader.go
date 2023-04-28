@@ -19,6 +19,8 @@ package core
 import (
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/trie"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -314,7 +316,7 @@ func (bc *BlockChain) State() (*state.StateDB, error) {
 
 // StateAt returns a new mutable state based on a particular point in time.
 func (bc *BlockChain) StateAt(root common.Hash, number *big.Int) (*state.StateDB, error) {
-	return state.NewWithEpoch(root, bc.stateCache, bc.snaps, types.GetStateEpoch(bc.chainConfig, number))
+	return state.NewWithEpoch(bc.chainConfig, number, root, bc.stateCache, bc.snaps, bc.shadowNodeTree)
 }
 
 // Config retrieves the chain's fork configuration.
@@ -326,6 +328,11 @@ func (bc *BlockChain) Engine() consensus.Engine { return bc.engine }
 // Snapshots returns the blockchain snapshot tree.
 func (bc *BlockChain) Snapshots() *snapshot.Tree {
 	return bc.snaps
+}
+
+// ShadowNodeTree returns the blockchain shadow node tree.
+func (bc *BlockChain) ShadowNodeTree() *trie.ShadowNodeSnapTree {
+	return bc.shadowNodeTree
 }
 
 // Validator returns the current validator.

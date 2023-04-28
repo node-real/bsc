@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/params"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/gopool"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -87,6 +89,7 @@ type StateDB struct {
 	fullProcessed  bool
 	pipeCommit     bool
 
+	shadowNodeRW   *trie.ShadowNodeStorageRW
 	snaps          *snapshot.Tree
 	snap           snapshot.Snapshot
 	snapAccountMux sync.Mutex // Mutex for snap account access
@@ -128,8 +131,8 @@ type StateDB struct {
 	validRevisions []revision
 	nextRevisionId int
 
-	// state epoch
-	Epoch types.StateEpoch
+	targetEpoch types.StateEpoch
+	targetBlk   *big.Int
 
 	// Measurements gathered during execution for debugging purposes
 	MetricsMux           sync.Mutex
@@ -152,8 +155,20 @@ type StateDB struct {
 }
 
 // NewWithEpoch creates a new state from a given trie.
-func NewWithEpoch(root common.Hash, db Database, snaps *snapshot.Tree, epoch types.StateEpoch) (*StateDB, error) {
-	return newStateDB(root, db, snaps, epoch)
+func NewWithEpoch(config *params.ChainConfig, targetBlock *big.Int, root common.Hash, db Database, snaps *snapshot.Tree, sntree *trie.ShadowNodeSnapTree) (*StateDB, error) {
+	targetEpoch := types.GetStateEpoch(config, targetBlock)
+	stateDB, err := newStateDB(root, db, snaps, targetEpoch)
+	if err != nil {
+		return nil, err
+	}
+
+	// init target block and shadowNodeRW
+	stateDB.targetBlk = targetBlock
+	stateDB.shadowNodeRW, err = trie.NewShadowNodeStorageRW(sntree, root)
+	if err != nil {
+		return nil, err
+	}
+	return stateDB, nil
 }
 
 // New creates a new state from a given trie, it inits at Epoch0
@@ -173,7 +188,7 @@ func NewWithSharedPool(root common.Hash, db Database, snaps *snapshot.Tree) (*St
 	return statedb, nil
 }
 
-func newStateDB(root common.Hash, db Database, snaps *snapshot.Tree, epoch types.StateEpoch) (*StateDB, error) {
+func newStateDB(root common.Hash, db Database, snaps *snapshot.Tree, targetEpoch types.StateEpoch) (*StateDB, error) {
 	sdb := &StateDB{
 		db:                  db,
 		originalRoot:        root,
@@ -185,7 +200,7 @@ func newStateDB(root common.Hash, db Database, snaps *snapshot.Tree, epoch types
 		preimages:           make(map[common.Hash][]byte),
 		journal:             newJournal(),
 		hasher:              crypto.NewKeccakState(),
-		Epoch:               epoch,
+		targetEpoch:         targetEpoch,
 	}
 
 	if sdb.snaps != nil {
@@ -1388,6 +1403,10 @@ func (s *StateDB) LightCommit() (common.Hash, *types.DiffLayer, error) {
 
 // Commit writes the state to the underlying in-memory trie database.
 func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() error) (common.Hash, *types.DiffLayer, error) {
+	if s.targetEpoch > 0 && s.shadowNodeRW == nil {
+		return common.Hash{}, nil, errors.New("cannot commit shadow node")
+	}
+
 	if s.dbErr != nil {
 		s.StopPrefetcher()
 		return common.Hash{}, nil, fmt.Errorf("commit aborted due to earlier error: %v", s.dbErr)
@@ -1625,6 +1644,12 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 		root = s.expectedRoot
 	}
 
+	if s.shadowNodeRW != nil && s.originalRoot != root {
+		if err := s.shadowNodeRW.Commit(s.targetBlk, root); err != nil {
+			return common.Hash{}, nil, err
+		}
+	}
+
 	return root, diffLayer, nil
 }
 
@@ -1805,4 +1830,8 @@ func (s *StateDB) ReviveStorageTrie(witnessList types.WitnessList) error {
 	}
 
 	return nil
+}
+
+func (s *StateDB) openShadowStorage(addr common.Hash) trie.ShadowNodeStorage {
+	return trie.NewShadowNodeStorage4Trie(addr, s.shadowNodeRW)
 }

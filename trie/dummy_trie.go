@@ -49,6 +49,10 @@ func (t *EmptyTrie) TryGet(key []byte) ([]byte, error) {
 	return nil, nil
 }
 
+func (t *EmptyTrie) TryUpdateEpoch(key []byte) error {
+	return nil
+}
+
 func (t *EmptyTrie) TryGetNode(path []byte) ([]byte, int, error) {
 	return nil, 0, nil
 }
@@ -72,6 +76,10 @@ func (t *EmptyTrie) TryDelete(key []byte) error {
 
 func (t *EmptyTrie) GetKey(shaKey []byte) []byte {
 	return nil
+}
+
+func (t *EmptyTrie) Epoch() types.StateEpoch {
+	return types.StateEpoch0
 }
 
 func (t *EmptyTrie) HashKey(key []byte) []byte {

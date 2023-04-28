@@ -432,7 +432,7 @@ func (db *Database) node(hash common.Hash) node {
 	return mustDecodeNodeUnsafe(hash[:], enc)
 }
 
-func (db *Database) RootNode(hash common.Hash) *RootNode {
+func (db *Database) RootNode(hash common.Hash) *rootNode {
 	return nil
 }
 

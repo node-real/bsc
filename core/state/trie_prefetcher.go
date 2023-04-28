@@ -473,6 +473,7 @@ func (sf *subfetcher) loop() {
 		trie, err = sf.db.OpenTrie(sf.root)
 	} else {
 		// address is useless
+		// TODO(0xbundler): fix fetcher later
 		trie, err = sf.db.OpenStorageTrie(sf.accountHash, sf.root)
 	}
 	if err != nil {
@@ -491,6 +492,7 @@ func (sf *subfetcher) loop() {
 					sf.trie, err = sf.db.OpenTrie(sf.root)
 				} else {
 					// address is useless
+					// TODO(0xbundler): fix fetcher later
 					sf.trie, err = sf.db.OpenStorageTrie(sf.accountHash, sf.root)
 				}
 				if err != nil {

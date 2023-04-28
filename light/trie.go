@@ -38,7 +38,8 @@ var (
 )
 
 func NewState(ctx context.Context, config *params.ChainConfig, head *types.Header, odr OdrBackend) *state.StateDB {
-	state, _ := state.NewWithEpoch(head.Root, NewStateDatabase(ctx, head, odr), nil, types.GetStateEpoch(config, head.Number))
+	tree, _ := trie.NewShadowNodeSnapTree(odr.Database())
+	state, _ := state.NewWithEpoch(config, head.Number, head.Root, NewStateDatabase(ctx, head, odr), nil, tree)
 	return state
 }
 
@@ -62,6 +63,10 @@ func (db *odrDatabase) OpenTrie(root common.Hash) (state.Trie, error) {
 
 func (db *odrDatabase) OpenStorageTrie(addrHash, root common.Hash) (state.Trie, error) {
 	return &odrTrie{db: db, id: StorageTrieID(db.id, addrHash, root)}, nil
+}
+
+func (db *odrDatabase) OpenStorageTrieWithShadowNode(addrHash, root common.Hash, curEpoch types.StateEpoch, sndb trie.ShadowNodeStorage) (state.Trie, error) {
+	return db.OpenStorageTrie(addrHash, root)
 }
 
 func (db *odrDatabase) CopyTrie(t state.Trie) state.Trie {
@@ -146,6 +151,10 @@ func (t *odrTrie) TryUpdate(key, value []byte) error {
 	})
 }
 
+func (t *odrTrie) TryUpdateEpoch(key []byte) error {
+	return nil
+}
+
 func (t *odrTrie) TryDelete(key []byte) error {
 	key = crypto.Keccak256(key)
 	return t.do(key, func() error {
@@ -177,6 +186,10 @@ func (t *odrTrie) GetKey(sha []byte) []byte {
 
 func (t *odrTrie) HashKey(key []byte) []byte {
 	return nil
+}
+
+func (t *odrTrie) Epoch() types.StateEpoch {
+	return types.StateEpoch0
 }
 
 func (t *odrTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {

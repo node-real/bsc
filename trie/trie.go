@@ -88,8 +88,7 @@ func New(root common.Hash, db *Database) (*Trie, error) {
 		panic("trie.New called without a database")
 	}
 	trie := &Trie{
-		db:   db,
-		sndb: newShadowNodeStorageMock(0),
+		db: db,
 	}
 	if root != (common.Hash{}) && root != emptyRoot {
 		rootnode, err := trie.resolveHash(root[:], nil)
@@ -97,6 +96,30 @@ func New(root common.Hash, db *Database) (*Trie, error) {
 			return nil, err
 		}
 		trie.root = rootnode
+	}
+	return trie, nil
+}
+
+func NewWithShadowNode(curEpoch types.StateEpoch, rootNode *rootNode, db *Database, sndb ShadowNodeStorage) (*Trie, error) {
+	if db == nil || sndb == nil {
+		panic("trie.New called without a database")
+	}
+	trie := &Trie{
+		db:            db,
+		sndb:          sndb,
+		currentEpoch:  curEpoch,
+		isStorageTrie: true,
+		shadowHash:    rootNode.ShadowHash,
+	}
+	if rootNode.TrieHash != (common.Hash{}) && rootNode.TrieHash != emptyRoot {
+		root, err := trie.resolveHash(rootNode.TrieHash[:], nil)
+		if err != nil {
+			return nil, err
+		}
+		if err = trie.resolveShadowNode(rootNode.Epoch, root, nil); err != nil {
+			return nil, err
+		}
+		trie.root = root
 	}
 	return trie, nil
 }
@@ -242,7 +265,10 @@ func (t *Trie) tryGetWithEpoch(origNode node, key []byte, pos int, epoch types.S
 		if err != nil {
 			return nil, n, true, err
 		}
-		child.setEpoch(epoch)
+		if err = t.resolveShadowNode(epoch, child, key[:pos]); err != nil {
+			return nil, nil, false, err
+		}
+
 		value, newnode, _, err = t.tryGetWithEpoch(child, key, pos, epoch, updateEpoch)
 		return value, newnode, true, err
 	default:
@@ -468,7 +494,10 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		if err != nil {
 			return false, nil, err
 		}
-		rn.setEpoch(epoch)
+		if err = t.resolveShadowNode(epoch, rn, prefix); err != nil {
+			return false, nil, err
+		}
+
 		dirty, nn, err := t.insert(rn, prefix, key, value, epoch)
 		if !dirty || err != nil {
 			return false, rn, err
@@ -637,7 +666,10 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 		if err != nil {
 			return false, nil, err
 		}
-		rn.setEpoch(epoch)
+		if err = t.resolveShadowNode(epoch, rn, prefix); err != nil {
+			return false, nil, err
+		}
+
 		dirty, nn, err := t.delete(rn, prefix, key, epoch)
 		if !dirty || err != nil {
 			return false, rn, err
@@ -902,4 +934,74 @@ func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub) (node, bool, error
 	default:
 		panic(fmt.Sprintf("invalid node: %T", n))
 	}
+}
+
+func (t *Trie) resolveShadowNode(epoch types.StateEpoch, cur node, prefix []byte) error {
+	if t.currentEpoch < 1 {
+		return nil
+	}
+
+	if t.currentEpoch > 0 && t.sndb == nil {
+		return errors.New("cannot resolve shadow node")
+	}
+
+	switch n := cur.(type) {
+	case *shortNode:
+		n.shadowNode.Epoch = epoch
+		n.shadowNode.ShadowHash = common.Hash{}
+		return t.resolveShadowNode(epoch, n.Val, append(prefix, n.Key...))
+	case *fullNode:
+		val, err := t.sndb.Get(string(hexToSuffixCompact(prefix)))
+		if err != nil {
+			return err
+		}
+		if len(val) == 0 {
+			// set default epoch map
+			n.shadowNode.EpochMap = [16]types.StateEpoch{}
+			n.shadowNode.ShadowHash = common.Hash{}
+		} else {
+			if err = rlp.DecodeBytes(val, &n.shadowNode); err != nil {
+				return err
+			}
+		}
+		for i := byte(0); i < BranchNodeLength-1; i++ {
+			if err := t.resolveShadowNode(n.shadowNode.EpochMap[i], n.Children[i], append(prefix, i)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case valueNode, hashNode:
+		// just skip
+		return nil
+	default:
+		return errors.New("resolveShadowNode unsupported node type")
+	}
+}
+
+// SUFFIX-COMPACT encoding is used for encoding trie node path in the trie node
+// storage key. The main difference with COMPACT encoding is that the key flag
+// is put at the end of the key.
+//
+// e.g.
+// - the key [] is encoded as [0x00]
+// - the key [0x1, 0x2, 0x3] is encoded as [0x12, 0x31]
+// - the key [0x1, 0x2, 0x3, 0x0] is encoded as [0x12, 0x30, 0x00]
+//
+// The main benefit of this format is the continuous paths can retain the shared
+// path prefix after encoding.
+func hexToSuffixCompact(hex []byte) []byte {
+	terminator := byte(0)
+	if hasTerm(hex) {
+		terminator = 1
+		hex = hex[:len(hex)-1]
+	}
+	buf := make([]byte, len(hex)/2+1)
+	buf[len(buf)-1] = terminator << 1 // the flag byte
+	if len(hex)&1 == 1 {
+		buf[len(buf)-1] |= 1                    // odd flag
+		buf[len(buf)-1] |= hex[len(hex)-1] << 4 // last nibble is contained in the last byte
+		hex = hex[:len(hex)-1]
+	}
+	decodeNibbles(hex, buf[:len(buf)-1])
+	return buf
 }

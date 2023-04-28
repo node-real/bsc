@@ -272,7 +272,8 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 
 func MakePreState(db ethdb.Database, pre *Prestate, config *params.ChainConfig) *state.StateDB {
 	sdb := state.NewDatabase(db)
-	statedb, _ := state.NewWithEpoch(common.Hash{}, sdb, nil, types.GetStateEpoch(config, new(big.Int).SetUint64(pre.Env.Number-1)))
+	tree, _ := trie.NewShadowNodeSnapTree(db)
+	statedb, _ := state.NewWithEpoch(config, new(big.Int).SetUint64(pre.Env.Number-1), common.Hash{}, sdb, nil, tree)
 	for addr, a := range pre.Pre {
 		statedb.SetCode(addr, a.Code)
 		statedb.SetNonce(addr, a.Nonce)
@@ -285,7 +286,7 @@ func MakePreState(db ethdb.Database, pre *Prestate, config *params.ChainConfig) 
 	statedb.Finalise(false)
 	statedb.AccountsIntermediateRoot()
 	root, _, _ := statedb.Commit(nil)
-	statedb, _ = state.NewWithEpoch(root, sdb, nil, types.GetStateEpoch(config, new(big.Int).SetUint64(pre.Env.Number)))
+	statedb, _ = state.NewWithEpoch(config, new(big.Int).SetUint64(pre.Env.Number), root, sdb, nil, tree)
 	return statedb
 }
 

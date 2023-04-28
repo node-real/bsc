@@ -28,8 +28,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core/types"
-
 	"github.com/ethereum/go-ethereum/cmd/evm/internal/compiler"
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
@@ -141,9 +139,9 @@ func runCmd(ctx *cli.Context) error {
 		db := rawdb.NewMemoryDatabase()
 		genesis := gen.ToBlock(db)
 		chainConfig = gen.Config
-		statedb, _ = state.NewWithEpoch(genesis.Root(), state.NewDatabase(db), nil, types.GetStateEpoch(chainConfig, genesis.Number()))
+		statedb, _ = state.New(genesis.Root(), state.NewDatabase(db), nil)
 	} else {
-		statedb, _ = state.NewWithEpoch(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil, types.StateEpoch0)
+		statedb, _ = state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 		genesisConfig = new(core.Genesis)
 	}
 	if ctx.GlobalString(SenderFlag.Name) != "" {

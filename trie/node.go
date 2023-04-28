@@ -38,6 +38,7 @@ const (
 	rawNodeType
 	rawShortNodeType
 	rawFullNodeType
+	rootNodeType
 )
 
 var indices = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "[17]"}
@@ -69,10 +70,35 @@ type (
 	valueNode []byte
 )
 
-type RootNode struct {
+type rootNode struct {
 	Epoch      types.StateEpoch
 	TrieHash   common.Hash
 	ShadowHash common.Hash
+	flags      nodeFlag `rlp:"-" json:"-"`
+}
+
+func (n *rootNode) cache() (hashNode, bool) {
+	return n.flags.hash, n.flags.dirty
+}
+
+func (n *rootNode) encode(w rlp.EncoderBuffer) {
+	rlp.Encode(w, n)
+}
+
+func (n *rootNode) fstring(s string) string {
+	return fmt.Sprintf("{%v: %x: %x} ", n.Epoch, n.TrieHash, n.ShadowHash)
+}
+
+func (n *rootNode) nodeType() int {
+	return rootNodeType
+}
+
+func (n *rootNode) setEpoch(epoch types.StateEpoch) {
+	n.Epoch = epoch
+}
+
+func (n *rootNode) getEpoch() types.StateEpoch {
+	return n.Epoch
 }
 
 // nilValueNode is used when collapsing internal trie nodes for hashing, since
@@ -87,8 +113,7 @@ func (n *fullNode) EncodeRLP(w io.Writer) error {
 }
 
 func (n *fullNode) GetShadowNode() *shadowBranchNode {
-	// TODO:get shadow node from cache or disk if shadow node is nil
-	return &shadowBranchNode{}
+	return &n.shadowNode
 }
 
 func (n *fullNode) GetChildEpoch(index int) types.StateEpoch {
@@ -117,7 +142,7 @@ func (n *fullNode) ChildExpired(prefix []byte, index int, currentEpoch types.Sta
 }
 
 func (n *shortNode) GetShadowNode() *shadowExtensionNode {
-	return &shadowExtensionNode{}
+	return &n.shadowNode
 }
 
 func (n *fullNode) copy() *fullNode   { copy := *n; return &copy }
@@ -230,6 +255,9 @@ func decodeNodeUnsafe(hash, buf []byte) (node, error) {
 	case 2:
 		n, err := decodeShort(hash, elems)
 		return n, wrapError(err, "short")
+	case 3:
+		n, err := decodeRootNode(hash, buf)
+		return n, wrapError(err, "root node")
 	case 17:
 		n, err := decodeFull(hash, elems)
 		return n, wrapError(err, "full")
@@ -260,6 +288,14 @@ func decodeShort(hash, elems []byte) (node, error) {
 		return nil, wrapError(err, "val")
 	}
 	n.Val = r
+	return n, nil
+}
+
+func decodeRootNode(hash, elems []byte) (node, error) {
+	n := &rootNode{flags: nodeFlag{hash: hash}}
+	if err := rlp.DecodeBytes(elems, n); err != nil {
+		return nil, err
+	}
 	return n, nil
 }
 
