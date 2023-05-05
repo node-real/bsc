@@ -8,6 +8,10 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/ethereum/go-ethereum/common/math"
+	lru "github.com/hashicorp/golang-lru"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -16,8 +20,9 @@ import (
 
 const (
 	// MaxShadowNodeDiffDepth default is 128 layers
-	MaxShadowNodeDiffDepth        = 128
-	journalVersion         uint64 = 1
+	MaxShadowNodeDiffDepth           = 128
+	journalVersion            uint64 = 1
+	defaultDiskLayerCacheSize        = 100000
 )
 
 // shadowNodeSnapshot record diff layer and disk layer of shadow nodes, support mini reorg
@@ -43,13 +48,9 @@ type shadowNodeSnapshot interface {
 type ShadowNodeSnapTree struct {
 	diskdb ethdb.KeyValueStore
 
-	// diff layers
+	// diffLayers + diskLayer, disk layer, always not nil
 	layers   map[common.Hash]shadowNodeSnapshot
 	children map[common.Hash][]common.Hash
-
-	// disk layer
-	// TODO(0xbundler): add disk layer for history & changeSet
-	diskCache map[common.Hash]map[string][]byte
 
 	lock sync.RWMutex
 }
@@ -58,13 +59,6 @@ func NewShadowNodeSnapTree(diskdb ethdb.KeyValueStore) (*ShadowNodeSnapTree, err
 	diskLayer, err := loadDiskLayer(diskdb)
 	if err != nil {
 		return nil, err
-	}
-	// if there is no disk layer, will construct a fake disk layer
-	if diskLayer == nil {
-		diskLayer, err = newShadowNodeDiskLayer(diskdb, common.Big0, emptyRoot)
-		if err != nil {
-			return nil, err
-		}
 	}
 	layers, children, err := loadDiffLayers(diskdb, diskLayer)
 	if err != nil {
@@ -77,15 +71,13 @@ func NewShadowNodeSnapTree(diskdb ethdb.KeyValueStore) (*ShadowNodeSnapTree, err
 		return nil, errors.New("cannot found any diff layers link to disk layer")
 	}
 	return &ShadowNodeSnapTree{
-		diskdb:    diskdb,
-		layers:    layers,
-		children:  children,
-		diskCache: make(map[common.Hash]map[string][]byte),
+		diskdb:   diskdb,
+		layers:   layers,
+		children: children,
 	}, nil
 }
 
 // Cap keep tree depth not greater MaxShadowNodeDiffDepth, all forks parent to disk layer will delete
-// TODO(0xbundler): store disk layer meta(blockNumber, blockRoot) too
 func (s *ShadowNodeSnapTree) Cap(blockRoot common.Hash) error {
 	snap := s.Snapshot(blockRoot)
 	if snap == nil {
@@ -183,6 +175,12 @@ func (s *ShadowNodeSnapTree) Snapshot(blockRoot common.Hash) shadowNodeSnapshot 
 	return s.layers[blockRoot]
 }
 
+func (s *ShadowNodeSnapTree) DB() ethdb.KeyValueStore {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.diskdb
+}
+
 func (s *ShadowNodeSnapTree) Journal() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -227,8 +225,25 @@ func (s *ShadowNodeSnapTree) flattenDiffs2Disk(flatten []shadowNodeSnapshot, dis
 
 // loadDiskLayer load from db, could be nil when none in db
 func loadDiskLayer(db ethdb.KeyValueStore) (*shadowNodeDiskLayer, error) {
-	// TODO(0xbundler): load disk layer meta(blockNumber, blockRoot)
-	return nil, nil
+	val := rawdb.ReadShadowNodePlainStateMeta(db)
+	// if there is no disk layer, will construct a fake disk layer
+	if len(val) == 0 {
+		diskLayer, err := newShadowNodeDiskLayer(db, common.Big0, emptyRoot)
+		if err != nil {
+			return nil, err
+		}
+		return diskLayer, nil
+	}
+	var meta shadowNodePlainMeta
+	if err := rlp.DecodeBytes(val, &meta); err != nil {
+		return nil, err
+	}
+
+	layer, err := newShadowNodeDiskLayer(db, meta.BlockNumber, meta.BlockRoot)
+	if err != nil {
+		return nil, err
+	}
+	return layer, nil
 }
 
 func loadDiffLayers(db ethdb.KeyValueStore, diskLayer *shadowNodeDiskLayer) (map[common.Hash]shadowNodeSnapshot, map[common.Hash][]common.Hash, error) {
@@ -313,6 +328,7 @@ type shadowNodeDiffLayer struct {
 	parent      shadowNodeSnapshot
 	nodeSet     map[common.Hash]map[string][]byte
 
+	// TODO(0xbundler): add destruct handle later?
 	lock sync.RWMutex
 }
 
@@ -350,7 +366,7 @@ func (s *shadowNodeDiffLayer) Parent() shadowNodeSnapshot {
 	return s.parent
 }
 
-// Update append new diff layer onto current, nodeSet when val is []byte{}, it delete the kv
+// Update append new diff layer onto current, nodeChgRecord when val is []byte{}, it delete the kv
 func (s *shadowNodeDiffLayer) Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (shadowNodeSnapshot, error) {
 	s.lock.RLock()
 	if s.blockNumber.Cmp(blockNumber) >= 0 {
@@ -403,28 +419,43 @@ func (s *shadowNodeDiffLayer) setParent(parent shadowNodeSnapshot) {
 	s.parent = parent
 }
 
+func (s *shadowNodeDiffLayer) getNodeSet() map[common.Hash]map[string][]byte {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.nodeSet
+}
+
 type journalShadowNode struct {
 	Hash common.Hash
 	Keys []string
 	Vals [][]byte
 }
 
+type shadowNodePlainMeta struct {
+	BlockNumber *big.Int
+	BlockRoot   common.Hash
+}
+
 type shadowNodeDiskLayer struct {
 	// TODO(0xbundler): add history & changeSet later
-	diskdb      ethdb.KeyValueReader
+	diskdb      ethdb.KeyValueStore
 	blockNumber *big.Int
 	blockRoot   common.Hash
-	cache       map[common.Hash]map[string][]byte
+	cache       *lru.Cache
 
 	lock sync.RWMutex
 }
 
-func newShadowNodeDiskLayer(diskdb ethdb.KeyValueReader, blockNumber *big.Int, blockRoot common.Hash) (*shadowNodeDiskLayer, error) {
+func newShadowNodeDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blockRoot common.Hash) (*shadowNodeDiskLayer, error) {
+	cache, err := lru.New(defaultDiskLayerCacheSize)
+	if err != nil {
+		return nil, err
+	}
 	return &shadowNodeDiskLayer{
 		diskdb:      diskdb,
 		blockNumber: blockNumber,
 		blockRoot:   blockRoot,
-		cache:       make(map[common.Hash]map[string][]byte),
+		cache:       cache,
 	}, nil
 }
 
@@ -434,30 +465,23 @@ func (s *shadowNodeDiskLayer) Root() common.Hash {
 	return s.blockRoot
 }
 
-func (s *shadowNodeDiskLayer) ShadowNode(addrHash common.Hash, path string) ([]byte, error) {
+func (s *shadowNodeDiskLayer) ShadowNode(addr common.Hash, path string) ([]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
-	nodeSet, exist := s.cache[addrHash]
+	cacheKey := shadowNodeCacheKey(addr, path)
+	cached, exist := s.cache.Get(cacheKey)
 	if exist {
-		if enc, ok := nodeSet[path]; ok {
-			return enc, nil
-		}
+		return cached.([]byte), nil
 	}
-	//TODO(0xbundler): return history & changeSet later
-	//s.cache[addrHash] = make(map[string][]byte)
-	//n := shadowBranchNode{
-	//	ShadowHash: common.Hash{},
-	//	EpochMap:   [16]types.StateEpoch{},
-	//}
-	//enc, err := rlp.EncodeToBytes(n)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//s.cache[addrHash][path] = enc
-	//return enc, nil
 
-	return nil, nil
+	val, err := FindHistory(s.diskdb, s.blockNumber.Uint64()+1, addr, path)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cache.Add(cacheKey, val)
+	return val, err
 }
 
 func (s *shadowNodeDiskLayer) Parent() shadowNodeSnapshot {
@@ -481,24 +505,98 @@ func (s *shadowNodeDiskLayer) PushDiff(diff *shadowNodeDiffLayer) (*shadowNodeDi
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if s.blockNumber.Cmp(diff.blockNumber) >= 0 {
+	number := diff.blockNumber
+	if s.blockNumber.Cmp(number) >= 0 {
 		return nil, errors.New("push a lower block to disk")
 	}
-	// TODO(0xbundler): store diff to DB
-	diskLayer, err := newShadowNodeDiskLayer(s.diskdb, diff.blockNumber, diff.blockRoot)
+	batch := s.diskdb.NewBatch()
+	nodeSet := diff.getNodeSet()
+	for addr, subSet := range nodeSet {
+		changeSet := make([]nodeChgRecord, 0, len(subSet))
+		for path, val := range subSet {
+			if err := refreshShadowNodeHistory(s.diskdb, batch, addr, path, number.Uint64()); err != nil {
+				return nil, err
+			}
+			prev := rawdb.ReadShadowNodePlainState(s.diskdb, addr, path)
+			// refresh plain state
+			if len(val) == 0 {
+				if err := rawdb.DeleteShadowNodePlainState(batch, addr, path); err != nil {
+					return nil, err
+				}
+			} else {
+				if err := rawdb.WriteShadowNodePlainState(batch, addr, path, val); err != nil {
+					return nil, err
+				}
+			}
+
+			changeSet = append(changeSet, nodeChgRecord{
+				Path: path,
+				Prev: prev,
+			})
+		}
+		enc, err := rlp.EncodeToBytes(changeSet)
+		if err != nil {
+			return nil, err
+		}
+		if err = rawdb.WriteShadowNodeChangeSet(batch, addr, number.Uint64(), enc); err != nil {
+			return nil, err
+		}
+	}
+
+	// update meta
+	meta := shadowNodePlainMeta{
+		BlockNumber: number,
+		BlockRoot:   diff.blockRoot,
+	}
+	enc, err := rlp.EncodeToBytes(meta)
 	if err != nil {
 		return nil, err
 	}
+	if err = rawdb.WriteShadowNodePlainStateMeta(batch, enc); err != nil {
+		return nil, err
+	}
+
+	if err = batch.Write(); err != nil {
+		return nil, err
+	}
+	diskLayer := &shadowNodeDiskLayer{
+		diskdb:      s.diskdb,
+		blockNumber: number,
+		blockRoot:   diff.blockRoot,
+		cache:       s.cache,
+	}
 
 	// reuse cache
-	diskLayer.cache = s.cache
 	for addr, nodes := range diff.nodeSet {
-		if diskLayer.cache[addr] == nil {
-			diskLayer.cache[addr] = make(map[string][]byte)
-		}
-		for k, v := range nodes {
-			diskLayer.cache[addr][k] = v
+		for path, val := range nodes {
+			diskLayer.cache.Add(shadowNodeCacheKey(addr, path), val)
 		}
 	}
-	return diskLayer, err
+	return diskLayer, nil
+}
+
+func shadowNodeCacheKey(addr common.Hash, path string) string {
+	key := make([]byte, len(addr)+len(path))
+	copy(key[:], addr.Bytes())
+	copy(key[len(addr):], path)
+	return string(key)
+}
+
+func refreshShadowNodeHistory(db ethdb.KeyValueReader, batch ethdb.Batch, addr common.Hash, path string, number uint64) error {
+	enc := rawdb.ReadShadowNodeHistory(db, addr, path, math.MaxUint64)
+	index := roaring64.New()
+	if len(enc) > 0 {
+		if _, err := index.ReadFrom(bytes.NewReader(enc)); err != nil {
+			return err
+		}
+	}
+	index.Add(number)
+	enc, err := index.ToBytes()
+	if err != nil {
+		return err
+	}
+	if err = rawdb.WriteShadowNodeHistory(batch, addr, path, math.MaxUint64, enc); err != nil {
+		return err
+	}
+	return nil
 }

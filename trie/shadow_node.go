@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/ethdb"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
@@ -38,28 +40,63 @@ type ShadowNodeStorage interface {
 	Delete(path string) error
 }
 
-type shadowNodeStorage4Trie struct {
-	addr common.Hash
-	rw   *ShadowNodeStorageRW
+type ShadowNodeDatabase interface {
+	Get(addr common.Hash, path string) ([]byte, error)
+	Delete(addr common.Hash, path string) error
+	Put(addr common.Hash, path string, val []byte) error
+	OpenStorage(addr common.Hash) ShadowNodeStorage
+	Commit(number *big.Int, blockRoot common.Hash) error
 }
 
-func NewShadowNodeStorage4Trie(addr common.Hash, rw *ShadowNodeStorageRW) ShadowNodeStorage {
+type shadowNodeStorage4Trie struct {
+	addr common.Hash
+	db   ShadowNodeDatabase
+}
+
+func NewShadowNodeStorage4Trie(addr common.Hash, db ShadowNodeDatabase) ShadowNodeStorage {
 	return &shadowNodeStorage4Trie{
 		addr: addr,
-		rw:   rw,
+		db:   db,
 	}
 }
 
 func (s *shadowNodeStorage4Trie) Get(path string) ([]byte, error) {
-	return s.rw.Get(s.addr, path)
+	return s.db.Get(s.addr, path)
 }
 
 func (s *shadowNodeStorage4Trie) Put(path string, val []byte) error {
-	return s.rw.Put(s.addr, path, val)
+	return s.db.Put(s.addr, path, val)
 }
 
 func (s *shadowNodeStorage4Trie) Delete(path string) error {
-	return s.rw.Delete(s.addr, path)
+	return s.db.Delete(s.addr, path)
+}
+
+// ShadowNodeStorageRO shadow node only could modify the latest diff layers,
+// if you want to modify older state, please unwind to thr older history
+type ShadowNodeStorageRO struct {
+	diskdb ethdb.KeyValueStore
+	number *big.Int
+}
+
+func (s *ShadowNodeStorageRO) Get(addr common.Hash, path string) ([]byte, error) {
+	return FindHistory(s.diskdb, s.number.Uint64()+1, addr, path)
+}
+
+func (s *ShadowNodeStorageRO) Delete(addr common.Hash, path string) error {
+	return errors.New("ShadowNodeStorageRO unsupported")
+}
+
+func (s *ShadowNodeStorageRO) Put(addr common.Hash, path string, val []byte) error {
+	return errors.New("ShadowNodeStorageRO unsupported")
+}
+
+func (s *ShadowNodeStorageRO) OpenStorage(addr common.Hash) ShadowNodeStorage {
+	return NewShadowNodeStorage4Trie(addr, s)
+}
+
+func (s *ShadowNodeStorageRO) Commit(number *big.Int, blockRoot common.Hash) error {
+	return errors.New("ShadowNodeStorageRO unsupported")
 }
 
 type ShadowNodeStorageRW struct {
@@ -71,12 +108,17 @@ type ShadowNodeStorageRW struct {
 	lock  sync.RWMutex
 }
 
-func NewShadowNodeStorageRW(tree *ShadowNodeSnapTree, blockRoot common.Hash) (*ShadowNodeStorageRW, error) {
+// NewShadowNodeDatabase first find snap by blockRoot, if got nil, try using number to instance a read only storage
+func NewShadowNodeDatabase(tree *ShadowNodeSnapTree, number *big.Int, blockRoot common.Hash) (ShadowNodeDatabase, error) {
 	snap := tree.Snapshot(blockRoot)
 	if snap == nil {
 		// try using default snap
 		if snap = tree.Snapshot(emptyRoot); snap == nil {
-			return nil, errors.New("cannot find the snap")
+			// open read only history
+			return &ShadowNodeStorageRO{
+				diskdb: tree.DB(),
+				number: number,
+			}, nil
 		}
 	}
 	return &ShadowNodeStorageRW{

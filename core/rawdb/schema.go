@@ -96,6 +96,9 @@ var (
 	// transitionStatusKey tracks the eth2 transition status.
 	transitionStatusKey = []byte("eth2-transition")
 
+	// shadowNodePlainStateMeta save disk layer meta data
+	shadowNodePlainStateMeta = []byte("shadowNodePlainStateMeta")
+
 	// Data item prefixes (use single byte to avoid mixing data types, avoid `i`, used for indexes).
 	headerPrefix       = []byte("h") // headerPrefix + num (uint64 big endian) + hash -> header
 	headerTDSuffix     = []byte("t") // headerPrefix + num (uint64 big endian) + hash + headerTDSuffix -> td
@@ -110,6 +113,10 @@ var (
 	SnapshotAccountPrefix = []byte("a") // SnapshotAccountPrefix + account hash -> account trie value
 	SnapshotStoragePrefix = []byte("o") // SnapshotStoragePrefix + account hash + storage hash -> storage trie value
 	CodePrefix            = []byte("c") // CodePrefix + code hash -> account code
+
+	ShadowNodeHistoryPrefix    = []byte("sh") // ShadowNodeHistoryPrefix + addr hash + path + blockNr -> bitmap, default blockNr = math.MaxUint64
+	ShadowNodeChangeSetPrefix  = []byte("sc") // ShadowNodeChangeSetPrefix + addr hash + blockNr -> changeSet/prev val
+	ShadowNodePlainStatePrefix = []byte("sp") // ShadowNodePlainStatePrefix + addr hash + path -> val
 
 	// difflayer database
 	diffLayerPrefix = []byte("d") // diffLayerPrefix + hash  -> diffLayer

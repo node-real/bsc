@@ -89,7 +89,7 @@ type StateDB struct {
 	fullProcessed  bool
 	pipeCommit     bool
 
-	shadowNodeRW   *trie.ShadowNodeStorageRW
+	shadowNodeDB   trie.ShadowNodeDatabase
 	snaps          *snapshot.Tree
 	snap           snapshot.Snapshot
 	snapAccountMux sync.Mutex // Mutex for snap account access
@@ -164,7 +164,7 @@ func NewWithEpoch(config *params.ChainConfig, targetBlock *big.Int, root common.
 
 	// init target block and shadowNodeRW
 	stateDB.targetBlk = targetBlock
-	stateDB.shadowNodeRW, err = trie.NewShadowNodeStorageRW(sntree, root)
+	stateDB.shadowNodeDB, err = trie.NewShadowNodeDatabase(sntree, targetBlock, root)
 	if err != nil {
 		return nil, err
 	}
@@ -1403,7 +1403,7 @@ func (s *StateDB) LightCommit() (common.Hash, *types.DiffLayer, error) {
 
 // Commit writes the state to the underlying in-memory trie database.
 func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() error) (common.Hash, *types.DiffLayer, error) {
-	if s.targetEpoch > 0 && s.shadowNodeRW == nil {
+	if s.targetEpoch > 0 && s.shadowNodeDB == nil {
 		return common.Hash{}, nil, errors.New("cannot commit shadow node")
 	}
 
@@ -1644,8 +1644,8 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 		root = s.expectedRoot
 	}
 
-	if s.shadowNodeRW != nil && s.originalRoot != root {
-		if err := s.shadowNodeRW.Commit(s.targetBlk, root); err != nil {
+	if s.shadowNodeDB != nil && s.originalRoot != root {
+		if err := s.shadowNodeDB.Commit(s.targetBlk, root); err != nil {
 			return common.Hash{}, nil, err
 		}
 	}
@@ -1833,5 +1833,5 @@ func (s *StateDB) ReviveStorageTrie(witnessList types.WitnessList) error {
 }
 
 func (s *StateDB) openShadowStorage(addr common.Hash) trie.ShadowNodeStorage {
-	return trie.NewShadowNodeStorage4Trie(addr, s.shadowNodeRW)
+	return trie.NewShadowNodeStorage4Trie(addr, s.shadowNodeDB)
 }

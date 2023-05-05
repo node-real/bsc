@@ -141,23 +141,6 @@ func DeleteSnapshotJournal(db ethdb.KeyValueWriter) {
 	}
 }
 
-func ReadShadowNodeSnapshotJournal(db ethdb.KeyValueReader) []byte {
-	data, _ := db.Get(shadowNodeSnapshotJournalKey)
-	return data
-}
-
-func WriteShadowNodeSnapshotJournal(db ethdb.KeyValueWriter, journal []byte) {
-	if err := db.Put(shadowNodeSnapshotJournalKey, journal); err != nil {
-		log.Crit("Failed to store snapshot journal", "err", err)
-	}
-}
-
-func DeleteShadowNodeSnapshotJournal(db ethdb.KeyValueWriter) {
-	if err := db.Delete(shadowNodeSnapshotJournalKey); err != nil {
-		log.Crit("Failed to remove snapshot journal", "err", err)
-	}
-}
-
 // ReadSnapshotGenerator retrieves the serialized snapshot generator saved at
 // the last shutdown.
 func ReadSnapshotGenerator(db ethdb.KeyValueReader) []byte {

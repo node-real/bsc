@@ -941,7 +941,7 @@ func (t *Trie) resolveShadowNode(epoch types.StateEpoch, cur node, prefix []byte
 		return nil
 	}
 
-	if t.currentEpoch > 0 && t.sndb == nil {
+	if t.sndb == nil {
 		return errors.New("cannot resolve shadow node")
 	}
 

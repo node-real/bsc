@@ -837,10 +837,10 @@ func TestTrie_ShadowNodeRW(t *testing.T) {
 	database := NewDatabase(diskdb)
 	tree, err := NewShadowNodeSnapTree(diskdb)
 	assert.NoError(t, err)
-	storageRW, err := NewShadowNodeStorageRW(tree, blockRoot0)
+	storageDB, err := NewShadowNodeDatabase(tree, common.Big0, blockRoot0)
 	assert.NoError(t, err)
 
-	tr, err := NewStorageSecure(types.StateEpoch(1), emptyRoot, database, storageRW.OpenStorage(contract1))
+	tr, err := NewStorageSecure(types.StateEpoch(1), emptyRoot, database, storageDB.OpenStorage(contract1))
 	assert.NoError(t, err)
 	tr.Update(makeHash("k1").Bytes(), makeHash("v1").Bytes())
 	tr.Update(makeHash("k2").Bytes(), makeHash("v2").Bytes())
@@ -849,21 +849,21 @@ func TestTrie_ShadowNodeRW(t *testing.T) {
 	assert.Equal(t, makeHash("v1").Bytes(), val)
 	assert.NoError(t, tr.TryDelete(makeHash("k1").Bytes()))
 
-	// TODO(0xbundle): need MPT support commit with shadow node
+	// TODO(0xbundler): need MPT support commit with shadow node
 	//nextRoot, _, err := tr.Commit(nil)
 	//assert.NoError(t, err)
-	//assert.NoError(t, storageRW.Commit(common.Big1, blockRoot1))
+	//assert.NoError(t, storageDB.Commit(common.Big1, blockRoot1))
 
 	// reload
-	//storageRW, err = NewShadowNodeStorageRW(tree, blockRoot1)
+	//storageDB, err = NewShadowNodestorageDB(tree, blockRoot1)
 	//assert.NoError(t, err)
-	//tr, err = NewStorageSecure(types.StateEpoch(2), nextRoot, database, storageRW.OpenStorage(contract1))
+	//tr, err = NewStorageSecure(types.StateEpoch(2), nextRoot, database, storageDB.OpenStorage(contract1))
 	//assert.NoError(t, err)
 	//val, err = tr.TryGet(makeHash("k2").Bytes())
 	//assert.NoError(t, err)
 	//assert.Equal(t, makeHash("v2").Bytes(), val)
 	//// check expired
-	//tr, err = NewStorageSecure(types.StateEpoch(3), nextRoot, database, storageRW.OpenStorage(contract1))
+	//tr, err = NewStorageSecure(types.StateEpoch(3), nextRoot, database, storageDB.OpenStorage(contract1))
 	//assert.NoError(t, err)
 	//val, err = tr.TryGet(makeHash("k2").Bytes())
 	//assert.Error(t, err)
