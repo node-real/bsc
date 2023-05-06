@@ -620,44 +620,6 @@ func TestTryRevive(t *testing.T) {
 	}
 }
 
-// TODO (asyukii): Delete this
-func TestTestTryRevive(t *testing.T) {
-
-	trie, _ := nonRandomTrie(500)
-
-	oriRootHash := trie.Hash()
-
-	key := []byte{0xf2, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	val := []byte{0xf3, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	prefixKey := []byte{0x0f, 0x02, 0x00, 0x01}
-	// Generate proof
-	var proof proofList
-	err := trie.ProveStorageWitness(key, prefixKey, &proof)
-	assert.NoError(t, err)
-
-	// Expire trie
-	trie.ExpireByPrefix(prefixKey)
-
-	// Construct MPTProofCache
-	proofCache := makeRawMPTProofCache(prefixKey, proof)
-
-	// VerifyProof
-	err = proofCache.VerifyProof()
-	assert.NoError(t, err)
-
-	// Revive trie
-	_, err = trie.TryRevive(proofCache.cacheNubs)
-	assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x", key, prefixKey)
-
-	// Verify value exists after revive
-	v := trie.Get(key)
-	assert.Equal(t, val, v, "value mismatch, got %x, expected %x. key %x, prefixKey %x", v, val, key, prefixKey)
-
-	// Verify root hash
-	currRootHash := trie.Hash()
-	assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x", currRootHash, oriRootHash)
-}
-
 // TestTryReviveCustomData tests that a trie can be revived from a proof
 func TestTryReviveCustomData(t *testing.T) {
 
@@ -707,52 +669,6 @@ func TestTryReviveCustomData(t *testing.T) {
 		}
 	}
 }
-
-// TODO (asyukii): TestReviveAtRoot tests that a key can be revived at root when
-// the whole trie is expired. This test will fail because the parent node in
-// TryRevive is nil, set to RootNode when available
-// func TestReviveAtRoot(t *testing.T) {
-// 	trie, vals := nonRandomTrie(500)
-
-// 	oriRootHash := trie.Hash()
-
-// 	for _, kv := range vals {
-// 		key := []byte(kv.k)
-// 		val := []byte(kv.v)
-
-// 		fmt.Printf("key: %x, val: %x", key, val)
-// 		var proof proofList
-
-// 		err := trie.ProveStorageWitness(key, nil, &proof)
-// 		assert.NoError(t, err)
-
-// 		// Expire trie
-// 		trie.ExpireByPrefix(nil)
-
-// 		// Construct MPTProofCache
-// 		proofCache := makeRawMPTProofCache(nil, proof)
-
-// 		// VerifyProof
-// 		err = proofCache.VerifyProof()
-// 		assert.NoError(t, err)
-
-// 		// Revive trie
-// 		err = trie.TryRevive(proofCache)
-// 		assert.NoError(t, err)
-
-// 		// Verify value exists after revive
-// 		v := trie.Get(key)
-// 		assert.Equal(t, val, v)
-
-// 		// Verify root hash
-// 		currRootHash := trie.Hash()
-// 		assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x", currRootHash, oriRootHash)
-
-// 		// Reset trie
-// 		trie, _ = nonRandomTrie(500)
-// 	}
-
-// }
 
 // TestReviveBadProof tests that a trie cannot be revived from a bad proof
 func TestReviveBadProof(t *testing.T) {

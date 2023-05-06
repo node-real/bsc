@@ -465,13 +465,17 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 			}
 			// else, set its epoch to current epoch.
 			n.setEpoch(t.currentEpoch)
-			// TODO (asyukii)
-			// This code block has a problem. When inserting a new node, it will check childExpired, so
-			// by default, it will always return expired, so it will never insert a new node.
 			if t.currentEpoch >= 2 {
-				// if child is expired, return err
-				if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
-					return false, n.Children[key[0]], err
+				child := n.Children[key[0]]
+				childKey := key[1:]
+				// if inserting a new node to this full node, there is no need to check whether this child is expired.
+				if len(childKey) != 0 {
+					if child != nil {
+						// if child is expired, return err
+						if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
+							return false, n.Children[key[0]], err
+						}
+					}
 				}
 			}
 			// else, set child node's epoch to current epoch
@@ -688,7 +692,6 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 // It is not used in the actual trie implementation. ExpireByPrefix makes sure
 // only a child node of a full node is expired, if not an error is returned.
 func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) error {
-	// TODO (asyukii): Add support for RootNode
 	hn, _, err := t.expireByPrefix(t.root, prefixKeyHex)
 	if prefixKeyHex == nil && hn != nil {
 		t.root = hn
@@ -884,18 +887,10 @@ func (t *Trie) TryRevive(proof []*MPTProofNub) (successNubs []*MPTProofNub, err 
 
 	// Revive trie with each proof nub
 	for _, nub := range proof {
-		// TODO (asyukii): Check if MPT Root is a RootNode object
-		// Get root node
-		// var root node
-		// if rt, ok := t.root.(RootNode); ok {
-		// 	root = rt
-		// } else {
-		// 	root = t.root
-		// }
-		root := t.root
 		path := []byte{}
-		newNode, didResolve, err := t.tryRevive(root, nub.n1PrefixKey, *nub, path, false) // TODO (asyukii): change isExpired to false
-		if didResolve && err == nil {
+		rootExpired, _ := t.nodeExpired(t.root, nil)
+		newNode, didRevive, err := t.tryRevive(t.root, nub.n1PrefixKey, *nub, t.currentEpoch, path, rootExpired)
+		if didRevive && err == nil {
 			successNubs = append(successNubs, nub)
 			t.root = newNode
 		}
@@ -909,32 +904,42 @@ func (t *Trie) TryRevive(proof []*MPTProofNub) (successNubs []*MPTProofNub, err 
 	return successNubs, nil
 }
 
-func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, path []byte, isExpired bool) (node, bool, error) {
+func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, epoch types.StateEpoch, path []byte, isExpired bool) (node, bool, error) {
 
-	// TODO (asyukii)
-	// 2 conditions must be met: 1) key is empty, 2) node is expired
-	if len(key) == 0 && isExpired {
-		if hashNode, ok := n.(hashNode); ok {
-			cachedHash, _ := nub.n1.cache()
-			if bytes.Equal(cachedHash, hashNode) {
-				nub.n1.setEpoch(t.currentEpoch)
-				if nub.n2 != nil {
-					nub.n2.setEpoch(t.currentEpoch)
-					switch n1 := nub.n1.(type) {
-					case *shortNode:
-						n1.Val = nub.n2
-					default:
-						return nil, false, fmt.Errorf("invalid node type")
-					}
-				}
+	// To revive a node, few conditions must be met:
+	// 1. key length must be 0, indicating that the targeted node is reached
+	// 2. the node must be expired
+	// 3. the node must be a hash node
+	// 4. the node hash must match the hash value of nub
 
-				return nub.n1, true, nil
+	if len(key) == 0 {
+		if !isExpired {
+			return nil, false, fmt.Errorf("key %v not found", key)
+		}
+
+		hn, ok := n.(hashNode)
+		if !ok {
+			return nil, false, fmt.Errorf("node is not a hash node")
+		}
+
+		cachedHash, _ := nub.n1.cache()
+		if !bytes.Equal(cachedHash, hn) {
+			return nil, false, fmt.Errorf("hash values does not match")
+		}
+
+		nub.n1.setEpoch(t.currentEpoch)
+		if nub.n2 != nil {
+			nub.n2.setEpoch(t.currentEpoch)
+			if n1, ok := nub.n1.(*shortNode); ok { // n2 can only be followed by a short node
+				n1.Val = nub.n2
+			} else {
+				return nil, false, fmt.Errorf("invalid node type")
 			}
 		}
-		return nil, false, nil
-	} else if len(key) == 0 && !isExpired {
-		return nil, false, fmt.Errorf("key %v not found", key)
-	} else if len(key) != 0 && isExpired {
+		return nub.n1, true, nil
+	}
+
+	if isExpired { // the node is expired but targeted node is not reached
 		return nil, false, &ExpiredNodeError{
 			ExpiredNode: n,
 			Path:        path,
@@ -942,46 +947,22 @@ func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, path []byte, isExp
 		}
 	}
 
-	// if len(key) == 0 && isExpired {
-	// 	if hashNode, ok := n.(hashNode); ok {
-	// 		cachedHash, _ := nub.n1.cache()
-	// 		if bytes.Equal(cachedHash, hashNode) {
-	// 			if n1, ok := nub.n1.(*fullNode); ok {
-	// 				n1.setEpoch(t.currentEpoch)
-	// 			}
-	// 			if nub.n2 != nil {
-	// 				switch n1 := nub.n1.(type) {
-	// 				case *shortNode:
-	// 					n1.Val = nub.n2
-	// 				default:
-	// 					return nil, false, fmt.Errorf("invalid node type")
-	// 				}
-	// 			}
-
-	// 			return nub.n1, true, nil
-	// 		}
-	// 	}
-
-	// 	return nil, false, nil
-	// }
-
 	switch n := n.(type) {
 	case *shortNode:
 		if len(key) < len(n.Key) || !bytes.Equal(key[:len(n.Key)], n.Key) {
 			return nil, false, fmt.Errorf("key %v not found", key)
 		}
-		newNode, didResolve, err := t.tryRevive(n.Val, key[len(n.Key):], nub, append(path, key[:len(n.Key)]...), isExpired)
-		if didResolve && err == nil {
+		newNode, didRevive, err := t.tryRevive(n.Val, key[len(n.Key):], nub, epoch, append(path, key[:len(n.Key)]...), isExpired)
+		if didRevive && err == nil {
 			n = n.copy()
 			n.Val = newNode
 		}
-		return n, didResolve, err
+		return n, didRevive, err
 	case *fullNode:
 		childIndex := int(key[0])
-		// TODO (asyukii): Check if child has expired
 		isExpired, _ := n.ChildExpired(nil, childIndex, t.currentEpoch) // TODO (asyukii): t.currentEpoch or t.root.getEpoch()?
-		newNode, didResolve, err := t.tryRevive(n.Children[childIndex], key[1:], nub, append(path, key[0]), isExpired)
-		if didResolve && err == nil {
+		newNode, didRevive, err := t.tryRevive(n.Children[childIndex], key[1:], nub, epoch, append(path, key[0]), isExpired)
+		if didRevive && err == nil {
 			n = n.copy()
 			n.Children[childIndex] = newNode
 			n.UpdateChildEpoch(childIndex, t.currentEpoch)
@@ -989,16 +970,19 @@ func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, path []byte, isExp
 
 		if e, ok := err.(*ExpiredNodeError); ok {
 			e.Epoch = n.GetChildEpoch(childIndex)
-			return n, didResolve, e
+			return n, didRevive, e
 		}
 
-		return n, didResolve, err
+		return n, didRevive, err
 	case hashNode:
-		tn, err := t.resolveHash(n, nil)
+		tn, err := t.resolveHash(n, path) // TODO(asyukii): may need to copy resolved hash node
 		if err != nil {
 			return nil, false, err
 		}
-		return t.tryRevive(tn, key, nub, path, isExpired)
+		if err = t.resolveShadowNode(epoch, tn, path); err != nil {
+			return nil, false, err
+		}
+		return t.tryRevive(tn, key, nub, epoch, path, isExpired)
 	case valueNode:
 		return nil, false, nil
 	case nil:
