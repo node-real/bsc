@@ -851,12 +851,7 @@ func TestReviveValueAtFullNode(t *testing.T) {
 }
 
 func TestTrie_ShadowNodeRW(t *testing.T) {
-	diskdb := memorydb.New()
-	database := NewDatabase(diskdb)
-	tree, err := NewShadowNodeSnapTree(diskdb)
-	assert.NoError(t, err)
-	storageDB, err := NewShadowNodeDatabase(tree, common.Big0, blockRoot0)
-	assert.NoError(t, err)
+	database, storageDB := makeStorageTrieDatabase(t)
 
 	tr, err := NewStorageSecure(types.StateEpoch(1), emptyRoot, database, storageDB.OpenStorage(contract1))
 	assert.NoError(t, err)
@@ -885,6 +880,52 @@ func TestTrie_ShadowNodeRW(t *testing.T) {
 	//assert.NoError(t, err)
 	//val, err = tr.TryGet(makeHash("k2").Bytes())
 	//assert.Error(t, err)
+}
+
+func TestTrie_ShadowHash(t *testing.T) {
+	database, storageDB := makeStorageTrieDatabase(t)
+	tr, err := NewWithShadowNode(types.StateEpoch0, newEpoch0RootNode(emptyRoot), database, storageDB.OpenStorage(contract1))
+	assert.NoError(t, err)
+
+	batchUpdateTrie(t, tr, []string{"a711355", "450", "a77d337", "100", "a7f9365", "110", "a77d397", "012"})
+	sh1, err := tr.ShadowHash()
+	assert.NoError(t, err)
+	assert.Equal(t, common.HexToHash("0xdb27cdd3bb63fff59572d38425e82df16706590fe1daa704d7b66a6171b38216"), *sh1)
+
+	// commit and shadow hash again
+	newRoot, _, err := tr.Commit(nil)
+	assert.NoError(t, err)
+	tr, err = NewWithShadowNode(types.StateEpoch(1), newEpoch0RootNode(newRoot), database, storageDB.OpenStorage(contract1))
+	assert.NoError(t, err)
+	sh1, err = tr.ShadowHash()
+	assert.NoError(t, err)
+	assert.Equal(t, common.HexToHash("0xdb27cdd3bb63fff59572d38425e82df16706590fe1daa704d7b66a6171b38216"), *sh1)
+
+	err = tr.TryUpdate(common.Hex2Bytes("a711355"), common.Hex2Bytes("800"))
+	assert.NoError(t, err)
+	sh1, err = tr.ShadowHash()
+	assert.NoError(t, err)
+	assert.Equal(t, common.HexToHash("0x5afa84184d90b266a63ac857641f4679a10817bdc48f66c91150c30d92ff9e1b"), *sh1)
+}
+
+func batchUpdateTrie(t *testing.T, tr *Trie, kvs []string) {
+	if len(kvs)%2 != 0 {
+		panic("wrong kvs")
+	}
+	for i := 0; i < len(kvs); i += 2 {
+		err := tr.TryUpdate(common.Hex2Bytes(kvs[i]), common.Hex2Bytes(kvs[i+1]))
+		assert.NoError(t, err)
+	}
+}
+
+func makeStorageTrieDatabase(t *testing.T) (*Database, ShadowNodeDatabase) {
+	diskdb := memorydb.New()
+	database := NewDatabase(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb)
+	assert.NoError(t, err)
+	storageDB, err := NewShadowNodeDatabase(tree, common.Big0, blockRoot0)
+	assert.NoError(t, err)
+	return database, storageDB
 }
 
 func BenchmarkGet(b *testing.B)      { benchGet(b, false) }

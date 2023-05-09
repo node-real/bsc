@@ -103,18 +103,18 @@ func TestRootNodeEncodeDecode(t *testing.T) {
 	}{
 		{
 			r: &rootNode{
-				Epoch:      100,
-				TrieHash:   makeHash("t1"),
-				ShadowHash: makeHash("s1"),
-				flags:      nodeFlag{hash: makeHash("h1").Bytes()},
+				Epoch:          100,
+				TrieRoot:       makeHash("t1"),
+				ShadowTreeRoot: makeHash("s1"),
+				flags:          nodeFlag{hash: makeHash("h1").Bytes()},
 			},
 		},
 		{
 			r: &rootNode{
-				Epoch:      0,
-				TrieHash:   common.Hash{},
-				ShadowHash: common.Hash{},
-				flags:      nodeFlag{hash: makeHash("h1").Bytes()},
+				Epoch:          0,
+				TrieRoot:       common.Hash{},
+				ShadowTreeRoot: common.Hash{},
+				flags:          nodeFlag{hash: makeHash("h1").Bytes()},
 			},
 		},
 	}

@@ -66,10 +66,13 @@ type Trie struct {
 	// Keep track of the number leafs which have been inserted since the last
 	// hashing operation. This number will not directly map to the number of
 	// actually unhashed nodes
-	unhashed      int
-	currentEpoch  types.StateEpoch
-	isStorageTrie bool
-	shadowHash    common.Hash
+	unhashed int
+
+	// fields for shadow tree and rootNode
+	useShadowTree  bool
+	currentEpoch   types.StateEpoch
+	shadowTreeRoot common.Hash
+	rootEpoch      types.StateEpoch
 }
 
 // newFlag returns the cache flag value for a newly created node.
@@ -104,15 +107,20 @@ func NewWithShadowNode(curEpoch types.StateEpoch, rootNode *rootNode, db *Databa
 	if db == nil || sndb == nil {
 		panic("trie.New called without a database")
 	}
-	trie := &Trie{
-		db:            db,
-		sndb:          sndb,
-		currentEpoch:  curEpoch,
-		isStorageTrie: true,
-		shadowHash:    rootNode.ShadowHash,
+	if curEpoch < rootNode.Epoch {
+		return nil, errors.New("open trie at a wrong epoch")
 	}
-	if rootNode.TrieHash != (common.Hash{}) && rootNode.TrieHash != emptyRoot {
-		root, err := trie.resolveHash(rootNode.TrieHash[:], nil)
+
+	trie := &Trie{
+		db:             db,
+		sndb:           sndb,
+		currentEpoch:   curEpoch,
+		useShadowTree:  false,
+		shadowTreeRoot: rootNode.ShadowTreeRoot,
+		rootEpoch:      rootNode.Epoch,
+	}
+	if rootNode.TrieRoot != (common.Hash{}) && rootNode.TrieRoot != emptyRoot {
+		root, err := trie.resolveHash(rootNode.TrieRoot[:], nil)
 		if err != nil {
 			return nil, err
 		}
@@ -120,6 +128,10 @@ func NewWithShadowNode(curEpoch types.StateEpoch, rootNode *rootNode, db *Databa
 			return nil, err
 		}
 		trie.root = root
+	}
+	// only enable after first state expiry's hard fork
+	if curEpoch > types.StateEpoch0 {
+		trie.useShadowTree = true
 	}
 	return trie, nil
 }
@@ -146,7 +158,7 @@ func (t *Trie) Get(key []byte) []byte {
 func (t *Trie) TryGet(key []byte) (value []byte, err error) {
 	var newroot node
 	var didResolve bool
-	if t.isStorageTrie {
+	if t.useShadowTree {
 		var nextEpoch types.StateEpoch
 		if t.root != nil {
 			nextEpoch = t.root.getEpoch()
@@ -413,7 +425,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 	}
 	switch n := n.(type) {
 	case *shortNode:
-		if t.isStorageTrie && t.currentEpoch >= 2 {
+		if t.useShadowTree && t.currentEpoch >= 2 {
 			if expired, err := t.nodeExpired(n, prefix); expired {
 				return false, n, err
 			}
@@ -436,7 +448,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		if err != nil {
 			return false, nil, err
 		}
-		if t.isStorageTrie {
+		if t.useShadowTree {
 			branch.setEpoch(t.currentEpoch)
 			branch.UpdateChildEpoch(int(n.Key[matchlen]), t.currentEpoch)
 		}
@@ -444,7 +456,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		if err != nil {
 			return false, nil, err
 		}
-		if t.isStorageTrie {
+		if t.useShadowTree {
 			branch.setEpoch(t.currentEpoch)
 			branch.UpdateChildEpoch(int(key[matchlen]), t.currentEpoch)
 		}
@@ -456,7 +468,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 
 	case *fullNode:
-		if t.isStorageTrie {
+		if t.useShadowTree {
 			if t.currentEpoch >= 2 {
 				// this full node is expired, return err
 				if expired, err := t.nodeExpired(n, prefix); expired {
@@ -546,7 +558,7 @@ func (t *Trie) TryDelete(key []byte) error {
 func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool, node, error) {
 	switch n := n.(type) {
 	case *shortNode:
-		if t.isStorageTrie && t.currentEpoch >= 2 {
+		if t.useShadowTree && t.currentEpoch >= 2 {
 			if expired, err := t.nodeExpired(n, prefix); expired {
 				return false, n, err
 			}
@@ -581,7 +593,7 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 		}
 
 	case *fullNode:
-		if t.isStorageTrie {
+		if t.useShadowTree {
 			if t.currentEpoch >= 2 {
 				// this full node is expired, return err
 				if expired, err := t.nodeExpired(n, prefix); expired {
@@ -813,6 +825,19 @@ func (t *Trie) Commit(onleaf LeafCallback) (common.Hash, int, error) {
 	// Derive the hash for all dirty nodes first. We hold the assumption
 	// in the following procedure that all nodes are hashed.
 	rootHash := t.Hash()
+	if t.useShadowTree {
+		shadowRoot, err := t.ShadowHash()
+		if err != nil {
+			return common.Hash{}, 0, err
+		}
+		// replace shadowTreeRoot for rootNode
+		if shadowRoot != nil {
+			t.shadowTreeRoot = *shadowRoot
+		} else {
+			t.shadowTreeRoot = emptyRoot
+		}
+	}
+
 	h := newCommitter()
 	defer returnCommitterToPool(h)
 
@@ -993,7 +1018,7 @@ func (t *Trie) tryRevive(n node, key []byte, nub MPTProofNub, epoch types.StateE
 }
 
 func (t *Trie) resolveShadowNode(epoch types.StateEpoch, cur node, prefix []byte) error {
-	if t.currentEpoch < 1 {
+	if !t.useShadowTree {
 		return nil
 	}
 
@@ -1003,8 +1028,7 @@ func (t *Trie) resolveShadowNode(epoch types.StateEpoch, cur node, prefix []byte
 
 	switch n := cur.(type) {
 	case *shortNode:
-		n.shadowNode.Epoch = epoch
-		n.shadowNode.ShadowHash = common.Hash{}
+		n.shadowNode.ShadowHash = nil
 		return t.resolveShadowNode(epoch, n.Val, append(prefix, n.Key...))
 	case *fullNode:
 		val, err := t.sndb.Get(string(hexToSuffixCompact(prefix)))
@@ -1014,7 +1038,7 @@ func (t *Trie) resolveShadowNode(epoch types.StateEpoch, cur node, prefix []byte
 		if len(val) == 0 {
 			// set default epoch map
 			n.shadowNode.EpochMap = [16]types.StateEpoch{}
-			n.shadowNode.ShadowHash = common.Hash{}
+			n.shadowNode.ShadowHash = nil
 		} else {
 			if err = rlp.DecodeBytes(val, &n.shadowNode); err != nil {
 				return err
@@ -1026,11 +1050,70 @@ func (t *Trie) resolveShadowNode(epoch types.StateEpoch, cur node, prefix []byte
 			}
 		}
 		return nil
-	case valueNode, hashNode:
+	case valueNode, hashNode, nil:
 		// just skip
 		return nil
 	default:
 		return errors.New("resolveShadowNode unsupported node type")
+	}
+}
+
+func (t *Trie) ShadowHash() (*common.Hash, error) {
+	if t.root == nil {
+		return nil, nil
+	}
+	h := newHasher(true)
+	defer returnHasherToPool(h)
+	return t.shadowHash(t.root, h, nil, t.root.getEpoch())
+}
+
+// shadowHash calculate node's shadow node hash, recalculate needn't a copy
+func (t *Trie) shadowHash(origin node, h *hasher, prefix []byte, epoch types.StateEpoch) (*common.Hash, error) {
+	switch n := origin.(type) {
+	case *shortNode:
+		var err error
+		if n.shadowNode.ShadowHash, err = t.shadowHash(n.Val, h, append(prefix, n.Key...), epoch); err != nil {
+			return nil, err
+		}
+		return h.shadowExtendNodeToHash(&n.shadowNode), nil
+	case *fullNode:
+		epochSelf := n.epoch
+		epochMap := n.shadowNode.EpochMap
+		hashList := make([]*common.Hash, 0, BranchNodeLength-1)
+		for i := byte(0); i < BranchNodeLength-1; i++ {
+			child := n.Children[i]
+			if child == nil {
+				continue
+			}
+			// skip expired node.
+			if epochSelf >= epochMap[i]+2 {
+				continue
+			}
+
+			subHash, err := t.shadowHash(child, h, append(prefix, i), epochMap[i])
+			if err != nil {
+				return nil, err
+			}
+			if subHash != nil {
+				hashList = append(hashList, subHash)
+			}
+		}
+		n.shadowNode.ShadowHash = h.shadowNodeHashListToHash(hashList)
+		return h.shadowBranchNodeToHash(&n.shadowNode), nil
+	case valueNode:
+		return nil, nil
+	case hashNode:
+		// resolve temporary, not add to trie
+		rn, err := t.resolveHash(n, prefix)
+		if err != nil {
+			return nil, err
+		}
+		if err = t.resolveShadowNode(epoch, rn, prefix); err != nil {
+			return nil, err
+		}
+		return t.shadowHash(rn, h, prefix, epoch)
+	default:
+		return nil, errors.New("cannot get shortNode's child shadow node")
 	}
 }
 

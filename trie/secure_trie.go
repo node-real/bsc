@@ -60,9 +60,9 @@ func NewSecure(root common.Hash, db *Database, isStorageTrie bool) (*SecureTrie,
 	shadowHash := common.Hash{}
 	if isStorageTrie {
 		if rootNode := db.RootNode(root); rootNode != nil {
-			root = rootNode.TrieHash
+			root = rootNode.TrieRoot
 			epoch = rootNode.Epoch
-			shadowHash = rootNode.ShadowHash
+			shadowHash = rootNode.ShadowTreeRoot
 		}
 	}
 	trie, err := New(root, db)
@@ -73,9 +73,9 @@ func NewSecure(root common.Hash, db *Database, isStorageTrie bool) (*SecureTrie,
 		if trie.root != nil {
 			trie.root.setEpoch(epoch)
 		}
-		trie.shadowHash = shadowHash
+		trie.shadowTreeRoot = shadowHash
 	}
-	trie.isStorageTrie = isStorageTrie
+	trie.useShadowTree = isStorageTrie
 	return &SecureTrie{trie: *trie}, nil
 }
 
@@ -84,18 +84,15 @@ func NewStorageSecure(curEpoch types.StateEpoch, root common.Hash, db *Database,
 		panic("trie.NewSecure called without a database")
 	}
 
-	rn := rootNode{
-		Epoch:    types.StateEpoch0,
-		TrieHash: root,
-	}
+	rn := newEpoch0RootNode(root)
 	hash := common.BytesToHash(root[:])
 	if n := db.node(hash); n != nil {
 		if tmp, ok := n.(*rootNode); ok {
-			rn = *tmp
+			*rn = *tmp
 		}
 	}
 
-	trie, err := NewWithShadowNode(curEpoch, &rn, db, sndb)
+	trie, err := NewWithShadowNode(curEpoch, rn, db, sndb)
 	if err != nil {
 		return nil, err
 	}

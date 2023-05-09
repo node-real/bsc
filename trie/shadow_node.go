@@ -13,23 +13,21 @@ import (
 )
 
 type shadowExtensionNode struct {
-	ShadowHash common.Hash
-	Epoch      types.StateEpoch
+	ShadowHash *common.Hash
 }
 
-func NewShadowExtensionNode(hash common.Hash, epoch types.StateEpoch) shadowExtensionNode {
+func NewShadowExtensionNode(hash *common.Hash) shadowExtensionNode {
 	return shadowExtensionNode{
 		ShadowHash: hash,
-		Epoch:      epoch,
 	}
 }
 
 type shadowBranchNode struct {
-	ShadowHash common.Hash
+	ShadowHash *common.Hash
 	EpochMap   [16]types.StateEpoch
 }
 
-func NewShadowBranchNode(hash common.Hash, epochMap [16]types.StateEpoch) shadowBranchNode {
+func NewShadowBranchNode(hash *common.Hash, epochMap [16]types.StateEpoch) shadowBranchNode {
 	return shadowBranchNode{hash, epochMap}
 }
 

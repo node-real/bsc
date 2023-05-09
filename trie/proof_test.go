@@ -1273,7 +1273,7 @@ func randBytes(n int) []byte {
 
 func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 	trie := new(Trie)
-	trie.isStorageTrie = true
+	trie.useShadowTree = true
 	trie.currentEpoch = 10 // TODO (asyukii): might need to change this
 	vals := make(map[string]*kv)
 	max := uint64(0xffffffffffffffff)

@@ -71,10 +71,19 @@ type (
 )
 
 type rootNode struct {
-	Epoch      types.StateEpoch
-	TrieHash   common.Hash
-	ShadowHash common.Hash
-	flags      nodeFlag `rlp:"-" json:"-"`
+	Epoch          types.StateEpoch
+	TrieRoot       common.Hash
+	ShadowTreeRoot common.Hash
+	flags          nodeFlag `rlp:"-" json:"-"`
+}
+
+func newEpoch0RootNode(trieRoot common.Hash) *rootNode {
+	return &rootNode{
+		Epoch:          types.StateEpoch0,
+		TrieRoot:       trieRoot,
+		ShadowTreeRoot: emptyRoot,
+		flags:          nodeFlag{dirty: true},
+	}
 }
 
 func (n *rootNode) cache() (hashNode, bool) {
@@ -86,7 +95,7 @@ func (n *rootNode) encode(w rlp.EncoderBuffer) {
 }
 
 func (n *rootNode) fstring(s string) string {
-	return fmt.Sprintf("{%v: %x: %x} ", n.Epoch, n.TrieHash, n.ShadowHash)
+	return fmt.Sprintf("{%v: %x: %x} ", n.Epoch, n.TrieRoot, n.ShadowTreeRoot)
 }
 
 func (n *rootNode) nodeType() int {
