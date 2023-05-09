@@ -247,7 +247,7 @@ func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
 		}
 	}
 
-	tr, err := trie.NewSecure(root, db.db, true)
+	tr, err := trie.NewSecure(root, db.db, false)
 	if err != nil {
 		return nil, err
 	}

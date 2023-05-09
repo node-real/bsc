@@ -1794,6 +1794,9 @@ func (s *StateDB) GetStorage(address common.Address) *sync.Map {
 
 // ReviveTrie revive a trie with a given witness list
 func (s *StateDB) ReviveStorageTrie(witnessList types.WitnessList) error {
+	if !s.enableStateEpoch(true) {
+		return errors.New("cannot revive any state before epoch2")
+	}
 	for i := range witnessList {
 		wit := witnessList[i]
 		// got specify witness, verify proof and check if revive success
@@ -1834,4 +1837,13 @@ func (s *StateDB) ReviveStorageTrie(witnessList types.WitnessList) error {
 
 func (s *StateDB) openShadowStorage(addr common.Hash) trie.ShadowNodeStorage {
 	return trie.NewShadowNodeStorage4Trie(addr, s.shadowNodeDB)
+}
+
+// enableStateEpoch return if enable state expiry hard fork, if inExpired, return if after epoch1
+func (s *StateDB) enableStateEpoch(inExpired bool) bool {
+	if !inExpired {
+		return s.targetEpoch > types.StateEpoch0
+	}
+
+	return s.targetEpoch > types.StateEpoch1
 }

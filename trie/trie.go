@@ -1070,6 +1070,9 @@ func (t *Trie) ShadowHash() (*common.Hash, error) {
 	if t.root == nil {
 		return nil, nil
 	}
+	if t.sndb == nil {
+		return nil, errors.New("ShadowHash sndb is nil")
+	}
 	h := newHasher(true)
 	defer returnHasherToPool(h)
 	return t.shadowHash(t.root, h, nil, t.root.getEpoch())

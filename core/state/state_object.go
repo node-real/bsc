@@ -194,13 +194,24 @@ func (s *StateObject) getTrie(db Database) Trie {
 			// prefetcher
 			s.trie = prefetcher.trie(s.data.Root)
 		}
-		if s.trie == nil {
-			var err error
+		if s.trie != nil {
+			return s.trie
+		}
+		var err error
+		// check if enable state epoch
+		if s.db.enableStateEpoch(false) {
 			s.trie, err = db.OpenStorageTrieWithShadowNode(s.addrHash, s.data.Root, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
 			if err != nil {
 				s.trie, _ = db.OpenStorageTrieWithShadowNode(s.addrHash, common.Hash{}, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
-				s.setError(fmt.Errorf("can't create storage trie: %v", err))
+				s.setError(fmt.Errorf("can't create storage trie with shadowNode: %v", err))
 			}
+			return s.trie
+		}
+
+		s.trie, err = db.OpenStorageTrie(s.addrHash, s.data.Root)
+		if err != nil {
+			s.trie, _ = db.OpenStorageTrie(s.addrHash, common.Hash{})
+			s.setError(fmt.Errorf("can't create storage trie: %v", err))
 		}
 	}
 	return s.trie
@@ -231,9 +242,11 @@ func (s *StateObject) GetState(db Database, key common.Hash) (common.Hash, error
 		s.accessState(key)
 		return value, nil
 	}
-	if revived, revive := s.queryFromReviveState(db, s.dirtyReviveState, key); revive {
-		s.accessState(key)
-		return revived, nil
+	if s.db.enableStateEpoch(true) {
+		if revived, revive := s.queryFromReviveState(db, s.dirtyReviveState, key); revive {
+			s.accessState(key)
+			return revived, nil
+		}
 	}
 
 	// Otherwise return the entry's original value
@@ -278,8 +291,10 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 	if value, pending := s.pendingStorage[key]; pending {
 		return value, nil
 	}
-	if revived, revive := s.queryFromReviveState(db, s.pendingReviveState, key); revive {
-		return revived, nil
+	if s.db.enableStateEpoch(true) {
+		if revived, revive := s.queryFromReviveState(db, s.pendingReviveState, key); revive {
+			return revived, nil
+		}
 	}
 
 	if value, cached := s.getOriginStorage(key); cached {
@@ -360,7 +375,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) error {
 		return nil
 	}
 	// when state insert, check if valid to insert new state
-	if prev != (common.Hash{}) {
+	if s.db.enableStateEpoch(true) && prev != (common.Hash{}) {
 		_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
 		if err != nil {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
@@ -786,6 +801,9 @@ func (s *StateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
 }
 
 func (s *StateObject) accessState(key common.Hash) {
+	if !s.db.enableStateEpoch(false) {
+		return
+	}
 	s.db.journal.append(accessedStorageStateChange{
 		address: &s.address,
 		slot:    &key,

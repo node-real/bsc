@@ -276,12 +276,12 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		}
 		return nil, nil
 	}
+	tree, err := trie.NewShadowNodeSnapTree(db)
+	if err != nil {
+		panic(err)
+	}
 	for i := 0; i < n; i++ {
 		number := new(big.Int).Add(parent.Number(), common.Big1)
-		tree, err := trie.NewShadowNodeSnapTree(db)
-		if err != nil {
-			panic(err)
-		}
 		statedb, err := state.NewWithEpoch(config, number, parent.Root(), state.NewDatabase(db), nil, tree)
 		if err != nil {
 			panic(err)
@@ -290,6 +290,9 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		blocks[i] = block
 		receipts[i] = receipt
 		parent = block
+	}
+	if err = tree.Journal(); err != nil {
+		panic(err)
 	}
 	return blocks, receipts
 }

@@ -79,6 +79,8 @@ func NewSecure(root common.Hash, db *Database, isStorageTrie bool) (*SecureTrie,
 	return &SecureTrie{trie: *trie}, nil
 }
 
+// NewSecureWithShadowNodes it opens a trie with shadow nodes, it needs to know current epoch to check if expired
+// it uses sndb to query or store shadow nodes, if you using NewSecure, it opens storage trie at epoch0.
 func NewSecureWithShadowNodes(curEpoch types.StateEpoch, root common.Hash, db *Database, sndb ShadowNodeStorage) (*SecureTrie, error) {
 	if db == nil || sndb == nil {
 		panic("trie.NewSecure called without a database")

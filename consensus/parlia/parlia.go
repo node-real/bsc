@@ -46,8 +46,9 @@ const (
 	inMemorySnapshots  = 128  // Number of recent snapshots to keep in memory
 	inMemorySignatures = 4096 // Number of recent block signatures to keep in memory
 
-	checkpointInterval = 1024        // Number of blocks after which to save the snapshot to the database
-	defaultEpochLength = uint64(100) // Default number of blocks of checkpoint to update validatorSet from contract
+	checkpointInterval      = 1024        // Number of blocks after which to save the snapshot to the database
+	defaultEpochLength      = uint64(100) // Default number of blocks of checkpoint to update validatorSet from contract
+	defaultStateEpochPeriod = uint64(7_008_000)
 
 	extraVanity      = 32 // Fixed number of extra-data prefix bytes reserved for signer vanity
 	extraSeal        = 65 // Fixed number of extra-data suffix bytes reserved for signer seal
@@ -230,6 +231,10 @@ func New(
 	if parliaConfig != nil && parliaConfig.Epoch == 0 {
 		parliaConfig.Epoch = defaultEpochLength
 	}
+	if parliaConfig != nil && parliaConfig.StateEpochPeriod == 0 {
+		parliaConfig.StateEpochPeriod = defaultStateEpochPeriod
+	}
+	log.Info("instance parlia with config", "period", parliaConfig.Period, "epoch", parliaConfig.Epoch, "stateEpochPeriod", parliaConfig.StateEpochPeriod)
 
 	// Allocate the snapshot caches and create the engine
 	recentSnaps, err := lru.NewARC(inMemorySnapshots)

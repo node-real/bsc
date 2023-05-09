@@ -119,8 +119,9 @@ var (
 		//ElwoodBlock:         big.NewInt(-),
 
 		Parlia: &ParliaConfig{
-			Period: 3,
-			Epoch:  200,
+			Period:           3,
+			Epoch:            200,
+			StateEpochPeriod: 7_008_000,
 		},
 	}
 
@@ -148,8 +149,9 @@ var (
 		//ElwoodBlock:         big.NewInt(-),
 
 		Parlia: &ParliaConfig{
-			Period: 3,
-			Epoch:  200,
+			Period:           3,
+			Epoch:            200,
+			StateEpochPeriod: 7_008_000,
 		},
 	}
 
@@ -177,8 +179,9 @@ var (
 		//ElwoodBlock:         big.NewInt(-),
 
 		Parlia: &ParliaConfig{
-			Period: 3,
-			Epoch:  200,
+			Period:           3,
+			Epoch:            200,
+			StateEpochPeriod: 7_008_000,
 		},
 	}
 
@@ -323,8 +326,9 @@ func (c *CliqueConfig) String() string {
 
 // ParliaConfig is the consensus engine configs for proof-of-staked-authority based sealing.
 type ParliaConfig struct {
-	Period uint64 `json:"period"` // Number of seconds between blocks to enforce
-	Epoch  uint64 `json:"epoch"`  // Epoch length to update validatorSet
+	Period           uint64 `json:"period"`           // Number of seconds between blocks to enforce
+	Epoch            uint64 `json:"epoch"`            // Epoch length to update validatorSet
+	StateEpochPeriod uint64 `json:"stateEpochPeriod"` // StateEpochPeriod it indicates the length of a state epoch, default 7_008_000
 }
 
 // String implements the stringer interface, returning the consensus engine details.
