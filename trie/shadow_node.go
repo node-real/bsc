@@ -6,11 +6,63 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/rlp"
+
 	"github.com/ethereum/go-ethereum/ethdb"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
+
+const (
+	ShadowTreeRootNodePath = "s"
+)
+
+type rootNode struct {
+	Epoch          types.StateEpoch
+	TrieRoot       common.Hash
+	ShadowTreeRoot common.Hash
+	cachedHash     common.Hash `rlp:"-" json:"-"`
+	cachedEnc      []byte      `rlp:"-" json:"-"`
+}
+
+func newEpoch0RootNode(trieRoot common.Hash) *rootNode {
+	return newRootNode(types.StateEpoch0, trieRoot, emptyRoot)
+}
+
+func newRootNode(epoch types.StateEpoch, trieRoot, shadowTreeRoot common.Hash) *rootNode {
+	n := &rootNode{
+		Epoch:          epoch,
+		TrieRoot:       trieRoot,
+		ShadowTreeRoot: shadowTreeRoot,
+	}
+	n.resolveCache()
+	return n
+}
+func (n *rootNode) encode(w rlp.EncoderBuffer) {
+	rlp.Encode(w, n)
+}
+func (n *rootNode) resolveCache() {
+	buf := rlp.NewEncoderBuffer(nil)
+	n.encode(buf)
+	n.cachedEnc = buf.ToBytes()
+
+	// cache hash
+	h := newHasher(false)
+	h.sha.Reset()
+	h.sha.Write(n.cachedEnc)
+	h.sha.Read(n.cachedHash[:])
+	returnHasherToPool(h)
+}
+
+func decodeRootNode(enc []byte) (*rootNode, error) {
+	n := &rootNode{}
+	if err := rlp.DecodeBytes(enc, n); err != nil {
+		return nil, err
+	}
+	n.resolveCache()
+	return n, nil
+}
 
 type shadowExtensionNode struct {
 	ShadowHash *common.Hash
@@ -22,6 +74,37 @@ func NewShadowExtensionNode(hash *common.Hash) shadowExtensionNode {
 	}
 }
 
+func (n *shadowExtensionNode) encode(w rlp.EncoderBuffer) {
+	offset := w.List()
+	if n.ShadowHash == nil {
+		w.Write(rlp.EmptyString)
+	} else {
+		w.WriteBytes(n.ShadowHash[:])
+	}
+	w.ListEnd(offset)
+}
+
+func decodeShadowExtensionNode(enc []byte) (*shadowExtensionNode, error) {
+	var n shadowExtensionNode
+	elems, _, err := rlp.SplitList(enc)
+	if err != nil {
+		return nil, err
+	}
+
+	sh, _, err := rlp.SplitString(elems)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(sh) == 0 {
+		n.ShadowHash = nil
+	} else {
+		hash := common.BytesToHash(sh)
+		n.ShadowHash = &hash
+	}
+	return &n, nil
+}
+
 type shadowBranchNode struct {
 	ShadowHash *common.Hash
 	EpochMap   [16]types.StateEpoch
@@ -29,6 +112,46 @@ type shadowBranchNode struct {
 
 func NewShadowBranchNode(hash *common.Hash, epochMap [16]types.StateEpoch) shadowBranchNode {
 	return shadowBranchNode{hash, epochMap}
+}
+func (n *shadowBranchNode) encode(w rlp.EncoderBuffer) {
+	offset := w.List()
+	if n.ShadowHash == nil {
+		w.Write(rlp.EmptyString)
+	} else {
+		w.WriteBytes(n.ShadowHash[:])
+	}
+	epochsList := w.List()
+	for _, e := range n.EpochMap {
+		w.WriteUint64(uint64(e))
+	}
+	w.ListEnd(epochsList)
+	w.ListEnd(offset)
+}
+
+func decodeShadowBranchNode(enc []byte) (*shadowBranchNode, error) {
+	var n shadowBranchNode
+	elems, _, err := rlp.SplitList(enc)
+	if err != nil {
+		return nil, err
+	}
+
+	sh, rest, err := rlp.SplitString(elems)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(sh) == 0 {
+		n.ShadowHash = nil
+	} else {
+		hash := common.BytesToHash(sh)
+		n.ShadowHash = &hash
+	}
+
+	if err = rlp.DecodeBytes(rest, &n.EpochMap); err != nil {
+		return nil, err
+	}
+
+	return &n, nil
 }
 
 type ShadowNodeStorage interface {

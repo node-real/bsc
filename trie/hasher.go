@@ -146,31 +146,15 @@ func (h *hasher) shadowExtendNodeToHash(n *shadowExtensionNode) *common.Hash {
 	if n.ShadowHash == nil {
 		return nil
 	}
-	w := h.encbuf
-	offset := w.List()
-	w.WriteBytes(n.ShadowHash[:])
-	w.ListEnd(offset)
 
+	n.encode(h.encbuf)
 	enc := h.encodedBytes()
 	return h.hashCommon(enc)
 }
 
 // shadowFullNodeToHash hash shadowBranchNode
 func (h *hasher) shadowBranchNodeToHash(n *shadowBranchNode) *common.Hash {
-	w := h.encbuf
-	outerList := w.List()
-	if n.ShadowHash == nil {
-		w.WriteBytes(rlp.EmptyString)
-	} else {
-		w.WriteBytes(n.ShadowHash[:])
-	}
-	epochList := w.List()
-	for _, epoch := range n.EpochMap {
-		w.WriteUint64(uint64(epoch))
-	}
-	w.ListEnd(epochList)
-	w.ListEnd(outerList)
-
+	n.encode(h.encbuf)
 	enc := h.encodedBytes()
 	return h.hashCommon(enc)
 }

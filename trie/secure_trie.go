@@ -79,17 +79,14 @@ func NewSecure(root common.Hash, db *Database, isStorageTrie bool) (*SecureTrie,
 	return &SecureTrie{trie: *trie}, nil
 }
 
-func NewStorageSecure(curEpoch types.StateEpoch, root common.Hash, db *Database, sndb ShadowNodeStorage) (*SecureTrie, error) {
+func NewSecureWithShadowNodes(curEpoch types.StateEpoch, root common.Hash, db *Database, sndb ShadowNodeStorage) (*SecureTrie, error) {
 	if db == nil || sndb == nil {
 		panic("trie.NewSecure called without a database")
 	}
 
-	rn := newEpoch0RootNode(root)
-	hash := common.BytesToHash(root[:])
-	if n := db.node(hash); n != nil {
-		if tmp, ok := n.(*rootNode); ok {
-			*rn = *tmp
-		}
+	rn, err := resolveRootNode(sndb, root)
+	if err != nil {
+		return nil, err
 	}
 
 	trie, err := NewWithShadowNode(curEpoch, rn, db, sndb)

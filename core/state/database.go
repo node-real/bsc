@@ -270,7 +270,7 @@ func (db *cachingDB) OpenStorageTrieWithShadowNode(addrHash, root common.Hash, c
 		}
 	}
 
-	tr, err := trie.NewStorageSecure(curEpoch, root, db.db, sndb)
+	tr, err := trie.NewSecureWithShadowNodes(curEpoch, root, db.db, sndb)
 	if err != nil {
 		return nil, err
 	}

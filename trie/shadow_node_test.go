@@ -1,8 +1,11 @@
 package trie
 
 import (
+	"bytes"
 	"math/big"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -122,4 +125,121 @@ func TestNewShadowNodeStorage4Trie(t *testing.T) {
 
 	err = storageDB.Commit(common.Big1, blockRoot2)
 	assert.NoError(t, err)
+}
+
+func TestShadowExtendNode_encodeDecode(t *testing.T) {
+	dt := []struct {
+		n shadowExtensionNode
+	}{
+		{
+			n: shadowExtensionNode{
+				ShadowHash: nil,
+			},
+		},
+		{
+			n: shadowExtensionNode{
+				ShadowHash: &blockRoot0,
+			},
+		},
+		{
+			n: shadowExtensionNode{
+				ShadowHash: &blockRoot1,
+			},
+		},
+	}
+	for _, item := range dt {
+		buf := rlp.NewEncoderBuffer(bytes.NewBuffer([]byte{}))
+		item.n.encode(buf)
+		enc := buf.ToBytes()
+
+		rn, err := decodeShadowExtensionNode(enc)
+		assert.NoError(t, err)
+		assert.Equal(t, &item.n, rn)
+	}
+}
+
+func TestShadowBranchNode_encodeDecode(t *testing.T) {
+	dt := []struct {
+		n shadowBranchNode
+	}{
+		{
+			n: shadowBranchNode{
+				ShadowHash: nil,
+				EpochMap:   [16]types.StateEpoch{},
+			},
+		},
+		{
+			n: shadowBranchNode{
+				ShadowHash: nil,
+				EpochMap:   [16]types.StateEpoch{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+			},
+		},
+		{
+			n: shadowBranchNode{
+				ShadowHash: &blockRoot0,
+				EpochMap:   [16]types.StateEpoch{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+			},
+		},
+		{
+			n: shadowBranchNode{
+				ShadowHash: &blockRoot1,
+				EpochMap:   [16]types.StateEpoch{},
+			},
+		},
+	}
+	for _, item := range dt {
+		buf := rlp.NewEncoderBuffer(bytes.NewBuffer([]byte{}))
+		item.n.encode(buf)
+		enc := buf.ToBytes()
+
+		rn, err := decodeShadowBranchNode(enc)
+		assert.NoError(t, err)
+		assert.Equal(t, &item.n, rn)
+	}
+}
+
+func TestRootNode_encodeDecode(t *testing.T) {
+	dt := []struct {
+		n       rootNode
+		isEqual bool
+	}{
+		{
+			n: rootNode{
+				Epoch:          10,
+				TrieRoot:       blockRoot0,
+				ShadowTreeRoot: blockRoot1,
+			},
+			isEqual: true,
+		},
+		{
+			n:       rootNode{},
+			isEqual: true,
+		},
+		{
+			n: rootNode{
+				Epoch:          100,
+				TrieRoot:       blockRoot2,
+				ShadowTreeRoot: common.Hash{},
+			},
+			isEqual: true,
+		},
+		{
+			n: rootNode{},
+		},
+	}
+
+	for _, item := range dt {
+		item.n.resolveCache()
+		buf := rlp.NewEncoderBuffer(bytes.NewBuffer([]byte{}))
+		item.n.encode(buf)
+		enc := buf.ToBytes()
+
+		rn, err := decodeRootNode(enc)
+		assert.NoError(t, err)
+		if !item.isEqual {
+			assert.NotEqual(t, item.n, rn)
+			continue
+		}
+		assert.Equal(t, &item.n, rn)
+	}
 }
