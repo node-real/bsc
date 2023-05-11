@@ -224,7 +224,7 @@ func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 			return tr.(Trie).(*trie.SecureTrie).Copy(), nil
 		}
 	}
-	tr, err := trie.NewSecure(root, db.db, false)
+	tr, err := trie.NewSecure(root, db.db)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,8 @@ func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
 		}
 	}
 
-	tr, err := trie.NewSecure(root, db.db, false)
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	tr, err := trie.NewSecure(root, db.db)
 	if err != nil {
 		return nil, err
 	}

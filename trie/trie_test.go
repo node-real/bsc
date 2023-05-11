@@ -578,7 +578,7 @@ func getFullNodePrefixKeys(t *Trie, key []byte) [][]byte {
 // TestTryRevive tests that a trie can be revived from a proof
 func TestTryRevive(t *testing.T) {
 
-	trie, vals := nonRandomTrie(500)
+	trie, vals := nonRandomTrieWithShadowNodes(500)
 
 	oriRootHash := trie.Hash()
 
@@ -714,7 +714,7 @@ func TestReviveBadProof(t *testing.T) {
 // TestReviveBadProofAfterUpdate tests that after reviving a path and
 // then update the value, old proof should be invalid
 func TestReviveBadProofAfterUpdate(t *testing.T) {
-	trie, vals := nonRandomTrie(500)
+	trie, vals := nonRandomTrieWithShadowNodes(500)
 	for _, kv := range vals {
 		key := kv.k
 		prefixKeys := getFullNodePrefixKeys(trie, key)

@@ -46,9 +46,8 @@ const (
 	inMemorySnapshots  = 128  // Number of recent snapshots to keep in memory
 	inMemorySignatures = 4096 // Number of recent block signatures to keep in memory
 
-	checkpointInterval      = 1024        // Number of blocks after which to save the snapshot to the database
-	defaultEpochLength      = uint64(100) // Default number of blocks of checkpoint to update validatorSet from contract
-	defaultStateEpochPeriod = uint64(7_008_000)
+	checkpointInterval = 1024        // Number of blocks after which to save the snapshot to the database
+	defaultEpochLength = uint64(100) // Default number of blocks of checkpoint to update validatorSet from contract
 
 	extraVanity      = 32 // Fixed number of extra-data prefix bytes reserved for signer vanity
 	extraSeal        = 65 // Fixed number of extra-data suffix bytes reserved for signer seal
@@ -149,7 +148,7 @@ var (
 type SignerFn func(accounts.Account, string, []byte) ([]byte, error)
 type SignerTxFn func(accounts.Account, *types.Transaction, *big.Int) (*types.Transaction, error)
 
-func isToSystemContract(to common.Address) bool {
+func IsToSystemContract(to common.Address) bool {
 	return systemContracts[to]
 }
 
@@ -232,7 +231,7 @@ func New(
 		parliaConfig.Epoch = defaultEpochLength
 	}
 	if parliaConfig != nil && parliaConfig.StateEpochPeriod == 0 {
-		parliaConfig.StateEpochPeriod = defaultStateEpochPeriod
+		parliaConfig.StateEpochPeriod = types.DefaultStateEpochPeriod
 	}
 	log.Info("instance parlia with config", "period", parliaConfig.Period, "epoch", parliaConfig.Epoch, "stateEpochPeriod", parliaConfig.StateEpochPeriod)
 
@@ -278,7 +277,7 @@ func (p *Parlia) IsSystemTransaction(tx *types.Transaction, header *types.Header
 	if err != nil {
 		return false, errors.New("UnAuthorized transaction")
 	}
-	if sender == header.Coinbase && isToSystemContract(*tx.To()) && tx.GasPrice().Cmp(big.NewInt(0)) == 0 {
+	if sender == header.Coinbase && IsToSystemContract(*tx.To()) && tx.GasPrice().Cmp(big.NewInt(0)) == 0 {
 		return true, nil
 	}
 	return false, nil
@@ -288,7 +287,7 @@ func (p *Parlia) IsSystemContract(to *common.Address) bool {
 	if to == nil {
 		return false
 	}
-	return isToSystemContract(*to)
+	return IsToSystemContract(*to)
 }
 
 // Author implements consensus.Engine, returning the SystemAddress

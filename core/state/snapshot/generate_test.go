@@ -42,13 +42,14 @@ func TestGeneration(t *testing.T) {
 		diskdb = memorydb.New()
 		triedb = trie.NewDatabase(diskdb)
 	)
-	stTrie, _ := trie.NewSecure(common.Hash{}, triedb, true)
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	stTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	stTrie.Update([]byte("key-1"), []byte("val-1")) // 0x1314700b81afc49f94db3623ef1df38f3ed18b73a1b7ea2f6c095118cf6118a0
 	stTrie.Update([]byte("key-2"), []byte("val-2")) // 0x18a0f4d79cff4459642dd7604f303886ad9d77c30cf3d7d7cedb3a693ab6d371
 	stTrie.Update([]byte("key-3"), []byte("val-3")) // 0x51c71a47af0695957647fb68766d0becee77e953df17c29b3c2f25436f055c78
 	stTrie.Commit(nil)                              // Root: 0xddefcd9376dd029653ef384bd2f0a126bb755fe84fdcc9e7cf421ba454f2bc67
 
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	acc := &Account{Balance: big.NewInt(1), Root: stTrie.Hash().Bytes(), CodeHash: emptyCode.Bytes()}
 	val, _ := rlp.EncodeToBytes(acc)
 	accTrie.Update([]byte("acc-1"), val) // 0x9250573b9c18c664139f3b6a7a8081b7d8f8916a8fcc5d94feec6c29f5fd4e9e
@@ -99,13 +100,14 @@ func TestGenerateExistentState(t *testing.T) {
 		diskdb = memorydb.New()
 		triedb = trie.NewDatabase(diskdb)
 	)
-	stTrie, _ := trie.NewSecure(common.Hash{}, triedb, true)
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	stTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	stTrie.Update([]byte("key-1"), []byte("val-1")) // 0x1314700b81afc49f94db3623ef1df38f3ed18b73a1b7ea2f6c095118cf6118a0
 	stTrie.Update([]byte("key-2"), []byte("val-2")) // 0x18a0f4d79cff4459642dd7604f303886ad9d77c30cf3d7d7cedb3a693ab6d371
 	stTrie.Update([]byte("key-3"), []byte("val-3")) // 0x51c71a47af0695957647fb68766d0becee77e953df17c29b3c2f25436f055c78
 	stTrie.Commit(nil)                              // Root: 0xddefcd9376dd029653ef384bd2f0a126bb755fe84fdcc9e7cf421ba454f2bc67
 
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	acc := &Account{Balance: big.NewInt(1), Root: stTrie.Hash().Bytes(), CodeHash: emptyCode.Bytes()}
 	val, _ := rlp.EncodeToBytes(acc)
 	accTrie.Update([]byte("acc-1"), val) // 0x9250573b9c18c664139f3b6a7a8081b7d8f8916a8fcc5d94feec6c29f5fd4e9e
@@ -179,7 +181,7 @@ type testHelper struct {
 func newHelper() *testHelper {
 	diskdb := memorydb.New()
 	triedb := trie.NewDatabase(diskdb)
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	return &testHelper{
 		diskdb:  diskdb,
 		triedb:  triedb,
@@ -211,7 +213,8 @@ func (t *testHelper) addSnapStorage(accKey string, keys []string, vals []string)
 }
 
 func (t *testHelper) makeStorageTrie(keys []string, vals []string) []byte {
-	stTrie, _ := trie.NewSecure(common.Hash{}, t.triedb, true)
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	stTrie, _ := trie.NewSecure(common.Hash{}, t.triedb)
 	for i, k := range keys {
 		stTrie.Update([]byte(k), []byte(vals[i]))
 	}
@@ -384,7 +387,7 @@ func TestGenerateCorruptAccountTrie(t *testing.T) {
 		diskdb = memorydb.New()
 		triedb = trie.NewDatabase(diskdb)
 	)
-	tr, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	tr, _ := trie.NewSecure(common.Hash{}, triedb)
 	acc := &Account{Balance: big.NewInt(1), Root: emptyRoot.Bytes(), CodeHash: emptyCode.Bytes()}
 	val, _ := rlp.EncodeToBytes(acc)
 	tr.Update([]byte("acc-1"), val) // 0xc7a30f39aff471c95d8a837497ad0e49b65be475cc0953540f80cfcdbdcd9074
@@ -428,13 +431,14 @@ func TestGenerateMissingStorageTrie(t *testing.T) {
 		diskdb = memorydb.New()
 		triedb = trie.NewDatabase(diskdb)
 	)
-	stTrie, _ := trie.NewSecure(common.Hash{}, triedb, true)
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	stTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	stTrie.Update([]byte("key-1"), []byte("val-1")) // 0x1314700b81afc49f94db3623ef1df38f3ed18b73a1b7ea2f6c095118cf6118a0
 	stTrie.Update([]byte("key-2"), []byte("val-2")) // 0x18a0f4d79cff4459642dd7604f303886ad9d77c30cf3d7d7cedb3a693ab6d371
 	stTrie.Update([]byte("key-3"), []byte("val-3")) // 0x51c71a47af0695957647fb68766d0becee77e953df17c29b3c2f25436f055c78
 	stTrie.Commit(nil)                              // Root: 0xddefcd9376dd029653ef384bd2f0a126bb755fe84fdcc9e7cf421ba454f2bc67
 
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	acc := &Account{Balance: big.NewInt(1), Root: stTrie.Hash().Bytes(), CodeHash: emptyCode.Bytes()}
 	val, _ := rlp.EncodeToBytes(acc)
 	accTrie.Update([]byte("acc-1"), val) // 0x9250573b9c18c664139f3b6a7a8081b7d8f8916a8fcc5d94feec6c29f5fd4e9e
@@ -487,13 +491,15 @@ func TestGenerateCorruptStorageTrie(t *testing.T) {
 		diskdb = memorydb.New()
 		triedb = trie.NewDatabase(diskdb)
 	)
-	stTrie, _ := trie.NewSecure(common.Hash{}, triedb, true)
+
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	stTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	stTrie.Update([]byte("key-1"), []byte("val-1")) // 0x1314700b81afc49f94db3623ef1df38f3ed18b73a1b7ea2f6c095118cf6118a0
 	stTrie.Update([]byte("key-2"), []byte("val-2")) // 0x18a0f4d79cff4459642dd7604f303886ad9d77c30cf3d7d7cedb3a693ab6d371
 	stTrie.Update([]byte("key-3"), []byte("val-3")) // 0x51c71a47af0695957647fb68766d0becee77e953df17c29b3c2f25436f055c78
 	stTrie.Commit(nil)                              // Root: 0xddefcd9376dd029653ef384bd2f0a126bb755fe84fdcc9e7cf421ba454f2bc67
 
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	acc := &Account{Balance: big.NewInt(1), Root: stTrie.Hash().Bytes(), CodeHash: emptyCode.Bytes()}
 	val, _ := rlp.EncodeToBytes(acc)
 	accTrie.Update([]byte("acc-1"), val) // 0x9250573b9c18c664139f3b6a7a8081b7d8f8916a8fcc5d94feec6c29f5fd4e9e
@@ -537,7 +543,8 @@ func TestGenerateCorruptStorageTrie(t *testing.T) {
 }
 
 func getStorageTrie(n int, triedb *trie.Database) *trie.SecureTrie {
-	stTrie, _ := trie.NewSecure(common.Hash{}, triedb, true)
+	// TODO default using epoch0 trie, but need sndb to query shadow nodes
+	stTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	for i := 0; i < n; i++ {
 		k := fmt.Sprintf("key-%d", i)
 		v := fmt.Sprintf("val-%d", i)
@@ -554,7 +561,7 @@ func TestGenerateWithExtraAccounts(t *testing.T) {
 		triedb = trie.NewDatabase(diskdb)
 		stTrie = getStorageTrie(5, triedb)
 	)
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	{ // Account one in the trie
 		acc := &Account{Balance: big.NewInt(1), Root: stTrie.Hash().Bytes(), CodeHash: emptyCode.Bytes()}
 		val, _ := rlp.EncodeToBytes(acc)
@@ -618,7 +625,7 @@ func TestGenerateWithManyExtraAccounts(t *testing.T) {
 		triedb = trie.NewDatabase(diskdb)
 		stTrie = getStorageTrie(3, triedb)
 	)
-	accTrie, _ := trie.NewSecure(common.Hash{}, triedb, false)
+	accTrie, _ := trie.NewSecure(common.Hash{}, triedb)
 	{ // Account one in the trie
 		acc := &Account{Balance: big.NewInt(1), Root: stTrie.Hash().Bytes(), CodeHash: emptyCode.Bytes()}
 		val, _ := rlp.EncodeToBytes(acc)

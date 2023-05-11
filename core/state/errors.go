@@ -1,6 +1,8 @@
 package state
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
@@ -13,6 +15,7 @@ type ExpiredStateError struct {
 	Path     []byte
 	Epoch    types.StateEpoch
 	isInsert bool // when true it through expired path, must recovery the expired path
+	reason   string
 }
 
 func NewPlainExpiredStateError(addr common.Address, key common.Hash, epoch types.StateEpoch) *ExpiredStateError {
@@ -22,6 +25,7 @@ func NewPlainExpiredStateError(addr common.Address, key common.Hash, epoch types
 		Path:     []byte{},
 		Epoch:    epoch,
 		isInsert: false,
+		reason:   "snap query",
 	}
 }
 
@@ -32,6 +36,7 @@ func NewExpiredStateError(addr common.Address, key common.Hash, err *trie.Expire
 		Path:     err.Path,
 		Epoch:    err.Epoch,
 		isInsert: false,
+		reason:   "query",
 	}
 }
 
@@ -42,12 +47,10 @@ func NewInsertExpiredStateError(addr common.Address, key common.Hash, err *trie.
 		Path:     err.Path,
 		Epoch:    err.Epoch,
 		isInsert: true,
+		reason:   "insert",
 	}
 }
 
 func (e *ExpiredStateError) Error() string {
-	if e.isInsert {
-		return "Insert state through expired path"
-	}
-	return "Access expired state"
+	return fmt.Sprintf("Access expired state, addr: %v, key: %v, epoch: %v, reason: %v", e.Addr, e.Key, e.Epoch, e.reason)
 }

@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	StateEpoch0 = StateEpoch(0)
-	StateEpoch1 = StateEpoch(1)
+	DefaultStateEpochPeriod = uint64(7_008_000)
+	StateEpoch0             = StateEpoch(0)
+	StateEpoch1             = StateEpoch(1)
 )
 
 type StateEpoch uint16
@@ -21,10 +22,14 @@ type StateEpoch uint16
 // ElwoodBlock indicates start state epoch2 and start epoch rotate by StateEpochPeriod.
 // When N>=2 and epochN started, epoch(N-2)'s state will expire.
 func GetStateEpoch(config *params.ChainConfig, blockNumber *big.Int) StateEpoch {
+	epochPeriod := DefaultStateEpochPeriod
+	if config.Parlia != nil && config.Parlia.StateEpochPeriod != 0 {
+		epochPeriod = config.Parlia.StateEpochPeriod
+	}
 	if config.IsElwood(blockNumber) {
-		epochPeriod := new(big.Int).SetUint64(config.Parlia.StateEpochPeriod)
+		epochPeriodInt := new(big.Int).SetUint64(epochPeriod)
 		ret := new(big.Int).Sub(blockNumber, config.ElwoodBlock)
-		ret.Div(ret, epochPeriod)
+		ret.Div(ret, epochPeriodInt)
 		ret.Add(ret, common.Big2)
 		return StateEpoch(ret.Uint64())
 	} else if config.IsClaude(blockNumber) {

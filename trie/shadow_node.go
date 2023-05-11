@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/log"
+
 	"github.com/ethereum/go-ethereum/rlp"
 
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -236,11 +238,13 @@ func NewShadowNodeDatabase(tree *ShadowNodeSnapTree, number *big.Int, blockRoot 
 		// try using default snap
 		if snap = tree.Snapshot(emptyRoot); snap == nil {
 			// open read only history
+			log.Info("NewShadowNodeDatabase use RO database", "number", number, "root", blockRoot)
 			return &ShadowNodeStorageRO{
 				diskdb: tree.DB(),
 				number: number,
 			}, nil
 		}
+		log.Info("NewShadowNodeDatabase use default database", "number", number, "root", blockRoot)
 	}
 	return &ShadowNodeStorageRW{
 		snap:    snap,
@@ -252,9 +256,6 @@ func NewShadowNodeDatabase(tree *ShadowNodeSnapTree, number *big.Int, blockRoot 
 func (s *ShadowNodeStorageRW) Get(addr common.Hash, path string) ([]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	if s.stale {
-		return nil, errors.New("storage has staled")
-	}
 	sub, exist := s.dirties[addr]
 	if exist {
 		if val, ok := sub[path]; ok {

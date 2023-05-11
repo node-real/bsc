@@ -432,10 +432,6 @@ func (db *Database) node(hash common.Hash) node {
 	return mustDecodeNodeUnsafe(hash[:], enc)
 }
 
-func (db *Database) RootNode(hash common.Hash) *rootNode {
-	return nil
-}
-
 // Node retrieves an encoded cached trie node from memory. If it cannot be found
 // cached, the method queries the persistent database for the content.
 func (db *Database) Node(hash common.Hash) ([]byte, error) {

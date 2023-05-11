@@ -132,7 +132,7 @@ func (b *SimulatedBackend) rollback(parent *types.Block) {
 
 	b.pendingBlock = blocks[0]
 	blockNum := new(big.Int).Add(parent.Number(), common.Big1)
-	b.pendingState, _ = state.NewWithEpoch(b.config, blockNum, b.pendingBlock.Root(), b.blockchain.StateCache(), nil, b.blockchain.ShadowNodeTree())
+	b.pendingState, _ = state.NewWithStateEpoch(b.config, blockNum, b.pendingBlock.Root(), b.blockchain.StateCache(), nil, b.blockchain.ShadowNodeTree())
 }
 
 // Fork creates a side-chain that can be used to simulate reorgs.
@@ -901,7 +901,7 @@ func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transa
 	stateDB, _ := b.blockchain.State()
 
 	b.pendingBlock = blocks[0]
-	b.pendingState, _ = state.NewWithEpoch(b.config, b.pendingBlock.Number(), b.pendingBlock.Root(), stateDB.Database(), nil, b.blockchain.ShadowNodeTree())
+	b.pendingState, _ = state.NewWithStateEpoch(b.config, b.pendingBlock.Number(), b.pendingBlock.Root(), stateDB.Database(), nil, b.blockchain.ShadowNodeTree())
 	b.pendingReceipts = receipts[0]
 	return nil
 }
@@ -1017,7 +1017,7 @@ func (b *SimulatedBackend) AdjustTime(adjustment time.Duration) error {
 	stateDB, _ := b.blockchain.State()
 
 	b.pendingBlock = blocks[0]
-	b.pendingState, _ = state.NewWithEpoch(b.config, b.pendingBlock.Number(), b.pendingBlock.Root(), stateDB.Database(), nil, b.blockchain.ShadowNodeTree())
+	b.pendingState, _ = state.NewWithStateEpoch(b.config, b.pendingBlock.Number(), b.pendingBlock.Root(), stateDB.Database(), nil, b.blockchain.ShadowNodeTree())
 	return nil
 }
 

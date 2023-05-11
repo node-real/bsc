@@ -736,7 +736,7 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 	if genesis == nil {
 		return errors.New("missing genesis block")
 	}
-	t, err := trie.NewSecure(genesis.Root(), trie.NewDatabase(db), false)
+	t, err := trie.NewSecure(genesis.Root(), trie.NewDatabase(db))
 	if err != nil {
 		return err
 	}
@@ -756,7 +756,8 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 				return err
 			}
 			if acc.Root != emptyRoot {
-				storageTrie, err := trie.NewSecure(acc.Root, trie.NewDatabase(db), true)
+				// TODO default using epoch0 trie, but need sndb to query shadow nodes
+				storageTrie, err := trie.NewSecure(acc.Root, trie.NewDatabase(db))
 				if err != nil {
 					return err
 				}

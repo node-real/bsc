@@ -1273,7 +1273,24 @@ func randBytes(n int) []byte {
 
 func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 	trie := new(Trie)
-	trie.useShadowTree = true
+	vals := make(map[string]*kv)
+	max := uint64(0xffffffffffffffff)
+	for i := uint64(0); i < uint64(n); i++ {
+		value := make([]byte, 32)
+		key := make([]byte, 32)
+		binary.LittleEndian.PutUint64(key, i)
+		binary.LittleEndian.PutUint64(value, i-max)
+		//value := &kv{common.LeftPadBytes([]byte{i}, 32), []byte{i}, false}
+		elem := &kv{key, value, false}
+		trie.Update(elem.k, elem.v)
+		vals[string(elem.k)] = elem
+	}
+	return trie, vals
+}
+
+func nonRandomTrieWithShadowNodes(n int) (*Trie, map[string]*kv) {
+	trie := new(Trie)
+	trie.withShadowNodes = true
 	trie.currentEpoch = 10 // TODO (asyukii): might need to change this
 	vals := make(map[string]*kv)
 	max := uint64(0xffffffffffffffff)

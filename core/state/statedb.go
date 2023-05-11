@@ -154,14 +154,15 @@ type StateDB struct {
 	StorageDeleted int
 }
 
-// NewWithEpoch creates a new state from a given trie.
-func NewWithEpoch(config *params.ChainConfig, targetBlock *big.Int, root common.Hash, db Database, snaps *snapshot.Tree, sntree *trie.ShadowNodeSnapTree) (*StateDB, error) {
+// NewWithStateEpoch creates a new state from a given trie.
+func NewWithStateEpoch(config *params.ChainConfig, targetBlock *big.Int, root common.Hash, db Database, snaps *snapshot.Tree, sntree *trie.ShadowNodeSnapTree) (*StateDB, error) {
 	targetEpoch := types.GetStateEpoch(config, targetBlock)
 	stateDB, err := newStateDB(root, db, snaps, targetEpoch)
 	if err != nil {
 		return nil, err
 	}
 
+	log.Info("NewWithStateEpoch", "targetBlock", targetBlock, "targetEpoch", targetEpoch, "root", root)
 	// init target block and shadowNodeRW
 	stateDB.targetBlk = targetBlock
 	stateDB.shadowNodeDB, err = trie.NewShadowNodeDatabase(sntree, targetBlock, root)
@@ -1644,11 +1645,12 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 		root = s.expectedRoot
 	}
 
-	if s.shadowNodeDB != nil && s.originalRoot != root {
+	if s.shadowNodeDB != nil {
 		if err := s.shadowNodeDB.Commit(s.targetBlk, root); err != nil {
 			return common.Hash{}, nil, err
 		}
 	}
+	log.Info("statedb commit", "originalRoot", s.originalRoot, "root", root, "targetBlk", s.targetBlk, "targetEpoch", s.targetEpoch)
 
 	return root, diffLayer, nil
 }
@@ -1846,4 +1848,42 @@ func (s *StateDB) enableStateEpoch(inExpired bool) bool {
 	}
 
 	return s.targetEpoch > types.StateEpoch1
+}
+
+// enableAccStateEpoch return if enable account state expiry hard fork, if inExpired, return if after epoch1
+func (s *StateDB) enableAccStateEpoch(inExpired bool, addr common.Address) bool {
+	// TODO(0xbundler): temporary code, add IsToSystemContract in whitelist for avoid expiry system contract,
+	// it uses in testnet, because there no crossChain msg to update them
+	if systemContracts[addr] {
+		return false
+	}
+	return s.enableStateEpoch(inExpired)
+}
+
+// TODO(0xbundler): temporary code, remove in release version
+const (
+	// genesis contracts
+	ValidatorContract          = "0x0000000000000000000000000000000000001000"
+	SlashContract              = "0x0000000000000000000000000000000000001001"
+	SystemRewardContract       = "0x0000000000000000000000000000000000001002"
+	LightClientContract        = "0x0000000000000000000000000000000000001003"
+	TokenHubContract           = "0x0000000000000000000000000000000000001004"
+	RelayerIncentivizeContract = "0x0000000000000000000000000000000000001005"
+	RelayerHubContract         = "0x0000000000000000000000000000000000001006"
+	GovHubContract             = "0x0000000000000000000000000000000000001007"
+	TokenManagerContract       = "0x0000000000000000000000000000000000001008"
+	CrossChainContract         = "0x0000000000000000000000000000000000002000"
+	StakingContract            = "0x0000000000000000000000000000000000002001"
+)
+
+var systemContracts = map[common.Address]bool{
+	common.HexToAddress(ValidatorContract):          true,
+	common.HexToAddress(SlashContract):              true,
+	common.HexToAddress(SystemRewardContract):       true,
+	common.HexToAddress(LightClientContract):        true,
+	common.HexToAddress(RelayerHubContract):         true,
+	common.HexToAddress(GovHubContract):             true,
+	common.HexToAddress(TokenHubContract):           true,
+	common.HexToAddress(RelayerIncentivizeContract): true,
+	common.HexToAddress(CrossChainContract):         true,
 }

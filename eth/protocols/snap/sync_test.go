@@ -1604,7 +1604,8 @@ func verifyTrie(db ethdb.KeyValueStore, root common.Hash, t *testing.T) {
 		}
 		accounts++
 		if acc.Root != emptyRoot {
-			storeTrie, err := trie.NewSecure(acc.Root, triedb, true)
+			// TODO default using epoch0 trie, but need sndb to query shadow nodes
+			storeTrie, err := trie.NewSecure(acc.Root, triedb)
 			if err != nil {
 				t.Fatal(err)
 			}

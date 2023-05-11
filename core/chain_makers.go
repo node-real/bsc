@@ -282,7 +282,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	}
 	for i := 0; i < n; i++ {
 		number := new(big.Int).Add(parent.Number(), common.Big1)
-		statedb, err := state.NewWithEpoch(config, number, parent.Root(), state.NewDatabase(db), nil, tree)
+		statedb, err := state.NewWithStateEpoch(config, number, parent.Root(), state.NewDatabase(db), nil, tree)
 		if err != nil {
 			panic(err)
 		}

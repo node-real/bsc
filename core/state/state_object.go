@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
+
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
 
 	"github.com/ethereum/go-ethereum/trie"
@@ -199,9 +201,10 @@ func (s *StateObject) getTrie(db Database) Trie {
 		}
 		var err error
 		// check if enable state epoch
-		if s.db.enableStateEpoch(false) {
+		if s.db.enableAccStateEpoch(false, s.address) {
 			s.trie, err = db.OpenStorageTrieWithShadowNode(s.addrHash, s.data.Root, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
 			if err != nil {
+				log.Error("OpenStorageTrieWithShadowNode err", "targetEpoch", s.targetEpoch, "err", err)
 				s.trie, _ = db.OpenStorageTrieWithShadowNode(s.addrHash, common.Hash{}, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
 				s.setError(fmt.Errorf("can't create storage trie with shadowNode: %v", err))
 			}
@@ -242,7 +245,7 @@ func (s *StateObject) GetState(db Database, key common.Hash) (common.Hash, error
 		s.accessState(key)
 		return value, nil
 	}
-	if s.db.enableStateEpoch(true) {
+	if s.db.enableAccStateEpoch(true, s.address) {
 		if revived, revive := s.queryFromReviveState(db, s.dirtyReviveState, key); revive {
 			s.accessState(key)
 			return revived, nil
@@ -291,7 +294,7 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 	if value, pending := s.pendingStorage[key]; pending {
 		return value, nil
 	}
-	if s.db.enableStateEpoch(true) {
+	if s.db.enableAccStateEpoch(true, s.address) {
 		if revived, revive := s.queryFromReviveState(db, s.pendingReviveState, key); revive {
 			return revived, nil
 		}
@@ -318,7 +321,7 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 		}
 		if err == nil {
 			if snapVal, err := snapshot.ParseSnapValFromBytes(enc); err == nil {
-				if types.EpochExpired(snapVal.Epoch, s.targetEpoch) {
+				if s.db.enableAccStateEpoch(true, s.address) && types.EpochExpired(snapVal.Epoch, s.targetEpoch) {
 					return common.Hash{}, NewPlainExpiredStateError(s.address, key, snapVal.Epoch)
 				}
 				return snapVal.Val, nil
@@ -375,7 +378,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) error {
 		return nil
 	}
 	// when state insert, check if valid to insert new state
-	if s.db.enableStateEpoch(true) && prev != (common.Hash{}) {
+	if s.db.enableAccStateEpoch(true, s.address) && prev != (common.Hash{}) {
 		_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
 		if err != nil {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
@@ -603,6 +606,7 @@ func (s *StateObject) CommitTrie(db Database) (int, error) {
 		defer func(start time.Time) { s.db.StorageCommits += time.Since(start) }(time.Now())
 	}
 	root, committed, err := s.trie.Commit(nil)
+	log.Info("obj CommitTrie", "addr", s.address, "root", root)
 	if err == nil {
 		s.data.Root = root
 	}
@@ -801,7 +805,7 @@ func (s *StateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
 }
 
 func (s *StateObject) accessState(key common.Hash) {
-	if !s.db.enableStateEpoch(false) {
+	if !s.db.enableAccStateEpoch(false, s.address) {
 		return
 	}
 	s.db.journal.append(accessedStorageStateChange{

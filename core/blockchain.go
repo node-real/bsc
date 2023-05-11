@@ -371,7 +371,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 
 	// Make sure the state associated with the block is available
 	head := bc.CurrentBlock()
-	if _, err := state.NewWithEpoch(chainConfig, head.Number(), head.Root(), bc.stateCache, bc.snaps, bc.shadowNodeTree); err != nil {
+	if _, err := state.NewWithStateEpoch(chainConfig, head.Number(), head.Root(), bc.stateCache, bc.snaps, bc.shadowNodeTree); err != nil {
 		// Head state is missing, before the state recovery, find out the
 		// disk layer point of snapshot(if it's enabled). Make sure the
 		// rewound point is lower than disk layer.
@@ -722,7 +722,7 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, root common.Hash, repair bo
 
 					enoughBeyondCount = beyondCount > maxBeyondBlocks
 
-					if _, err := state.NewWithEpoch(bc.chainConfig, newHeadBlock.Number(), newHeadBlock.Root(), bc.stateCache, bc.snaps, bc.shadowNodeTree); err != nil {
+					if _, err := state.NewWithStateEpoch(bc.chainConfig, newHeadBlock.Number(), newHeadBlock.Root(), bc.stateCache, bc.snaps, bc.shadowNodeTree); err != nil {
 						log.Trace("Block state missing, rewinding further", "number", newHeadBlock.NumberU64(), "hash", newHeadBlock.Hash())
 						if pivot == nil || newHeadBlock.NumberU64() > *pivot {
 							parent := bc.GetBlock(newHeadBlock.ParentHash(), newHeadBlock.NumberU64()-1)
@@ -846,7 +846,7 @@ func (bc *BlockChain) SnapSyncCommitHead(hash common.Hash) error {
 	if block == nil {
 		return fmt.Errorf("non existent block [%x..]", hash[:4])
 	}
-	if _, err := trie.NewSecure(block.Root(), bc.stateCache.TrieDB(), false); err != nil {
+	if _, err := trie.NewSecure(block.Root(), bc.stateCache.TrieDB()); err != nil {
 		return err
 	}
 
@@ -1894,7 +1894,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		if parent == nil {
 			parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 		}
-		statedb, err := state.NewWithEpoch(bc.chainConfig, block.Number(), parent.Root, bc.stateCache, bc.snaps, bc.ShadowNodeTree())
+		statedb, err := state.NewWithStateEpoch(bc.chainConfig, block.Number(), parent.Root, bc.stateCache, bc.snaps, bc.ShadowNodeTree())
 		if err != nil {
 			return it.index, err
 		}

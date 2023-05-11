@@ -142,8 +142,9 @@ func (s *ShadowNodeSnapTree) Cap(blockRoot common.Hash) error {
 }
 
 func (s *ShadowNodeSnapTree) Update(parentRoot common.Hash, blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) error {
+	// if there are no changes, just skip
 	if blockRoot == parentRoot {
-		return errors.New("there no update in layers")
+		return nil
 	}
 
 	// Generate a new snapshot on top of the parent
