@@ -886,6 +886,8 @@ func (s *StateDB) copyInternal(doPrefetch bool) *StateDB {
 		preimages:           make(map[common.Hash][]byte, len(s.preimages)),
 		journal:             newJournal(),
 		hasher:              crypto.NewKeccakState(),
+		targetEpoch:         s.targetEpoch,
+		targetBlk:           s.targetBlk,
 	}
 	// Copy the dirty states, logs, and preimages
 	for addr := range s.journal.dirties {
@@ -945,6 +947,11 @@ func (s *StateDB) copyInternal(doPrefetch bool) *StateDB {
 		// know that they need to explicitly terminate an active copy).
 		state.prefetcher = state.prefetcher.copy()
 	}
+
+	if s.shadowNodeDB != nil {
+		state.shadowNodeDB = s.shadowNodeDB
+	}
+
 	if s.snaps != nil {
 		// In order for the miner to be able to use and make additions
 		// to the snapshot tree, we need to copy that aswell.
@@ -1645,12 +1652,12 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 		root = s.expectedRoot
 	}
 
+	log.Info("statedb commit", "originalRoot", s.originalRoot, "root", root, "targetBlk", s.targetBlk, "targetEpoch", s.targetEpoch)
 	if s.shadowNodeDB != nil {
 		if err := s.shadowNodeDB.Commit(s.targetBlk, root); err != nil {
 			return common.Hash{}, nil, err
 		}
 	}
-	log.Info("statedb commit", "originalRoot", s.originalRoot, "root", root, "targetBlk", s.targetBlk, "targetEpoch", s.targetEpoch)
 
 	return root, diffLayer, nil
 }

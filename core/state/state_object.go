@@ -319,13 +319,24 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 		if metrics.EnabledExpensive {
 			s.db.SnapshotStorageReads += time.Since(start)
 		}
+
+		// snapshot val encode is different from trie, so handle independent
 		if err == nil {
-			if snapVal, err := snapshot.ParseSnapValFromBytes(enc); err == nil {
-				if s.db.enableAccStateEpoch(true, s.address) && types.EpochExpired(snapVal.Epoch, s.targetEpoch) {
-					return common.Hash{}, NewPlainExpiredStateError(s.address, key, snapVal.Epoch)
+			var value common.Hash
+			if len(enc) > 0 {
+				sv, err := snapshot.ParseSnapValFromBytes(enc)
+				if err != nil {
+					s.setError(err)
 				}
-				return snapVal.Val, nil
+				if err == nil && s.db.enableAccStateEpoch(true, s.address) &&
+					types.EpochExpired(sv.Epoch, s.targetEpoch) {
+					return common.Hash{}, NewSnapExpiredStateError(s.address, key, sv.Epoch)
+				}
+				value.SetBytes(sv.Val.Bytes())
 			}
+
+			s.setOriginStorage(key, value)
+			return value, nil
 		}
 	}
 
@@ -378,7 +389,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) error {
 		return nil
 	}
 	// when state insert, check if valid to insert new state
-	if s.db.enableAccStateEpoch(true, s.address) && prev != (common.Hash{}) {
+	if s.db.enableAccStateEpoch(true, s.address) && prev == (common.Hash{}) {
 		_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
 		if err != nil {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
@@ -606,7 +617,7 @@ func (s *StateObject) CommitTrie(db Database) (int, error) {
 		defer func(start time.Time) { s.db.StorageCommits += time.Since(start) }(time.Now())
 	}
 	root, committed, err := s.trie.Commit(nil)
-	log.Info("obj CommitTrie", "addr", s.address, "root", root)
+	log.Info("obj CommitTrie", "addr", s.address, "root", root, "err", err)
 	if err == nil {
 		s.data.Root = root
 	}

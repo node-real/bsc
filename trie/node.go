@@ -47,8 +47,6 @@ type node interface {
 	encode(w rlp.EncoderBuffer)
 	fstring(string) string
 	nodeType() int
-	setEpoch(epoch types.StateEpoch)
-	getEpoch() types.StateEpoch
 }
 
 type (
@@ -135,13 +133,8 @@ func (n valueNode) String() string  { return n.fstring("") }
 
 func (n *fullNode) setEpoch(epoch types.StateEpoch)  { n.epoch = epoch }
 func (n *shortNode) setEpoch(epoch types.StateEpoch) { n.epoch = epoch }
-func (n hashNode) setEpoch(epoch types.StateEpoch)   {}
-func (n valueNode) setEpoch(epoch types.StateEpoch)  {}
-
-func (n *fullNode) getEpoch() types.StateEpoch  { return n.epoch }
-func (n *shortNode) getEpoch() types.StateEpoch { return n.epoch }
-func (n hashNode) getEpoch() types.StateEpoch   { return 0 }
-func (n valueNode) getEpoch() types.StateEpoch  { return 0 }
+func (n *fullNode) getEpoch() types.StateEpoch       { return n.epoch }
+func (n *shortNode) getEpoch() types.StateEpoch      { return n.epoch }
 
 func (n *fullNode) fstring(ind string) string {
 	resp := fmt.Sprintf("[\n%s  ", ind)

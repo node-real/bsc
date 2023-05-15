@@ -260,17 +260,9 @@ func (db *cachingDB) OpenStorageTrieWithShadowNode(addrHash, root common.Hash, c
 	if db.noTries {
 		return trie.NewEmptyTrie(), nil
 	}
-	if db.storageTrieCache != nil {
-		if tries, exist := db.storageTrieCache.Get(addrHash); exist {
-			triesPairs := tries.([3]*triePair)
-			for _, triePair := range triesPairs {
-				if triePair != nil && triePair.root == root && triePair.trie.Epoch() == curEpoch {
-					return triePair.trie.(*trie.SecureTrie).Copy(), nil
-				}
-			}
-		}
-	}
 
+	// StorageTrie with ShadowNode cannot use trie cache,
+	// because of its sndb need update in every block, just reinit it
 	tr, err := trie.NewSecureWithShadowNodes(curEpoch, root, db.db, sndb)
 	if err != nil {
 		return nil, err
@@ -290,6 +282,12 @@ func (db *cachingDB) CacheStorage(addrHash common.Hash, root common.Hash, t Trie
 	if db.storageTrieCache == nil {
 		return
 	}
+
+	// do not cache trie with shadow nodes
+	if t.Epoch() > types.StateEpoch0 {
+		return
+	}
+
 	tr := t.(*trie.SecureTrie)
 	if tries, exist := db.storageTrieCache.Get(addrHash); exist {
 		triesArray := tries.([3]*triePair)

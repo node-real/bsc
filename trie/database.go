@@ -28,7 +28,6 @@ import (
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -102,10 +101,8 @@ type Database struct {
 // in the same cache fields).
 type rawNode []byte
 
-func (n rawNode) cache() (hashNode, bool)         { panic("this should never end up in a live trie") }
-func (n rawNode) fstring(ind string) string       { panic("this should never end up in a live trie") }
-func (n rawNode) setEpoch(epcoh types.StateEpoch) { panic("this should never end up in a live trie") }
-func (n rawNode) getEpoch() types.StateEpoch      { panic("this should never end up in a live trie") }
+func (n rawNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
+func (n rawNode) fstring(ind string) string { panic("this should never end up in a live trie") }
 
 func (n rawNode) EncodeRLP(w io.Writer) error {
 	_, err := w.Write(n)
@@ -123,10 +120,6 @@ type rawFullNode [17]node
 
 func (n rawFullNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawFullNode) fstring(ind string) string { panic("this should never end up in a live trie") }
-func (n rawFullNode) setEpoch(epcoh types.StateEpoch) {
-	panic("this should never end up in a live trie")
-}
-func (n rawFullNode) getEpoch() types.StateEpoch { panic("this should never end up in a live trie") }
 
 func (n rawFullNode) nodeType() int {
 	return rawFullNodeType
@@ -148,10 +141,6 @@ type rawShortNode struct {
 
 func (n rawShortNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawShortNode) fstring(ind string) string { panic("this should never end up in a live trie") }
-func (n rawShortNode) setEpoch(epoch types.StateEpoch) {
-	panic("this should never end up in a live trie")
-}
-func (n rawShortNode) getEpoch() types.StateEpoch { panic("this should never end up in a live trie") }
 
 func (n rawShortNode) nodeType() int {
 	return rawShortNodeType

@@ -18,7 +18,7 @@ type ExpiredStateError struct {
 	reason   string
 }
 
-func NewPlainExpiredStateError(addr common.Address, key common.Hash, epoch types.StateEpoch) *ExpiredStateError {
+func NewSnapExpiredStateError(addr common.Address, key common.Hash, epoch types.StateEpoch) *ExpiredStateError {
 	return &ExpiredStateError{
 		Addr:     addr,
 		Key:      key,
