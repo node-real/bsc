@@ -345,8 +345,10 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 			}
 			// clean out any derefs
 			derefsMu.Lock()
+			numberBigInt := new(big.Int).SetUint64(number)
+			epoch := types.GetStateEpoch(api.backend.ChainConfig(), numberBigInt)
 			for _, h := range derefTodo {
-				statedb.Database().TrieDB().Dereference(h)
+				statedb.Database().TrieDB().Dereference(h, epoch)
 			}
 			derefTodo = derefTodo[:0]
 			derefsMu.Unlock()
@@ -375,7 +377,7 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 
 				// Release the parent state because it's already held by the tracer
 				if parent != (common.Hash{}) {
-					trieDb.Dereference(parent)
+					trieDb.Dereference(parent, epoch)
 				}
 				// Prefer disk if the trie db memory grows too much
 				s1, s2 := trieDb.Size()

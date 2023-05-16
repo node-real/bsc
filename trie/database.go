@@ -28,6 +28,7 @@ import (
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -116,7 +117,10 @@ func (n rawNode) nodeType() int {
 // rawFullNode represents only the useful data content of a full node, with the
 // caches and flags stripped out to minimize its data storage. This type honors
 // the same RLP encoding as the original parent.
-type rawFullNode [17]node
+type rawFullNode struct {
+	children [BranchNodeLength]node
+	epoch    types.StateEpoch `rlp:"-" json:"-"`
+}
 
 func (n rawFullNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawFullNode) fstring(ind string) string { panic("this should never end up in a live trie") }
@@ -135,8 +139,9 @@ func (n rawFullNode) EncodeRLP(w io.Writer) error {
 // caches and flags stripped out to minimize its data storage. This type honors
 // the same RLP encoding as the original parent.
 type rawShortNode struct {
-	Key []byte
-	Val node
+	Key   []byte
+	Val   node
+	epoch types.StateEpoch `rlp:"-" json:"-"`
 }
 
 func (n rawShortNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
@@ -201,15 +206,26 @@ func (n *cachedNode) forChilds(onChild func(hash common.Hash)) {
 	}
 }
 
+func (n *cachedNode) getEpoch() (types.StateEpoch, error) {
+	switch n := n.node.(type) {
+	case *rawShortNode:
+		return n.epoch, nil
+	case *rawFullNode:
+		return n.epoch, nil
+	default:
+		return 0, fmt.Errorf("unknown node type: %T", n) // TODO(asyukii): may never reach this case, consider panic
+	}
+}
+
 // forGatherChildren traverses the node hierarchy of a collapsed storage node and
 // invokes the callback for all the hashnode children.
 func forGatherChildren(n node, onChild func(hash common.Hash)) {
 	switch n := n.(type) {
 	case *rawShortNode:
 		forGatherChildren(n.Val, onChild)
-	case rawFullNode:
+	case *rawFullNode:
 		for i := 0; i < 16; i++ {
-			forGatherChildren(n[i], onChild)
+			forGatherChildren(n.children[i], onChild)
 		}
 	case hashNode:
 		onChild(common.BytesToHash(n))
@@ -225,14 +241,17 @@ func simplifyNode(n node) node {
 	switch n := n.(type) {
 	case *shortNode:
 		// Short nodes discard the flags and cascade
-		return &rawShortNode{Key: n.Key, Val: simplifyNode(n.Val)}
+		return &rawShortNode{Key: n.Key, Val: simplifyNode(n.Val), epoch: n.epoch}
 
 	case *fullNode:
 		// Full nodes discard the flags and cascade
-		node := rawFullNode(n.Children)
-		for i := 0; i < len(node); i++ {
-			if node[i] != nil {
-				node[i] = simplifyNode(node[i])
+		node := &rawFullNode{
+			children: n.Children,
+			epoch:    n.epoch,
+		}
+		for i := 0; i < len(node.children); i++ {
+			if node.children[i] != nil {
+				node.children[i] = simplifyNode(node.children[i])
 			}
 		}
 		return node
@@ -259,7 +278,7 @@ func expandNode(hash hashNode, n node) node {
 			},
 		}
 
-	case rawFullNode:
+	case *rawFullNode:
 		// Full nodes need child expansion
 		node := &fullNode{
 			flags: nodeFlag{
@@ -267,8 +286,8 @@ func expandNode(hash hashNode, n node) node {
 			},
 		}
 		for i := 0; i < len(node.Children); i++ {
-			if n[i] != nil {
-				node.Children[i] = expandNode(nil, n[i])
+			if n.children[i] != nil {
+				node.Children[i] = expandNode(nil, n.children[i])
 			}
 		}
 		return node
@@ -534,7 +553,7 @@ func (db *Database) reference(child common.Hash, parent common.Hash) {
 }
 
 // Dereference removes an existing reference from a root node.
-func (db *Database) Dereference(root common.Hash) {
+func (db *Database) Dereference(root common.Hash, epoch types.StateEpoch) {
 	// Sanity check to ensure that the meta-root is not removed
 	if root == (common.Hash{}) {
 		log.Error("Attempted to dereference the trie cache meta root")
@@ -544,7 +563,7 @@ func (db *Database) Dereference(root common.Hash) {
 	defer db.lock.Unlock()
 
 	nodes, storage, start := len(db.dirties), db.dirtiesSize, time.Now()
-	db.dereference(root, common.Hash{})
+	db.dereference(root, common.Hash{}, epoch)
 
 	db.gcnodes += uint64(nodes - len(db.dirties))
 	db.gcsize += storage - db.dirtiesSize
@@ -558,8 +577,12 @@ func (db *Database) Dereference(root common.Hash) {
 		"gcnodes", db.gcnodes, "gcsize", db.gcsize, "gctime", db.gctime, "livenodes", len(db.dirties), "livesize", db.dirtiesSize)
 }
 
+func checkBEP206PruneRule(childEpoch, parentEpoch, currEpoch types.StateEpoch) bool {
+	return types.EpochExpired(childEpoch, currEpoch) && (parentEpoch >= childEpoch+2)
+}
+
 // dereference is the private locked version of Dereference.
-func (db *Database) dereference(child common.Hash, parent common.Hash) {
+func (db *Database) dereference(child common.Hash, parent common.Hash, epoch types.StateEpoch) {
 	// Dereference the parent-child
 	node := db.dirties[parent]
 
@@ -570,6 +593,7 @@ func (db *Database) dereference(child common.Hash, parent common.Hash) {
 			db.childrenSize -= (common.HashLength + 2) // uint16 counter
 		}
 	}
+	parentEpoch, getParentEpochErr := node.getEpoch()
 	// If the child does not exist, it's a previously committed node.
 	node, ok := db.dirties[child]
 	if !ok {
@@ -583,7 +607,15 @@ func (db *Database) dereference(child common.Hash, parent common.Hash) {
 		// no problem in itself, but don't make maxint parents out of it.
 		node.parents--
 	}
-	if node.parents == 0 {
+	childEpoch, getChildEpochErr := node.getEpoch()
+	canPruneExpired := false
+	if getParentEpochErr == nil && getChildEpochErr == nil {
+		canPruneExpired = checkBEP206PruneRule(childEpoch, parentEpoch, epoch)
+	}
+	if canPruneExpired || node.parents == 0 { // Delete nodes if expired or no more parents node referencing this node
+		if canPruneExpired {
+			log.Info("Dereferencing expired trie node")
+		}
 		// Remove the node from the flush-list
 		switch child {
 		case db.oldest:
@@ -598,7 +630,7 @@ func (db *Database) dereference(child common.Hash, parent common.Hash) {
 		}
 		// Dereference all children and delete the node
 		node.forChilds(func(hash common.Hash) {
-			db.dereference(hash, child)
+			db.dereference(hash, child, epoch)
 		})
 		delete(db.dirties, child)
 		db.dirtiesSize -= common.StorageSize(common.HashLength + int(node.size))

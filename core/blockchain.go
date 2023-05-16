@@ -1115,8 +1115,9 @@ func (bc *BlockChain) Stop() {
 				rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().NumberU64())
 			}
 		}
+		currentEpoch := types.GetStateEpoch(bc.chainConfig, bc.CurrentBlock().Number())
 		for !bc.triegc.Empty() {
-			go triedb.Dereference(bc.triegc.PopItem().(common.Hash))
+			go triedb.Dereference(bc.triegc.PopItem().(common.Hash), currentEpoch)
 		}
 		if size, _ := triedb.Size(); size != 0 {
 			log.Error("Dangling trie nodes after full cleanup")
@@ -1558,13 +1559,14 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 					}
 				}
 				// Garbage collect anything below our required write retention
+				currentEpoch := types.GetStateEpoch(bc.chainConfig, bc.CurrentBlock().Number())
 				for !bc.triegc.Empty() {
 					root, number := bc.triegc.Pop()
 					if uint64(-number) > chosen {
 						bc.triegc.Push(root, number)
 						break
 					}
-					go triedb.Dereference(root.(common.Hash))
+					go triedb.Dereference(root.(common.Hash), currentEpoch)
 				}
 			}
 		}

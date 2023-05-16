@@ -59,9 +59,9 @@ func (n valueNode) encode(w rlp.EncoderBuffer) {
 	w.WriteBytes(n)
 }
 
-func (n rawFullNode) encode(w rlp.EncoderBuffer) {
+func (n *rawFullNode) encode(w rlp.EncoderBuffer) {
 	offset := w.List()
-	for _, c := range n {
+	for _, c := range n.children {
 		if c != nil {
 			c.encode(w)
 		} else {

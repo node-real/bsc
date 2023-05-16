@@ -392,15 +392,15 @@ func (st *StackTrie) hashRec(hasher *hasher) {
 		var nodes rawFullNode
 		for i, child := range st.children {
 			if child == nil {
-				nodes[i] = nilValueNode
+				nodes.children[i] = nilValueNode
 				continue
 			}
 
 			child.hashRec(hasher)
 			if len(child.val) < 32 {
-				nodes[i] = rawNode(child.val)
+				nodes.children[i] = rawNode(child.val)
 			} else {
-				nodes[i] = hashNode(child.val)
+				nodes.children[i] = hashNode(child.val)
 			}
 
 			// Release child back to pool.

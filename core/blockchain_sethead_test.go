@@ -2017,10 +2017,12 @@ func testSetHead(t *testing.T, tt *rewindTest, snapshots bool) {
 	}
 	// Manually dereference anything not committed to not have to work with 128+ tries
 	for _, block := range sideblocks {
-		chain.stateCache.TrieDB().Dereference(block.Root())
+		blockEpoch := types.GetStateEpoch(params.TestChainConfig, block.Number())
+		chain.stateCache.TrieDB().Dereference(block.Root(), blockEpoch)
 	}
 	for _, block := range canonblocks {
-		chain.stateCache.TrieDB().Dereference(block.Root())
+		blockEpoch := types.GetStateEpoch(params.TestChainConfig, block.Number())
+		chain.stateCache.TrieDB().Dereference(block.Root(), blockEpoch)
 	}
 	chain.stateCache.Purge()
 	// Force run a freeze cycle

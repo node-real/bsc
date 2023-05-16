@@ -1612,7 +1612,7 @@ func benchmarkDerefRootFixedSize(b *testing.B, addresses [][20]byte, accounts []
 	h := trie.Hash()
 	trie.Commit(nil)
 	b.StartTimer()
-	trie.db.Dereference(h)
+	trie.db.Dereference(h, 0) // TODO(asyukii): set epoch to 0 temporary, might need to fix
 	b.StopTimer()
 }
 

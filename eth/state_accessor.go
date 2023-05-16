@@ -53,6 +53,7 @@ func (eth *Ethereum) StateAtBlock(block *types.Block, reexec uint64, base *state
 		database state.Database
 		report   = true
 		origin   = block.NumberU64()
+		epoch    = types.GetStateEpoch(eth.blockchain.Config(), block.Number())
 	)
 	// Check the live database first if we have the state fully available, use that.
 	if checkLive {
@@ -154,7 +155,7 @@ func (eth *Ethereum) StateAtBlock(block *types.Block, reexec uint64, base *state
 		}
 		database.TrieDB().Reference(root, common.Hash{})
 		if parent != (common.Hash{}) {
-			database.TrieDB().Dereference(parent)
+			database.TrieDB().Dereference(parent, epoch)
 		}
 		parent = root
 	}
