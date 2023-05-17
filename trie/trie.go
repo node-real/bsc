@@ -244,34 +244,26 @@ func (t *Trie) tryGetWithEpoch(origNode node, key []byte, pos int, epoch types.S
 			return nil, n, false, nil
 		}
 
-		if updateEpoch {
-			n.setEpoch(t.currentEpoch)
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), t.currentEpoch, true)
-		} else {
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), epoch, false)
-		}
-		if err == nil && didResolve {
+		value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), epoch, updateEpoch)
+		if err == nil && nodeNeedCopy(didResolve, updateEpoch && epoch != t.currentEpoch) {
 			n = n.copy()
 			n.Val = newnode
+			if updateEpoch && epoch != t.currentEpoch {
+				n.setEpoch(t.currentEpoch)
+			}
 		}
 		return value, n, didResolve, err
 	case *fullNode:
-		if updateEpoch {
-			// child node is expired
-			if n.Children[key[pos]] != nil {
-				if expired, err := n.ChildExpired(key[:pos+1], int(key[pos]), t.currentEpoch); expired {
-					return nil, n, false, err
-				}
-			}
-			n.setEpoch(t.currentEpoch)
-			n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, t.currentEpoch, true)
-		} else {
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(int(key[pos])), false)
-		}
-		if err == nil && didResolve {
+		value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(int(key[pos])), updateEpoch)
+		if err == nil && nodeNeedCopy(didResolve, updateEpoch && epoch != t.currentEpoch) {
 			n = n.copy()
 			n.Children[key[pos]] = newnode
+			if updateEpoch && epoch != t.currentEpoch {
+				n.setEpoch(t.currentEpoch)
+				if n.Children[key[pos]] != nil {
+					n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
+				}
+			}
 		}
 		return value, n, didResolve, err
 	case hashNode:
@@ -288,6 +280,10 @@ func (t *Trie) tryGetWithEpoch(origNode node, key []byte, pos int, epoch types.S
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
 	}
+}
+
+func nodeNeedCopy(dirty, needUpdateEpoch bool) bool {
+	return dirty || needUpdateEpoch
 }
 
 // TryGetNode attempts to retrieve a trie node by compact-encoded path. It is not
@@ -432,7 +428,6 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		// If the whole key matches, keep this short node as is
 		// and only update the value.
 		if matchlen == len(n.Key) {
-			n.setEpoch(t.currentEpoch)
 			dirty, nn, err := t.insert(n.Val, append(prefix, key[:matchlen]...), key[matchlen:], value, n.epoch)
 			if !dirty || err != nil {
 				return false, n, err
@@ -466,26 +461,17 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 
 	case *fullNode:
-		if t.withShadowNodes {
-			// else, set its epoch to current epoch.
-			n.setEpoch(t.currentEpoch)
-			// if inserting a new node to this full node, there is no need to check whether this child is expired.
-			if len(key) > 0 && n.Children[key[0]] != nil {
-				// if child is expired, return err
-				if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
-					return false, n.Children[key[0]], err
-				}
-			}
-			// else, set child node's epoch to current epoch
-			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
-		}
 		dirty, nn, err := t.insert(n.Children[key[0]], append(prefix, key[0]), key[1:], value, n.GetChildEpoch(int(key[0])))
-		if !dirty || err != nil {
+		if !nodeNeedCopy(dirty, t.withShadowNodes && epoch != t.currentEpoch) || err != nil {
 			return false, n, err
 		}
 		n = n.copy()
 		n.flags = t.newFlag()
 		n.Children[key[0]] = nn
+		if t.withShadowNodes && epoch != t.currentEpoch {
+			n.setEpoch(t.currentEpoch)
+			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+		}
 		return true, n, nil
 
 	case nil:
@@ -556,8 +542,12 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 		// subtrie must contain at least two other values with keys
 		// longer than n.Key.
 		dirty, child, err := t.delete(n.Val, append(prefix, key[:len(n.Key)]...), key[len(n.Key):], n.epoch)
-		if !dirty || err != nil {
+		if !nodeNeedCopy(dirty, t.withShadowNodes && epoch != t.currentEpoch) || err != nil {
 			return false, n, err
+		}
+		if t.withShadowNodes && epoch != t.currentEpoch {
+			n = n.copy()
+			n.setEpoch(t.currentEpoch)
 		}
 		switch child := child.(type) {
 		case *shortNode:
@@ -573,23 +563,22 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 		}
 
 	case *fullNode:
-		if t.withShadowNodes {
-			// else, set its epoch to current epoch.
-			n.setEpoch(t.currentEpoch)
-			// if child is expired, return err
-			if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
-				return false, n.Children[key[0]], err
-			}
-			// else, set child node's epoch to current epoch
-			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
-		}
 		dirty, nn, err := t.delete(n.Children[key[0]], append(prefix, key[0]), key[1:], n.GetChildEpoch(int(key[0])))
-		if !dirty || err != nil {
+		if !nodeNeedCopy(dirty, t.withShadowNodes && epoch != t.currentEpoch) || err != nil {
 			return false, n, err
 		}
 		n = n.copy()
 		n.flags = t.newFlag()
 		n.Children[key[0]] = nn
+		if t.withShadowNodes && epoch != t.currentEpoch {
+			n.setEpoch(t.currentEpoch)
+			if n.Children[key[0]] != nil {
+				n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+			} else {
+				n.UpdateChildEpoch(int(key[0]), 0)
+			}
+
+		}
 
 		// Because n is a full node, it must've contained at least two children
 		// before the delete operation. If the new child value is non-nil, n still
