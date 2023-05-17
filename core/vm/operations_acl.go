@@ -19,6 +19,8 @@ package vm
 import (
 	"errors"
 
+	"github.com/ethereum/go-ethereum/core/state"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/params"
@@ -61,6 +63,10 @@ func makeGasSStoreFunc(clearingRefund uint64) gasFunc {
 		}
 		original, err := evm.StateDB.GetCommittedState(contract.Address(), x.Bytes32())
 		if err != nil {
+			// if origin is expired and revive, just small gas
+			if _, ok := err.(*state.ExpiredStateError); ok {
+				return params.NetSstoreDirtyGas, nil
+			}
 			return 0, err
 		}
 		if original == current {

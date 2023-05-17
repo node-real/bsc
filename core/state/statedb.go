@@ -162,7 +162,7 @@ func NewWithStateEpoch(config *params.ChainConfig, targetBlock *big.Int, root co
 		return nil, err
 	}
 
-	log.Info("NewWithStateEpoch", "targetBlock", targetBlock, "targetEpoch", targetEpoch, "root", root)
+	log.Debug("NewWithStateEpoch", "targetBlock", targetBlock, "targetEpoch", targetEpoch, "root", root)
 	// init target block and shadowNodeRW
 	stateDB.targetBlk = targetBlock
 	stateDB.shadowNodeDB, err = trie.NewShadowNodeDatabase(sntree, targetBlock, root)
@@ -1652,7 +1652,7 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 		root = s.expectedRoot
 	}
 
-	log.Info("statedb commit", "originalRoot", s.originalRoot, "root", root, "targetBlk", s.targetBlk, "targetEpoch", s.targetEpoch)
+	log.Debug("statedb commit", "originalRoot", s.originalRoot, "root", root, "targetBlk", s.targetBlk, "targetEpoch", s.targetEpoch)
 	if s.shadowNodeDB != nil {
 		if err := s.shadowNodeDB.Commit(s.targetBlk, root); err != nil {
 			return common.Hash{}, nil, err

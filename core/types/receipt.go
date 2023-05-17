@@ -198,7 +198,7 @@ func (r *Receipt) DecodeRLP(s *rlp.Stream) error {
 			return errEmptyTypedReceipt
 		}
 		r.Type = b[0]
-		if r.Type == AccessListTxType || r.Type == DynamicFeeTxType {
+		if r.Type == AccessListTxType || r.Type == DynamicFeeTxType || r.Type == ReviveStateTxType {
 			var dec receiptRLP
 			if err := rlp.DecodeBytes(b[1:], &dec); err != nil {
 				return err
@@ -234,7 +234,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errEmptyTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType:
+	case DynamicFeeTxType, AccessListTxType, ReviveStateTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -406,6 +406,9 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 		rlp.Encode(w, data)
 	case DynamicFeeTxType:
 		w.WriteByte(DynamicFeeTxType)
+		rlp.Encode(w, data)
+	case ReviveStateTxType:
+		w.WriteByte(ReviveStateTxType)
 		rlp.Encode(w, data)
 	default:
 		// For unsupported types, write nothing. Since this is for

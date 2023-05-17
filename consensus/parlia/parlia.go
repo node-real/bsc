@@ -262,7 +262,7 @@ func New(
 		signatures:      signatures,
 		validatorSetABI: vABI,
 		slashABI:        sABI,
-		signer:          types.NewEIP155Signer(chainConfig.ChainID),
+		signer:          types.NewBEP215Signer(chainConfig.ChainID),
 	}
 
 	return c

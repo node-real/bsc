@@ -99,9 +99,8 @@ func (n *fullNode) ChildExpired(prefix []byte, index int, currentEpoch types.Sta
 	childEpoch := n.GetChildEpoch(index)
 	if types.EpochExpired(childEpoch, currentEpoch) {
 		return true, &ExpiredNodeError{
-			ExpiredNode: n.Children[index],
-			Path:        prefix,
-			Epoch:       childEpoch,
+			Path:  prefix,
+			Epoch: childEpoch,
 		}
 	}
 	return false, nil

@@ -570,7 +570,9 @@ func getFullNodePrefixKeys(t *Trie, key []byte) [][]byte {
 	}
 
 	// Remove the first item in prefixKeys, which is the empty key
-	prefixKeys = prefixKeys[1:]
+	if len(prefixKeys) > 0 {
+		prefixKeys = prefixKeys[1:]
+	}
 
 	return prefixKeys
 }
@@ -850,6 +852,14 @@ func TestReviveValueAtFullNode(t *testing.T) {
 	}
 }
 
+// TODO add testing trie epoch update & expired
+// case1: when meet err, update do not update epoch
+// case2: when child is nil, do not check its epoch, default is 0
+// case3: when access/update/delete, update epoch correct, when node is not expired, then update it later
+// case3: when access/update/delete, check expired node correct
+// case4: root node epoch update and check correct
+// case5: when node is expired, do not resolve it, safe for revive
+
 func TestTrie_ShadowNodeRW_expired(t *testing.T) {
 	database, tree := makeStorageTrieDatabase(t)
 	storageDB, err := NewShadowNodeDatabase(tree, common.Big0, blockRoot0)
@@ -942,7 +952,7 @@ func TestTrie_ShadowHash(t *testing.T) {
 	batchUpdateTrie(t, tr, []string{"a711355", "450", "a77d337", "100", "a7f9365", "110", "a77d397", "012"})
 	sh1, err := tr.ShadowHash()
 	assert.NoError(t, err)
-	assert.Equal(t, common.HexToHash("0x73325476298d27129c8b8d64e8d0abd66d6cc26601c9a012304170432ad3a00d"), *sh1)
+	assert.Equal(t, common.HexToHash("0xc752578873185d8b97bdf9e59c8178719e30a03515c7a791e779d4823bbb3fa4"), *sh1)
 
 	// commit and shadow hash again
 	newRoot, _, err := tr.Commit(nil)
@@ -956,13 +966,49 @@ func TestTrie_ShadowHash(t *testing.T) {
 	assert.NoError(t, err)
 	sh1, err = tr.ShadowHash()
 	assert.NoError(t, err)
-	assert.Equal(t, common.HexToHash("0x73325476298d27129c8b8d64e8d0abd66d6cc26601c9a012304170432ad3a00d"), *sh1)
+	assert.Equal(t, common.HexToHash("0xc752578873185d8b97bdf9e59c8178719e30a03515c7a791e779d4823bbb3fa4"), *sh1)
 
 	err = tr.TryUpdate(common.Hex2Bytes("a711355"), common.Hex2Bytes("800"))
 	assert.NoError(t, err)
 	sh1, err = tr.ShadowHash()
 	assert.NoError(t, err)
-	assert.Equal(t, common.HexToHash("0x3e17653305330721f2a9792b510247a411efedf8d687fa3fb1ae32d2c4325511"), *sh1)
+	assert.Equal(t, common.HexToHash("0xa88d96fa4e1b7b4421198f965230b85e153a6453d1f43b97c0ad89feafa73dd6"), *sh1)
+}
+
+func TestTrie_ShadowHash_case2(t *testing.T) {
+	database, tree := makeStorageTrieDatabase(t)
+	storageDB, err := NewShadowNodeDatabase(tree, common.Big0, emptyRoot)
+	assert.NoError(t, err)
+
+	tr, err := NewWithShadowNode(10, newRootNode(10, emptyRoot, emptyRoot), database, storageDB.OpenStorage(contract1))
+	assert.NoError(t, err)
+
+	batchUpdateTrie(t, tr, []string{"223dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288", "450", "224dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288", "100", "233dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288", "110", "253dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288", "012"})
+
+	// commit and shadow hash again
+	newRoot, _, err := tr.Commit(nil)
+	assert.NoError(t, err)
+	err = storageDB.Commit(common.Big1, newRoot)
+	assert.NoError(t, err)
+
+	storageDB, err = NewShadowNodeDatabase(tree, common.Big2, newRoot)
+	assert.NoError(t, err)
+
+	sndb := storageDB.OpenStorage(contract1)
+	enc, err := sndb.Get(ShadowTreeRootNodePath)
+	assert.NoError(t, err)
+	r1, err := decodeRootNode(enc)
+	assert.NoError(t, err)
+	tr, err = NewWithShadowNode(11, r1, database, sndb)
+	assert.NoError(t, err)
+	_, err = tr.TryGet(common.Hex2Bytes("223dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288"))
+	assert.NoError(t, err)
+	_, err = tr.TryGet(common.Hex2Bytes("224dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288"))
+	assert.NoError(t, err)
+	_, err = tr.TryGet(common.Hex2Bytes("233dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288"))
+	assert.NoError(t, err)
+	_, err = tr.TryGet(common.Hex2Bytes("253dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288"))
+	assert.NoError(t, err)
 }
 
 func batchUpdateTrie(t *testing.T, tr *Trie, kvs []string) {
@@ -1401,6 +1447,14 @@ func TestCommitSequenceSmallRoot(t *testing.T) {
 	if got, exp := stackTrieSponge.sponge.Sum(nil), s.sponge.Sum(nil); !bytes.Equal(got, exp) {
 		t.Fatalf("test, disk write sequence wrong:\ngot %x exp %x\n", got, exp)
 	}
+}
+
+func TestSafeAppendBytes(t *testing.T) {
+	assert.Equal(t, safeAppendBytes(nil, []byte{1}...), append([]byte(nil), 1))
+	assert.Equal(t, safeAppendBytes(nil, []byte{1, 2, 3, 5}...), append([]byte(nil), []byte{1, 2, 3, 5}...))
+	assert.Equal(t, safeAppendBytes([]byte{1, 2, 3, 5}, []byte{5, 4, 3, 2, 1}...), append([]byte{1, 2, 3, 5}, []byte{5, 4, 3, 2, 1}...))
+	assert.Equal(t, safeAppendBytes([]byte{1, 2, 3, 5}, []byte(nil)...), append([]byte{1, 2, 3, 5}, []byte(nil)...))
+	assert.Equal(t, safeAppendBytes([]byte{1, 2, 3, 5}), append([]byte{1, 2, 3, 5}))
 }
 
 // BenchmarkCommitAfterHashFixedSize benchmarks the Commit (after Hash) of a fixed number of updates to a trie.

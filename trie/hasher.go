@@ -141,17 +141,6 @@ func (h *hasher) hashFullNodeChildren(n *fullNode) (collapsed *fullNode, cached 
 	return collapsed, cached
 }
 
-// shadowExtendNodeToHash hash shadowExtendNode
-func (h *hasher) shadowExtendNodeToHash(n *shadowExtensionNode) *common.Hash {
-	if n.ShadowHash == nil {
-		return nil
-	}
-
-	n.encode(h.encbuf)
-	enc := h.encodedBytes()
-	return h.hashCommon(enc)
-}
-
 // shadowFullNodeToHash hash shadowBranchNode
 func (h *hasher) shadowBranchNodeToHash(n *shadowBranchNode) *common.Hash {
 	n.encode(h.encbuf)

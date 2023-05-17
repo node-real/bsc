@@ -52,5 +52,5 @@ func NewInsertExpiredStateError(addr common.Address, key common.Hash, err *trie.
 }
 
 func (e *ExpiredStateError) Error() string {
-	return fmt.Sprintf("Access expired state, addr: %v, key: %v, epoch: %v, reason: %v", e.Addr, e.Key, e.Epoch, e.reason)
+	return fmt.Sprintf("Access expired state, addr: %v, path: %v, key: %v, epoch: %v, reason: %v", e.Addr, e.Path, e.Key, e.Epoch, e.reason)
 }

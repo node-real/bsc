@@ -37,9 +37,15 @@ func (err *MissingNodeError) Error() string {
 }
 
 type ExpiredNodeError struct {
-	ExpiredNode node   // node of the expired node
-	Path        []byte // hex-encoded path to the expired node
-	Epoch       types.StateEpoch
+	Path  []byte // hex-encoded path to the expired node
+	Epoch types.StateEpoch
+}
+
+func NewExpiredNodeError(path []byte, epoch types.StateEpoch) error {
+	return &ExpiredNodeError{
+		Path:  path,
+		Epoch: epoch,
+	}
 }
 
 func (err *ExpiredNodeError) Error() string {

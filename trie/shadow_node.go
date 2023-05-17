@@ -238,13 +238,13 @@ func NewShadowNodeDatabase(tree *ShadowNodeSnapTree, number *big.Int, blockRoot 
 		// try using default snap
 		if snap = tree.Snapshot(emptyRoot); snap == nil {
 			// open read only history
-			log.Info("NewShadowNodeDatabase use RO database", "number", number, "root", blockRoot)
+			log.Debug("NewShadowNodeDatabase use RO database", "number", number, "root", blockRoot)
 			return &ShadowNodeStorageRO{
 				diskdb: tree.DB(),
 				number: number,
 			}, nil
 		}
-		log.Info("NewShadowNodeDatabase use default database", "number", number, "root", blockRoot)
+		log.Debug("NewShadowNodeDatabase use default database", "number", number, "root", blockRoot)
 	}
 	return &ShadowNodeStorageRW{
 		snap:    snap,

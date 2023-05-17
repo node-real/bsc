@@ -642,7 +642,10 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Accept only legacy transactions until EIP-2718/2930 activates.
 	if !pool.eip2718 && tx.Type() != types.LegacyTxType {
-		return ErrTxTypeNotSupported
+		// If isElwood, accept types.ReviveStateTxType
+		if !(pool.isElwood || tx.Type() == types.ReviveStateTxType) {
+			return ErrTxTypeNotSupported
+		}
 	}
 	// Reject dynamic fee transactions until EIP-1559 activates.
 	if !pool.eip1559 && tx.Type() == types.DynamicFeeTxType {

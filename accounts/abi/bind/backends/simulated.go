@@ -670,6 +670,9 @@ func (b *SimulatedBackend) EstimateGasAndReviveState(ctx context.Context, call e
 					if err != nil {
 						return true, nil, isExpiredError, err
 					}
+					if len(proof) == 0 {
+						continue
+					}
 					addressToProofMap[stateErr.Addr] = append(addressToProofMap[stateErr.Addr], types.MPTProof{
 						RootKeyHex: stateErr.Path,
 						Proof:      proof,

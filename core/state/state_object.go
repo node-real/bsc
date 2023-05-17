@@ -330,6 +330,11 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 				}
 				if err == nil && s.db.enableAccStateEpoch(true, s.address) &&
 					types.EpochExpired(sv.Epoch, s.targetEpoch) {
+					// query from dirty revive trie, got the newest expired info
+					_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
+					if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+						return common.Hash{}, NewExpiredStateError(s.address, key, enErr)
+					}
 					return common.Hash{}, NewSnapExpiredStateError(s.address, key, sv.Epoch)
 				}
 				value.SetBytes(sv.Val.Bytes())
@@ -351,6 +356,11 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 	}
 	if err != nil {
 		if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+			// query from dirty revive trie, got the newest expired info
+			_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
+			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+				return common.Hash{}, NewExpiredStateError(s.address, key, enErr)
+			}
 			return common.Hash{}, NewExpiredStateError(s.address, key, enErr)
 		}
 		s.setError(err)
@@ -617,7 +627,7 @@ func (s *StateObject) CommitTrie(db Database) (int, error) {
 		defer func(start time.Time) { s.db.StorageCommits += time.Since(start) }(time.Now())
 	}
 	root, committed, err := s.trie.Commit(nil)
-	log.Info("obj CommitTrie", "addr", s.address, "root", root, "err", err)
+	log.Debug("obj CommitTrie", "addr", s.address, "root", root, "err", err)
 	if err == nil {
 		s.data.Root = root
 	}

@@ -19,6 +19,8 @@ package vm
 import (
 	"errors"
 
+	"github.com/ethereum/go-ethereum/core/state"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/params"
@@ -140,6 +142,10 @@ func gasSStore(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySi
 	}
 	original, err := evm.StateDB.GetCommittedState(contract.Address(), x.Bytes32())
 	if err != nil {
+		// if origin is expired and revive, just small gas
+		if _, ok := err.(*state.ExpiredStateError); ok {
+			return params.NetSstoreDirtyGas, nil
+		}
 		return 0, err
 	}
 	if original == current {
@@ -201,6 +207,10 @@ func gasSStoreEIP2200(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 	}
 	original, err := evm.StateDB.GetCommittedState(contract.Address(), x.Bytes32())
 	if err != nil {
+		// if origin is expired and revive, just small gas
+		if _, ok := err.(*state.ExpiredStateError); ok {
+			return params.NetSstoreDirtyGas, nil
+		}
 		return 0, err
 	}
 	if original == current {
