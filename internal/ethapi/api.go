@@ -1294,6 +1294,9 @@ func DoEstimateGasAndReviveState(ctx context.Context, b Backend, args Transactio
 				if stateErr, ok := evmErr.Err.(*state.ExpiredStateError); ok {
 					isExpiredError = true
 					proof, err := stateDb.GetStorageWitness(stateErr.Addr, stateErr.Path, stateErr.Key)
+					if proof == nil {
+						continue
+					}
 					if err != nil {
 						return true, nil, isExpiredError, err
 					}

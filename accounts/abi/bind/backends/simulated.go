@@ -664,6 +664,9 @@ func (b *SimulatedBackend) EstimateGasAndReviveState(ctx context.Context, call e
 				if stateErr, ok := evmErr.Err.(*state.ExpiredStateError); ok {
 					isExpiredError = true
 					proof, err := b.pendingState.GetStorageWitness(stateErr.Addr, stateErr.Path, stateErr.Key) // TODO (asyukii): Is this key correct?
+					if proof == nil {
+						continue
+					}
 					if err != nil {
 						return true, nil, isExpiredError, err
 					}
