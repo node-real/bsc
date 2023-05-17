@@ -204,6 +204,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			TrieCleanRejournal: config.TrieCleanCacheRejournal,
 			TrieDirtyLimit:     config.TrieDirtyCache,
 			TrieDirtyDisabled:  config.NoPruning,
+			NoPruning:          config.NoPruning,
 			TrieTimeLimit:      config.TrieTimeout,
 			NoTries:            config.TriesVerifyMode != core.LocalVerify,
 			SnapshotLimit:      config.SnapshotCache,

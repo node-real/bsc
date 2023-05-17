@@ -262,6 +262,13 @@ func IsCodeKey(key []byte) (bool, []byte) {
 	return false, nil
 }
 
+func IsSnapStorageKey(key []byte) (bool, []byte, []byte) {
+	if bytes.HasPrefix(key, SnapshotStoragePrefix) && len(key) == common.HashLength+common.HashLength+len(SnapshotStoragePrefix) {
+		return true, key[len(SnapshotStoragePrefix):], key[len(SnapshotStoragePrefix) : len(SnapshotStoragePrefix)+common.HashLength]
+	}
+	return false, nil, nil
+}
+
 // configKey = configPrefix + hash
 func configKey(hash common.Hash) []byte {
 	return append(configPrefix, hash.Bytes()...)

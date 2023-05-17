@@ -276,7 +276,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		}
 		return nil, nil
 	}
-	tree, err := trie.NewShadowNodeSnapTree(db)
+	tree, err := trie.NewShadowNodeSnapTree(db, false)
 	if err != nil {
 		panic(err)
 	}

@@ -38,7 +38,7 @@ var (
 )
 
 func NewState(ctx context.Context, config *params.ChainConfig, head *types.Header, odr OdrBackend) *state.StateDB {
-	tree, _ := trie.NewShadowNodeSnapTree(odr.Database())
+	tree, _ := trie.NewShadowNodeSnapTree(odr.Database(), true)
 	state, _ := state.NewWithStateEpoch(config, head.Number, head.Root, NewStateDatabase(ctx, head, odr), nil, tree)
 	return state
 }

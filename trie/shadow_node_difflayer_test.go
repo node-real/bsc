@@ -14,9 +14,11 @@ var (
 	blockRoot0   = makeHash("b0")
 	blockRoot1   = makeHash("b1")
 	blockRoot2   = makeHash("b2")
+	blockRoot3   = makeHash("b3")
 	storageRoot0 = makeHash("s0")
 	storageRoot1 = makeHash("s1")
 	storageRoot2 = makeHash("s2")
+	storageRoot3 = makeHash("s3")
 	contract1    = makeHash("c1")
 	contract2    = makeHash("c2")
 	contract3    = makeHash("c3")
@@ -25,7 +27,7 @@ var (
 func TestShadowNodeDiffLayer_whenGenesis(t *testing.T) {
 	diskdb := memorydb.New()
 	// create empty tree
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	snap := tree.Snapshot(blockRoot0)
 	assert.Nil(t, snap)
@@ -41,7 +43,7 @@ func TestShadowNodeDiffLayer_whenGenesis(t *testing.T) {
 	assert.NoError(t, err)
 
 	// reload
-	tree, err = NewShadowNodeSnapTree(diskdb)
+	tree, err = NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	diskLayer := tree.Snapshot(emptyRoot)
 	assert.NotNil(t, diskLayer)
@@ -69,7 +71,7 @@ func TestShadowNodeDiffLayer_whenGenesis(t *testing.T) {
 func TestShadowNodeDiffLayer_crud(t *testing.T) {
 	diskdb := memorydb.New()
 	// create empty tree
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	set1 := makeNodeSet(contract1, []string{"hello", "world", "h1", "w1"})
 	appendNodeSet(set1, contract3, []string{"h3", "w3"})
@@ -113,7 +115,7 @@ func TestShadowNodeDiffLayer_crud(t *testing.T) {
 func TestShadowNodeDiffLayer_capDiffLayers(t *testing.T) {
 	diskdb := memorydb.New()
 	// create empty tree
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 
 	// push 200 diff layers

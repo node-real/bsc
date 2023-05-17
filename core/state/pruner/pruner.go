@@ -88,6 +88,7 @@ type Pruner struct {
 	headHeader    *types.Header
 	snaptree      *snapshot.Tree
 	triesInMemory uint64
+	latestEpoch   types.StateEpoch
 }
 
 type BlockPruner struct {
@@ -104,6 +105,13 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize, trie
 	if headBlock == nil {
 		return nil, errors.New("Failed to load head block")
 	}
+	chainConfig := rawdb.ReadChainConfig(db, headBlock.Hash())
+	if chainConfig == nil {
+		return nil, errors.New("cannot find chainConfig")
+	}
+	latestEpoch := types.GetStateEpoch(chainConfig, headBlock.Number())
+	log.Info("NewPruner with", "number", headBlock.Number(), "latestEpoch", latestEpoch)
+
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, int(triesInMemory), headBlock.Root(), false, false, false, false)
 	if err != nil {
 		return nil, err // The relevant snapshot(s) might not exist
@@ -126,6 +134,7 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize, trie
 		triesInMemory: triesInMemory,
 		headHeader:    headBlock.Header(),
 		snaptree:      snaptree,
+		latestEpoch:   latestEpoch,
 	}, nil
 }
 
@@ -238,7 +247,7 @@ func pruneAll(maindb ethdb.Database, g *core.Genesis) error {
 	return nil
 }
 
-func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, stateBloom *stateBloom, bloomPath string, middleStateRoots map[common.Hash]struct{}, start time.Time) error {
+func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, stateBloom *stateBloom, bloomPath string, middleStateRoots map[common.Hash]struct{}, start time.Time, latestEpoch types.StateEpoch) error {
 	// Delete all stale trie nodes in the disk. With the help of state bloom
 	// the trie nodes(and codes) belong to the active state will be filtered
 	// out. A very small part of stale tries will also be filtered because of
@@ -247,15 +256,30 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 	// dangling node is the state root is super low. So the dangling nodes in
 	// theory will never ever be visited again.
 	var (
-		count  int
-		size   common.StorageSize
-		pstart = time.Now()
-		logged = time.Now()
-		batch  = maindb.NewBatch()
-		iter   = maindb.NewIterator(nil, nil)
+		count     int
+		snapCount int
+		size      common.StorageSize
+		snapSize  common.StorageSize
+		pstart    = time.Now()
+		logged    = time.Now()
+		batch     = maindb.NewBatch()
+		iter      = maindb.NewIterator(nil, nil)
 	)
 	for iter.Next() {
 		key := iter.Key()
+
+		// if it is snap kv, check if expired, do not follow parent>=child+2 prune rule, cover by trie node
+		isSnapKey, _, snapAddr := rawdb.IsSnapStorageKey(key)
+		if isSnapKey {
+			snapVal, err := snapshot.ParseSnapValFromBytes(iter.Value())
+			if err == nil && types.EpochExpired(snapVal.Epoch, latestEpoch) {
+				batch.Delete(key)
+				snapCount += 1
+				snapSize += common.StorageSize(len(key) + len(iter.Value()))
+				log.Info("delete expired snap kv", "addrHash", snapAddr, "kvEpoch", snapVal.Epoch, "epoch", latestEpoch)
+			}
+			continue
+		}
 
 		// All state entries don't belong to specific state and genesis are deleted here
 		// - trie node
@@ -310,6 +334,7 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 	}
 	iter.Release()
 	log.Info("Pruned state data", "nodes", count, "size", size, "elapsed", common.PrettyDuration(time.Since(pstart)))
+	log.Info("Pruned snap data", "kvs", snapCount, "size", size, "elapsed", common.PrettyDuration(time.Since(pstart)))
 
 	// Pruning is done, now drop the "useless" layers from the snapshot.
 	// Firstly, flushing the target layer into the disk. After that all
@@ -658,7 +683,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 		return err
 	}
 	log.Info("State bloom filter committed", "name", filterName)
-	return prune(p.snaptree, root, p.db, p.stateBloom, filterName, middleRoots, start)
+	return prune(p.snaptree, root, p.db, p.stateBloom, filterName, middleRoots, start, p.latestEpoch)
 }
 
 // RecoverPruning will resume the pruning procedure during the system restart.
@@ -680,6 +705,13 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string, tri
 	if headBlock == nil {
 		return errors.New("Failed to load head block")
 	}
+	chainConfig := rawdb.ReadChainConfig(db, headBlock.Hash())
+	if chainConfig == nil {
+		return errors.New("cannot find chainConfig")
+	}
+	latestEpoch := types.GetStateEpoch(chainConfig, headBlock.Number())
+	log.Info("RecoverPruning with", "number", headBlock.Number(), "latestEpoch", latestEpoch)
+
 	// Initialize the snapshot tree in recovery mode to handle this special case:
 	// - Users run the `prune-state` command multiple times
 	// - Neither these `prune-state` running is finished(e.g. interrupted manually)
@@ -722,7 +754,7 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string, tri
 		log.Error("Pruning target state is not existent")
 		return errors.New("non-existent target state")
 	}
-	return prune(snaptree, stateBloomRoot, db, stateBloom, stateBloomPath, middleRoots, time.Now())
+	return prune(snaptree, stateBloomRoot, db, stateBloom, stateBloomPath, middleRoots, time.Now(), latestEpoch)
 }
 
 // extractGenesis loads the genesis state and commits all the state entries

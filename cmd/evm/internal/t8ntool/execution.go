@@ -272,7 +272,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 
 func MakePreState(db ethdb.Database, pre *Prestate, config *params.ChainConfig) *state.StateDB {
 	sdb := state.NewDatabase(db)
-	tree, _ := trie.NewShadowNodeSnapTree(db)
+	tree, _ := trie.NewShadowNodeSnapTree(db, false)
 	statedb, _ := state.NewWithStateEpoch(config, new(big.Int).SetUint64(pre.Env.Number-1), common.Hash{}, sdb, nil, tree)
 	for addr, a := range pre.Pre {
 		statedb.SetCode(addr, a.Code)

@@ -148,6 +148,7 @@ type CacheConfig struct {
 	NoTries             bool          // Insecure settings. Do not have any tries in databases if enabled.
 
 	SnapshotWait bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
+	NoPruning    bool
 }
 
 // To avoid cycle import
@@ -365,7 +366,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	}
 
 	// load shadow node tree to R&W
-	if bc.shadowNodeTree, err = trie.NewShadowNodeSnapTree(db); err != nil {
+	if bc.shadowNodeTree, err = trie.NewShadowNodeSnapTree(db, cacheConfig.NoPruning); err != nil {
 		return nil, err
 	}
 

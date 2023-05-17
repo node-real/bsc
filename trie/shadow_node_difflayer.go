@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/log"
+
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/ethereum/go-ethereum/common/math"
 	lru "github.com/hashicorp/golang-lru"
@@ -55,8 +57,8 @@ type ShadowNodeSnapTree struct {
 	lock sync.RWMutex
 }
 
-func NewShadowNodeSnapTree(diskdb ethdb.KeyValueStore) (*ShadowNodeSnapTree, error) {
-	diskLayer, err := loadDiskLayer(diskdb)
+func NewShadowNodeSnapTree(diskdb ethdb.KeyValueStore, archiveMode bool) (*ShadowNodeSnapTree, error) {
+	diskLayer, err := loadDiskLayer(diskdb, archiveMode)
 	if err != nil {
 		return nil, err
 	}
@@ -225,11 +227,11 @@ func (s *ShadowNodeSnapTree) flattenDiffs2Disk(flatten []shadowNodeSnapshot, dis
 }
 
 // loadDiskLayer load from db, could be nil when none in db
-func loadDiskLayer(db ethdb.KeyValueStore) (*shadowNodeDiskLayer, error) {
+func loadDiskLayer(db ethdb.KeyValueStore, archiveMode bool) (*shadowNodeDiskLayer, error) {
 	val := rawdb.ReadShadowNodePlainStateMeta(db)
 	// if there is no disk layer, will construct a fake disk layer
 	if len(val) == 0 {
-		diskLayer, err := newShadowNodeDiskLayer(db, common.Big0, emptyRoot)
+		diskLayer, err := newShadowNodeDiskLayer(db, common.Big0, emptyRoot, archiveMode)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +242,7 @@ func loadDiskLayer(db ethdb.KeyValueStore) (*shadowNodeDiskLayer, error) {
 		return nil, err
 	}
 
-	layer, err := newShadowNodeDiskLayer(db, meta.BlockNumber, meta.BlockRoot)
+	layer, err := newShadowNodeDiskLayer(db, meta.BlockNumber, meta.BlockRoot, archiveMode)
 	if err != nil {
 		return nil, err
 	}
@@ -443,11 +445,12 @@ type shadowNodeDiskLayer struct {
 	blockNumber *big.Int
 	blockRoot   common.Hash
 	cache       *lru.Cache
+	archiveMode bool // archiveMode, if true keep all history, if false just flatten all changSet to plainState
 
 	lock sync.RWMutex
 }
 
-func newShadowNodeDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blockRoot common.Hash) (*shadowNodeDiskLayer, error) {
+func newShadowNodeDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blockRoot common.Hash, archiveMode bool) (*shadowNodeDiskLayer, error) {
 	cache, err := lru.New(defaultDiskLayerCacheSize)
 	if err != nil {
 		return nil, err
@@ -457,6 +460,7 @@ func newShadowNodeDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, bl
 		blockNumber: blockNumber,
 		blockRoot:   blockRoot,
 		cache:       cache,
+		archiveMode: archiveMode,
 	}, nil
 }
 
@@ -512,36 +516,8 @@ func (s *shadowNodeDiskLayer) PushDiff(diff *shadowNodeDiffLayer) (*shadowNodeDi
 	}
 	batch := s.diskdb.NewBatch()
 	nodeSet := diff.getNodeSet()
-	for addr, subSet := range nodeSet {
-		changeSet := make([]nodeChgRecord, 0, len(subSet))
-		for path, val := range subSet {
-			if err := refreshShadowNodeHistory(s.diskdb, batch, addr, path, number.Uint64()); err != nil {
-				return nil, err
-			}
-			prev := rawdb.ReadShadowNodePlainState(s.diskdb, addr, path)
-			// refresh plain state
-			if len(val) == 0 {
-				if err := rawdb.DeleteShadowNodePlainState(batch, addr, path); err != nil {
-					return nil, err
-				}
-			} else {
-				if err := rawdb.WriteShadowNodePlainState(batch, addr, path, val); err != nil {
-					return nil, err
-				}
-			}
-
-			changeSet = append(changeSet, nodeChgRecord{
-				Path: path,
-				Prev: prev,
-			})
-		}
-		enc, err := rlp.EncodeToBytes(changeSet)
-		if err != nil {
-			return nil, err
-		}
-		if err = rawdb.WriteShadowNodeChangeSet(batch, addr, number.Uint64(), enc); err != nil {
-			return nil, err
-		}
+	if err := s.writeHistory(number, batch, diff.getNodeSet()); err != nil {
+		return nil, err
 	}
 
 	// update meta
@@ -565,15 +541,72 @@ func (s *shadowNodeDiskLayer) PushDiff(diff *shadowNodeDiffLayer) (*shadowNodeDi
 		blockNumber: number,
 		blockRoot:   diff.blockRoot,
 		cache:       s.cache,
+		archiveMode: s.archiveMode,
 	}
 
 	// reuse cache
-	for addr, nodes := range diff.nodeSet {
+	for addr, nodes := range nodeSet {
 		for path, val := range nodes {
 			diskLayer.cache.Add(shadowNodeCacheKey(addr, path), val)
 		}
 	}
 	return diskLayer, nil
+}
+
+func (s *shadowNodeDiskLayer) writeHistory(number *big.Int, batch ethdb.Batch, nodeSet map[common.Hash]map[string][]byte) error {
+	// if not in archiveMode, just flatten to plainState
+	if !s.archiveMode {
+		for addr, subSet := range nodeSet {
+			for path, val := range subSet {
+				// refresh plain state
+				if len(val) == 0 {
+					if err := rawdb.DeleteShadowNodePlainState(batch, addr, path); err != nil {
+						return err
+					}
+				} else {
+					if err := rawdb.WriteShadowNodePlainState(batch, addr, path, val); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		log.Info("shadow node history pruned, only keep plainState", "number", number, "count", len(nodeSet))
+		return nil
+	}
+
+	for addr, subSet := range nodeSet {
+		changeSet := make([]nodeChgRecord, 0, len(subSet))
+		for path, val := range subSet {
+			if err := refreshShadowNodeHistory(s.diskdb, batch, addr, path, number.Uint64()); err != nil {
+				return err
+			}
+			prev := rawdb.ReadShadowNodePlainState(s.diskdb, addr, path)
+			// refresh plain state
+			if len(val) == 0 {
+				if err := rawdb.DeleteShadowNodePlainState(batch, addr, path); err != nil {
+					return err
+				}
+			} else {
+				if err := rawdb.WriteShadowNodePlainState(batch, addr, path, val); err != nil {
+					return err
+				}
+			}
+
+			changeSet = append(changeSet, nodeChgRecord{
+				Path: path,
+				Prev: prev,
+			})
+		}
+		enc, err := rlp.EncodeToBytes(changeSet)
+		if err != nil {
+			return err
+		}
+		if err = rawdb.WriteShadowNodeChangeSet(batch, addr, number.Uint64(), enc); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func shadowNodeCacheKey(addr common.Hash, path string) string {

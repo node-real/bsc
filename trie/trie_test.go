@@ -1024,7 +1024,7 @@ func batchUpdateTrie(t *testing.T, tr *Trie, kvs []string) {
 func makeStorageTrieDatabase(t *testing.T) (*Database, *ShadowNodeSnapTree) {
 	diskdb := memorydb.New()
 	database := NewDatabase(diskdb)
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	return database, tree
 }

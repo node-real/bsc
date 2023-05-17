@@ -17,7 +17,7 @@ import (
 
 func TestShadowNodeRW_CRUD(t *testing.T) {
 	diskdb := memorydb.New()
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	storageDB, err := NewShadowNodeDatabase(tree, common.Big1, blockRoot1)
 	assert.NoError(t, err)
@@ -40,7 +40,7 @@ func TestShadowNodeRO_Get(t *testing.T) {
 	diskdb := memorydb.New()
 	makeDiskLayer(diskdb, common.Big2, blockRoot2, contract1, []string{"k1", "v1"})
 
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	storageRO, err := NewShadowNodeDatabase(tree, common.Big1, blockRoot1)
 	assert.NoError(t, err)
@@ -78,7 +78,7 @@ func makeDiskLayer(diskdb *memorydb.Database, number *big.Int, root common.Hash,
 
 func TestShadowNodeRW_Commit(t *testing.T) {
 	diskdb := memorydb.New()
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	storageDB, err := NewShadowNodeDatabase(tree, common.Big1, blockRoot1)
 	assert.NoError(t, err)
@@ -98,7 +98,7 @@ func TestShadowNodeRW_Commit(t *testing.T) {
 
 func TestNewShadowNodeStorage4Trie(t *testing.T) {
 	diskdb := memorydb.New()
-	tree, err := NewShadowNodeSnapTree(diskdb)
+	tree, err := NewShadowNodeSnapTree(diskdb, true)
 	assert.NoError(t, err)
 	storageDB, err := NewShadowNodeDatabase(tree, common.Big1, blockRoot1)
 	assert.NoError(t, err)
