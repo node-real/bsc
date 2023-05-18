@@ -578,7 +578,7 @@ func (db *Database) Dereference(root common.Hash, epoch types.StateEpoch) {
 }
 
 func checkBEP206PruneRule(childEpoch, parentEpoch, currEpoch types.StateEpoch) bool {
-	return types.EpochExpired(childEpoch, currEpoch) && (parentEpoch >= childEpoch+2)
+	return types.EpochExpired(childEpoch, currEpoch) && (types.EpochExpired(parentEpoch, currEpoch) || parentEpoch >= childEpoch+2)
 }
 
 // dereference is the private locked version of Dereference.
