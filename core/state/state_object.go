@@ -627,6 +627,9 @@ func (s *StateObject) CommitTrie(db Database) (int, error) {
 		defer func(start time.Time) { s.db.StorageCommits += time.Since(start) }(time.Now())
 	}
 	root, committed, err := s.trie.Commit(nil)
+	if err != nil {
+		log.Error("obj CommitTrie", "addr", s.address, "root", root, "err", err)
+	}
 	log.Debug("obj CommitTrie", "addr", s.address, "root", root, "err", err)
 	if err == nil {
 		s.data.Root = root

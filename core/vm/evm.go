@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
+
 	"github.com/holiman/uint256"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -263,6 +265,16 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		//} else {
 		//	evm.StateDB.DiscardSnapshot(snapshot)
 	}
+
+	errors := evm.Errors()
+	if err != nil || len(errors) > 0 {
+		log.Error("execution got err", "from", caller.Address(), "to", addr)
+		for _, e := range errors {
+			log.Error("op err", "err", e)
+		}
+		log.Error("return err", "err", err)
+	}
+
 	return ret, gas, err
 }
 

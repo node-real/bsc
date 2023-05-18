@@ -915,6 +915,9 @@ func (t *Trie) TryRevive(proof []*MPTProofNub) (successNubs []*MPTProofNub, err 
 		path := []byte{}
 		rootExpired := types.EpochExpired(t.getRootEpoch(), t.currentEpoch)
 		newNode, didRevive, err := t.tryRevive(t.root, nub.n1PrefixKey, *nub, t.currentEpoch, path, rootExpired)
+		if err != nil {
+			log.Error("tryRevive err", "prefix", nub.n1PrefixKey, "didRevive", didRevive, "err", err)
+		}
 		if didRevive && err == nil {
 			successNubs = append(successNubs, nub)
 			t.root = newNode
