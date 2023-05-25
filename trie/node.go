@@ -38,6 +38,7 @@ const (
 	rawNodeType
 	rawShortNodeType
 	rawFullNodeType
+	rootNodeType
 )
 
 var indices = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "[17]"}
@@ -218,6 +219,9 @@ func decodeNodeUnsafe(hash, buf []byte) (node, error) {
 	case 17:
 		n, err := decodeFull(hash, elems)
 		return n, wrapError(err, "full")
+	case 3:
+		n, err := decodeRootNode(buf)
+		return n, wrapError(err, "root")
 	default:
 		return nil, fmt.Errorf("invalid number of list elements: %v", c)
 	}

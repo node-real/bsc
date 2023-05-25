@@ -3,6 +3,7 @@ package trie
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 
@@ -41,9 +42,28 @@ func newRootNode(epoch types.StateEpoch, trieRoot, shadowTreeRoot common.Hash) *
 	n.resolveCache()
 	return n
 }
+
+func (n *rootNode) copy() *rootNode { copy := *n; return &copy }
+
 func (n *rootNode) encode(w rlp.EncoderBuffer) {
 	rlp.Encode(w, n)
 }
+
+func (n *rootNode) cache() (hashNode, bool) { return n.cachedHash[:], true }
+
+func (n *rootNode) setEpoch(epoch types.StateEpoch) { n.Epoch = epoch }
+func (n *rootNode) getEpoch() types.StateEpoch      { return n.Epoch }
+
+func (n *rootNode) String() string { return n.fstring("") }
+
+func (n *rootNode) fstring(ind string) string {
+	return fmt.Sprintf("rootNode{epoch:%d, trieRoot:%s, shadowTreeRoot:%s}", n.Epoch, n.TrieRoot, n.ShadowTreeRoot)
+}
+
+func (n *rootNode) nodeType() int {
+	return rootNodeType
+}
+
 func (n *rootNode) resolveCache() {
 	buf := rlp.NewEncoderBuffer(nil)
 	n.encode(buf)

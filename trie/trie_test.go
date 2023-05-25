@@ -617,7 +617,7 @@ func TestTryRevive(t *testing.T) {
 			assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x", currRootHash, oriRootHash)
 
 			// Reset trie
-			trie, _ = nonRandomTrie(500)
+			trie, _ = nonRandomTrieWithShadowNodes(500)
 		}
 	}
 }
@@ -664,7 +664,7 @@ func TestTryReviveCustomData(t *testing.T) {
 
 			// Verify root hash
 			currRootHash := trie.Hash()
-			assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x", currRootHash, oriRootHash, key, prefixKey)
+			assert.Equal(t, oriRootHash, currRootHash, "Root hash mismatch, got %x, expected %x, key %x, prefixKey %x", currRootHash, oriRootHash, key, prefixKey)
 
 			// Reset trie
 			trie = createCustomTrie(data, 10)
@@ -995,11 +995,12 @@ func TestTrie_ShadowHash_case2(t *testing.T) {
 	assert.NoError(t, err)
 
 	sndb := storageDB.OpenStorage(contract1)
-	enc, err := sndb.Get(ShadowTreeRootNodePath)
-	assert.NoError(t, err)
-	r1, err := decodeRootNode(enc)
-	assert.NoError(t, err)
-	tr, err = NewWithShadowNode(11, r1, database, sndb)
+	rn := tr.db.node(newRoot)
+	// enc, err := sndb.Get(ShadowTreeRootNodePath)
+	// assert.NoError(t, err)
+	// r1, err := decodeRootNode(enc)
+	// assert.NoError(t, err)
+	tr, err = NewWithShadowNode(11, rn.(*rootNode), database, sndb)
 	assert.NoError(t, err)
 	_, err = tr.TryGet(common.Hex2Bytes("223dffac48c9ce11eb8dd110a36c55aa7f51fd1ab98b4c9b8ebe4decfd72f2288"))
 	assert.NoError(t, err)

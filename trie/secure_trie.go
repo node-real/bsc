@@ -70,7 +70,7 @@ func NewSecureWithShadowNodes(curEpoch types.StateEpoch, root common.Hash, db *D
 		panic("trie.NewSecure called without a database")
 	}
 
-	rn, err := resolveRootNode(sndb, root)
+	rn, err := resolveRootNodeTrieDb(db, root)
 	if err != nil {
 		return nil, err
 	}

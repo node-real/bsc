@@ -229,6 +229,8 @@ func forGatherChildren(n node, onChild func(hash common.Hash)) {
 		}
 	case hashNode:
 		onChild(common.BytesToHash(n))
+	case *rootNode:
+		onChild(n.TrieRoot)
 	case valueNode, nil, rawNode:
 	default:
 		panic(fmt.Sprintf("unknown node type: %T", n))
@@ -256,7 +258,7 @@ func simplifyNode(n node) node {
 		}
 		return node
 
-	case valueNode, hashNode, rawNode:
+	case valueNode, hashNode, rawNode, *rootNode:
 		return n
 
 	default:
@@ -292,7 +294,7 @@ func expandNode(hash hashNode, n node) node {
 		}
 		return node
 
-	case valueNode, hashNode:
+	case valueNode, hashNode, *rootNode:
 		return n
 
 	default:

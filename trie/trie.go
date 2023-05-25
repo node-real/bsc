@@ -223,6 +223,8 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode
 		}
 		value, newnode, _, err := t.tryGet(child, key, pos)
 		return value, newnode, true, err
+	case *rootNode:
+		return nil, n, false, nil // TODO(asyukii): temporary fix
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
 	}
@@ -750,6 +752,7 @@ func (t *Trie) Hash() common.Hash {
 	hash, cached, _ := t.hashRoot()
 	t.root = cached
 	newRootHash := common.BytesToHash(hash.(hashNode))
+	t.trieRoot = newRootHash
 	if t.withShadowNodes {
 		newShadowTreeRoot := emptyRoot
 		shadowTreeRoot, err := t.ShadowHash()
@@ -804,7 +807,7 @@ func (t *Trie) Commit(onleaf LeafCallback) (common.Hash, int, error) {
 	// values, but don't write to it.
 	if _, dirty := t.root.cache(); !dirty {
 		if t.withShadowNodes {
-			rootNodeHash, err := t.storeRootNode(newRootHash, newShadowTreeRoot)
+			rootNodeHash, err := t.storeRootNodeTrieDb(h, newRootHash, newShadowTreeRoot)
 			if err != nil {
 				return common.Hash{}, 0, err
 			}
@@ -835,7 +838,7 @@ func (t *Trie) Commit(onleaf LeafCallback) (common.Hash, int, error) {
 		return common.Hash{}, 0, err
 	}
 	if t.withShadowNodes {
-		rootNodeHash, err := t.storeRootNode(newRootHash, newShadowTreeRoot)
+		rootNodeHash, err := t.storeRootNodeTrieDb(h, newRootHash, newShadowTreeRoot)
 		if err != nil {
 			return common.Hash{}, 0, err
 		}
@@ -1148,6 +1151,12 @@ func (t *Trie) commitShadowNodes(origin node, prefix []byte, epoch types.StateEp
 	}
 }
 
+func (t *Trie) storeRootNodeTrieDb(c *committer, newRootHash, newShadowTreeRoot common.Hash) (common.Hash, error) {
+	rn := newRootNode(t.getRootEpoch(), newRootHash, newShadowTreeRoot)
+	hn, _, err := c.Commit(rn, t.db)
+	return common.BytesToHash(hn), err
+}
+
 func (t *Trie) storeRootNode(newRootHash, newShadowTreeRoot common.Hash) (common.Hash, error) {
 	rn := newRootNode(t.getRootEpoch(), newRootHash, newShadowTreeRoot)
 	if err := t.sndb.Put(ShadowTreeRootNodePath, rn.cachedEnc); err != nil {
@@ -1193,6 +1202,20 @@ func (t *Trie) renewNode(epoch types.StateEpoch, childDirty bool, updateEpoch bo
 
 	// node need update epoch, just renew
 	return true
+}
+
+func resolveRootNodeTrieDb(db *Database, root common.Hash) (*rootNode, error) {
+	expectHash := common.BytesToHash(root[:])
+	rn := db.node(root)
+	n, ok := rn.(*rootNode)
+	if !ok {
+		return newEpoch0RootNode(root), nil
+	}
+
+	if n.cachedHash != expectHash {
+		return nil, errors.New("found the wrong rootNode")
+	}
+	return n, nil
 }
 
 func resolveRootNode(sndb ShadowNodeStorage, root common.Hash) (*rootNode, error) {
