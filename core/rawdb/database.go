@@ -450,6 +450,12 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		chtTrieNodes   stat
 		bloomTrieNodes stat
 
+		// shadow nodes statistics
+		shadowNodeMetadataSize   stat
+		shadowNodeHistorySize    stat
+		shadowNodeChangeSetSize  stat
+		shadowNodePlainStateSize stat
+
 		// Meta- and unaccounted data
 		metadata    stat
 		unaccounted stat
@@ -508,13 +514,22 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			bytes.HasPrefix(key, []byte("bltIndex-")) ||
 			bytes.HasPrefix(key, []byte("bltRoot-")): // Bloomtrie sub
 			bloomTrieNodes.Add(size)
+
+		case bytes.Equal(key, shadowNodePlainStateMeta):
+			shadowNodeMetadataSize.Add(size)
+		case bytes.HasPrefix(key, ShadowNodeHistoryPrefix) && len(key) >= (len(ShadowNodeHistoryPrefix)+common.HashLength+8):
+			shadowNodeHistorySize.Add(size)
+		case bytes.HasPrefix(key, ShadowNodeChangeSetPrefix) && len(key) == (len(ShadowNodeChangeSetPrefix)+common.HashLength+8):
+			shadowNodeChangeSetSize.Add(size)
+		case bytes.HasPrefix(key, ShadowNodePlainStatePrefix) && len(key) >= (len(ShadowNodePlainStatePrefix)+common.HashLength):
+			shadowNodePlainStateSize.Add(size)
 		default:
 			var accounted bool
 			for _, meta := range [][]byte{
 				databaseVersionKey, headHeaderKey, headBlockKey, headFastBlockKey, lastPivotKey,
 				fastTrieProgressKey, snapshotDisabledKey, SnapshotRootKey, snapshotJournalKey,
 				snapshotGeneratorKey, snapshotRecoveryKey, txIndexTailKey, fastTxLookupLimitKey,
-				uncleanShutdownKey, badBlockKey, transitionStatusKey,
+				uncleanShutdownKey, badBlockKey, transitionStatusKey, LastSafePointBlockKey, pruneAncientKey, shadowNodeSnapshotJournalKey,
 			} {
 				if bytes.Equal(key, meta) {
 					metadata.Add(size)
@@ -571,6 +586,10 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		{"Ancient store", "Block number->hash", ancientHashesSize.String(), ancients.String()},
 		{"Light client", "CHT trie nodes", chtTrieNodes.Size(), chtTrieNodes.Count()},
 		{"Light client", "Bloom trie nodes", bloomTrieNodes.Size(), bloomTrieNodes.Count()},
+		{"Shadow Node", "Metadata", shadowNodeMetadataSize.Size(), shadowNodeMetadataSize.Count()},
+		{"Shadow Node", "History", shadowNodeHistorySize.Size(), shadowNodeHistorySize.Count()},
+		{"Shadow Node", "ChangeSet", shadowNodeChangeSetSize.Size(), shadowNodeChangeSetSize.Count()},
+		{"Shadow Node", "PlainState", shadowNodePlainStateSize.Size(), shadowNodePlainStateSize.Count()},
 	}
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Database", "Category", "Size", "Items"})

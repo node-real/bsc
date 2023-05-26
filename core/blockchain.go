@@ -1841,6 +1841,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 	}
 
 	for ; block != nil && err == nil || errors.Is(err, ErrKnownBlock); block, err = it.next() {
+		log.Info("Try import new chain segment", "number", block.NumberU64(), "hash", block.Hash(), "from", block.Coinbase())
 		// If the chain is terminating, stop processing blocks
 		if bc.insertStopped() {
 			log.Debug("Abort during block processing")
@@ -1947,7 +1948,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		substart = time.Now()
 		if !statedb.IsLightProcessed() {
 			if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
-				log.Error("validate state failed", "error", err)
+				log.Error("validate state failed", "number", block.NumberU64(), "hash", block.Hash(), "proposer", block.Coinbase(), "error", err)
 				bc.reportBlock(block, receipts, err)
 				statedb.StopPrefetcher()
 				return it.index, err

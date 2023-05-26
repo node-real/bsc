@@ -526,7 +526,7 @@ func (s *StateDB) GetProofByHash(addrHash common.Hash) ([][]byte, error) {
 // GetStorageWitness returns only the Merkle proof for given storage slot.
 func (s *StateDB) GetStorageWitness(a common.Address, prefixKeyHex []byte, key common.Hash) ([][]byte, error) {
 	var proof proofList
-	trie := s.StorageTrie(a)
+	trie := s.StorageReviveTrie(a)
 	if trie == nil {
 		return proof, errors.New("storage trie for requested address does not exist")
 	}
@@ -569,6 +569,16 @@ func (s *StateDB) StorageTrie(addr common.Address) Trie {
 	cpy := stateObject.deepCopy(s)
 	cpy.updateTrie(s.db)
 	return cpy.getTrie(s.db)
+}
+
+func (s *StateDB) StorageReviveTrie(addr common.Address) Trie {
+	stateObject := s.getStateObject(addr)
+	if stateObject == nil {
+		return nil
+	}
+	cpy := stateObject.deepCopy(s)
+	cpy.updateTrie(s.db)
+	return cpy.getPendingReviveTrie(s.db)
 }
 
 func (s *StateDB) HasSuicided(addr common.Address) bool {

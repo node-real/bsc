@@ -202,6 +202,7 @@ func (s *StateObject) getTrie(db Database) Trie {
 		var err error
 		// check if enable state epoch
 		if s.db.enableAccStateEpoch(false, s.address) {
+			log.Debug("Open StorageTrie with shadow nodes", "addr", s.address, "targetEpoch", s.targetEpoch)
 			s.trie, err = db.OpenStorageTrieWithShadowNode(s.addrHash, s.data.Root, s.targetEpoch, s.db.openShadowStorage(s.addrHash))
 			if err != nil {
 				log.Error("OpenStorageTrieWithShadowNode err", "targetEpoch", s.targetEpoch, "err", err)
@@ -211,6 +212,7 @@ func (s *StateObject) getTrie(db Database) Trie {
 			return s.trie
 		}
 
+		log.Debug("Open StorageTrie normal", "addr", s.address, "targetEpoch", s.targetEpoch, "addr", s.address)
 		s.trie, err = db.OpenStorageTrie(s.addrHash, s.data.Root)
 		if err != nil {
 			s.trie, _ = db.OpenStorageTrie(s.addrHash, common.Hash{})
@@ -333,7 +335,7 @@ func (s *StateObject) GetCommittedState(db Database, key common.Hash) (common.Ha
 					// query from dirty revive trie, got the newest expired info
 					_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
 					if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-						return common.Hash{}, NewExpiredStateError(s.address, key, enErr)
+						return common.Hash{}, NewExpiredStateError(s.address, key, enErr).Reason("snap query")
 					}
 					return common.Hash{}, NewSnapExpiredStateError(s.address, key, sv.Epoch)
 				}
@@ -388,7 +390,7 @@ func (s *StateObject) SetState(db Database, key, value common.Hash) error {
 	// If the new value is the same as old, don't set
 	prev, err := s.GetState(db, key)
 	if exErr, ok := err.(*ExpiredStateError); ok {
-		exErr.isInsert = true
+		exErr.Reason("query from insert")
 		return exErr
 	}
 	if err != nil {

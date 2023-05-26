@@ -105,7 +105,8 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize, trie
 	if headBlock == nil {
 		return nil, errors.New("Failed to load head block")
 	}
-	chainConfig := rawdb.ReadChainConfig(db, headBlock.Hash())
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	chainConfig := rawdb.ReadChainConfig(db, stored)
 	if chainConfig == nil {
 		return nil, errors.New("cannot find chainConfig")
 	}
@@ -705,7 +706,8 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string, tri
 	if headBlock == nil {
 		return errors.New("Failed to load head block")
 	}
-	chainConfig := rawdb.ReadChainConfig(db, headBlock.Hash())
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	chainConfig := rawdb.ReadChainConfig(db, stored)
 	if chainConfig == nil {
 		return errors.New("cannot find chainConfig")
 	}
