@@ -212,8 +212,23 @@ func (n *cachedNode) getEpoch() (types.StateEpoch, error) {
 		return n.epoch, nil
 	case *rawFullNode:
 		return n.epoch, nil
+	case *rootNode:
+		return n.Epoch, nil
 	default:
 		return 0, fmt.Errorf("unknown node type: %T", n) // TODO(asyukii): may never reach this case, consider panic
+	}
+}
+
+func (n *cachedNode) updateEpoch(epoch types.StateEpoch) {
+	switch n := n.node.(type) {
+	case *rawShortNode:
+		n.epoch = epoch
+	case *rawFullNode:
+		n.epoch = epoch
+	case *rootNode:
+		n.Epoch = epoch
+	default:
+		return
 	}
 }
 
@@ -357,6 +372,15 @@ func (db *Database) insert(hash common.Hash, size int, node node) {
 
 	// If the node's already cached, skip
 	if _, ok := db.dirties[hash]; ok {
+		// update the epoch
+		switch n := node.(type) {
+		case *shortNode:
+			db.dirties[hash].updateEpoch(n.getEpoch())
+		case *fullNode:
+			db.dirties[hash].updateEpoch(n.getEpoch())
+		case *rootNode:
+			db.dirties[hash].updateEpoch(n.getEpoch())
+		}
 		return
 	}
 	memcacheDirtyWriteMeter.Mark(int64(size))
@@ -611,7 +635,7 @@ func (db *Database) dereference(child common.Hash, parent common.Hash, epoch typ
 	}
 	childEpoch, getChildEpochErr := node.getEpoch()
 	canPruneExpired := false
-	if getParentEpochErr == nil && getChildEpochErr == nil {
+	if childEpoch != 0 && getParentEpochErr == nil && getChildEpochErr == nil { // TODO(asyukii): temporary fix, will not prune epoch 0 nodes because of account trie nodes
 		canPruneExpired = checkBEP206PruneRule(childEpoch, parentEpoch, epoch)
 	}
 	if canPruneExpired || node.parents == 0 { // Delete nodes if expired or no more parents node referencing this node

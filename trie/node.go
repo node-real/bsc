@@ -220,7 +220,7 @@ func decodeNodeUnsafe(hash, buf []byte) (node, error) {
 		n, err := decodeFull(hash, elems)
 		return n, wrapError(err, "full")
 	case 3:
-		n, err := decodeRootNode(buf)
+		n, err := DecodeRootNode(buf)
 		return n, wrapError(err, "root")
 	default:
 		return nil, fmt.Errorf("invalid number of list elements: %v", c)

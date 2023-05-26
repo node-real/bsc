@@ -234,7 +234,7 @@ func TestRootNode_encodeDecode(t *testing.T) {
 		item.n.encode(buf)
 		enc := buf.ToBytes()
 
-		rn, err := decodeRootNode(enc)
+		rn, err := DecodeRootNode(enc)
 		assert.NoError(t, err)
 		if !item.isEqual {
 			assert.NotEqual(t, item.n, rn)

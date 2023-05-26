@@ -1227,7 +1227,7 @@ func resolveRootNode(sndb ShadowNodeStorage, root common.Hash) (*rootNode, error
 	if len(val) == 0 {
 		return newEpoch0RootNode(root), nil
 	}
-	n, err := decodeRootNode(val)
+	n, err := DecodeRootNode(val)
 	if err != nil {
 		return nil, err
 	}

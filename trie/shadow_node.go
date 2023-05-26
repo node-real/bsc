@@ -77,7 +77,7 @@ func (n *rootNode) resolveCache() {
 	returnHasherToPool(h)
 }
 
-func decodeRootNode(enc []byte) (*rootNode, error) {
+func DecodeRootNode(enc []byte) (*rootNode, error) {
 	n := &rootNode{}
 	if err := rlp.DecodeBytes(enc, n); err != nil {
 		return nil, err
