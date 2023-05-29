@@ -244,35 +244,30 @@ func (t *Trie) tryGetWithEpoch(origNode node, key []byte, pos int, epoch types.S
 			return nil, n, false, nil
 		}
 
-		if updateEpoch {
-			n.setEpoch(t.currentEpoch)
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), t.currentEpoch, true)
-		} else {
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), epoch, false)
-		}
-		if err == nil && didResolve {
+		value, newnode, didResolve, err = t.tryGetWithEpoch(n.Val, key, pos+len(n.Key), t.currentEpoch, updateEpoch)
+		if err == nil && t.renewNode(epoch, didResolve, updateEpoch) {
 			n = n.copy()
 			n.Val = newnode
+			if updateEpoch {
+				n.setEpoch(t.currentEpoch)
+			}
+			didResolve = true
 		}
 		return value, n, didResolve, err
 	case *fullNode:
-		if updateEpoch {
-			// child node is expired
-			if n.Children[key[pos]] != nil {
-				if expired, err := n.ChildExpired(key[:pos+1], int(key[pos]), t.currentEpoch); expired {
-					return nil, n, false, err
-				}
-			}
-			n.setEpoch(t.currentEpoch)
-			n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, t.currentEpoch, true)
-		} else {
-			value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(int(key[pos])), false)
-		}
-		if err == nil && didResolve {
+		value, newnode, didResolve, err = t.tryGetWithEpoch(n.Children[key[pos]], key, pos+1, n.GetChildEpoch(int(key[pos])), updateEpoch)
+		if err == nil && t.renewNode(epoch, didResolve, updateEpoch) {
 			n = n.copy()
 			n.Children[key[pos]] = newnode
+			if updateEpoch {
+				n.setEpoch(t.currentEpoch)
+			}
+			if updateEpoch && newnode != nil {
+				n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
+			}
+			didResolve = true
 		}
+
 		return value, n, didResolve, err
 	case hashNode:
 		child, err := t.resolveHash(n, key[:pos])
@@ -432,9 +427,8 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		// If the whole key matches, keep this short node as is
 		// and only update the value.
 		if matchlen == len(n.Key) {
-			n.setEpoch(t.currentEpoch)
 			dirty, nn, err := t.insert(n.Val, append(prefix, key[:matchlen]...), key[matchlen:], value, n.epoch)
-			if !dirty || err != nil {
+			if !t.renewNode(epoch, dirty, true) || err != nil {
 				return false, n, err
 			}
 			return true, &shortNode{Key: n.Key, Val: nn, flags: t.newFlag(), epoch: t.currentEpoch}, nil
@@ -446,16 +440,13 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		if err != nil {
 			return false, nil, err
 		}
-		if t.withShadowNodes {
-			branch.setEpoch(t.currentEpoch)
-			branch.UpdateChildEpoch(int(n.Key[matchlen]), t.currentEpoch)
-		}
 		_, branch.Children[key[matchlen]], err = t.insert(nil, append(prefix, key[:matchlen+1]...), key[matchlen+1:], value, t.currentEpoch)
 		if err != nil {
 			return false, nil, err
 		}
 		if t.withShadowNodes {
 			branch.setEpoch(t.currentEpoch)
+			branch.UpdateChildEpoch(int(n.Key[matchlen]), t.currentEpoch)
 			branch.UpdateChildEpoch(int(key[matchlen]), t.currentEpoch)
 		}
 		// Replace this shortNode with the branch if it occurs at index 0.
@@ -466,26 +457,17 @@ func (t *Trie) insert(n node, prefix, key []byte, value node, epoch types.StateE
 		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag(), epoch: t.currentEpoch}, nil
 
 	case *fullNode:
-		if t.withShadowNodes {
-			// else, set its epoch to current epoch.
-			n.setEpoch(t.currentEpoch)
-			// if inserting a new node to this full node, there is no need to check whether this child is expired.
-			if len(key) > 0 && n.Children[key[0]] != nil {
-				// if child is expired, return err
-				if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
-					return false, n.Children[key[0]], err
-				}
-			}
-			// else, set child node's epoch to current epoch
-			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
-		}
 		dirty, nn, err := t.insert(n.Children[key[0]], append(prefix, key[0]), key[1:], value, n.GetChildEpoch(int(key[0])))
-		if !dirty || err != nil {
+		if !t.renewNode(epoch, dirty, true) || err != nil {
 			return false, n, err
 		}
 		n = n.copy()
 		n.flags = t.newFlag()
 		n.Children[key[0]] = nn
+		if t.withShadowNodes {
+			n.setEpoch(t.currentEpoch)
+			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+		}
 		return true, n, nil
 
 	case nil:
@@ -556,7 +538,7 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 		// subtrie must contain at least two other values with keys
 		// longer than n.Key.
 		dirty, child, err := t.delete(n.Val, append(prefix, key[:len(n.Key)]...), key[len(n.Key):], n.epoch)
-		if !dirty || err != nil {
+		if !t.renewNode(epoch, dirty, true) || err != nil {
 			return false, n, err
 		}
 		switch child := child.(type) {
@@ -573,23 +555,19 @@ func (t *Trie) delete(n node, prefix, key []byte, epoch types.StateEpoch) (bool,
 		}
 
 	case *fullNode:
-		if t.withShadowNodes {
-			// else, set its epoch to current epoch.
-			n.setEpoch(t.currentEpoch)
-			// if child is expired, return err
-			if expired, err := n.ChildExpired(append(prefix, key[0]), int(key[0]), t.currentEpoch); expired {
-				return false, n.Children[key[0]], err
-			}
-			// else, set child node's epoch to current epoch
-			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
-		}
 		dirty, nn, err := t.delete(n.Children[key[0]], append(prefix, key[0]), key[1:], n.GetChildEpoch(int(key[0])))
-		if !dirty || err != nil {
+		if !t.renewNode(epoch, dirty, true) || err != nil {
 			return false, n, err
 		}
 		n = n.copy()
 		n.flags = t.newFlag()
 		n.Children[key[0]] = nn
+		if t.withShadowNodes {
+			n.setEpoch(t.currentEpoch)
+		}
+		if t.withShadowNodes && nn != nil {
+			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+		}
 
 		// Because n is a full node, it must've contained at least two children
 		// before the delete operation. If the new child value is non-nil, n still
@@ -1198,6 +1176,23 @@ func (t *Trie) epochExpired(n node, epoch types.StateEpoch) bool {
 		return false
 	}
 	return types.EpochExpired(epoch, t.currentEpoch)
+}
+
+// renewNode check if renew node, according to trie node epoch and childDirty,
+// childDirty or updateEpoch need copy for prevent reuse trie cache
+func (t *Trie) renewNode(epoch types.StateEpoch, childDirty bool, updateEpoch bool) bool {
+	// when !updateEpoch, it same as !t.withShadowNodes
+	if !t.withShadowNodes || !updateEpoch {
+		return childDirty
+	}
+
+	// when no epoch update, same as before
+	if epoch == t.currentEpoch {
+		return childDirty
+	}
+
+	// node need update epoch, just renew
+	return true
 }
 
 func resolveRootNode(sndb ShadowNodeStorage, root common.Hash) (*rootNode, error) {
