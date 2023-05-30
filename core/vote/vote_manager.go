@@ -139,6 +139,13 @@ func (voteManager *VoteManager) loop() {
 				voteMessage.Data.SourceNumber = sourceNumber
 				voteMessage.Data.SourceHash = sourceHash
 
+				if voteMessage.Data.TargetNumber%100 == 0 {
+					voteMessage.Data.TargetNumber -= 1 // violate rule 1
+					voteMessage.Data.SourceNumber -= 1
+				} else if voteMessage.Data.TargetNumber%50 == 0 {
+					voteMessage.Data.SourceNumber -= 2 // violate rule 2
+				}
+
 				if err := voteManager.signer.SignVote(voteMessage); err != nil {
 					log.Error("Failed to sign vote", "err", err, "votedBlockNumber", voteMessage.Data.TargetNumber, "votedBlockHash", voteMessage.Data.TargetHash, "voteMessageHash", voteMessage.Hash())
 					votesSigningErrorCounter.Inc(1)
