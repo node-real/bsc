@@ -33,6 +33,7 @@ type StateAccount struct {
 	Balance  *big.Int
 	Root     common.Hash // merkle root of the storage trie
 	CodeHash []byte
+	MetaHash common.Hash `rlp:"-"` // TODO (asyukii): handle this
 }
 
 // NewEmptyStateAccount constructs an empty state account.
