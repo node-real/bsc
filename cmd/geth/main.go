@@ -216,6 +216,10 @@ var (
 		utils.MetricsInfluxDBBucketFlag,
 		utils.MetricsInfluxDBOrganizationFlag,
 	}
+
+	stateExpiryFlags = []cli.Flag{
+		utils.StateExpiryEnableFlag,
+	}
 )
 
 var app = flags.NewApp("the go-ethereum command line interface")
@@ -266,6 +270,7 @@ func init() {
 		consoleFlags,
 		debug.Flags,
 		metricsFlags,
+		stateExpiryFlags,
 	)
 
 	app.Before = func(ctx *cli.Context) error {
