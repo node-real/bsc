@@ -99,6 +99,9 @@ type Config struct {
 	// to turn it on.
 	DisablePeerTxBroadcast bool
 
+	// state expiry configs
+	StateExpiryEnable bool
+
 	// This can be set to list of enrtree:// URLs which will be queried for
 	// for nodes to connect to.
 	EthDiscoveryURLs   []string

@@ -39,6 +39,7 @@ const (
 	FastNodeCategory     = "FAST NODE"
 	FastFinalityCategory = "FAST FINALITY"
 	HistoryCategory      = "HISTORY"
+	StateExpiryCategory  = "STATE EXPIRY"
 )
 
 func init() {

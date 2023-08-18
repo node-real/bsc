@@ -1096,6 +1096,15 @@ var (
 	}
 )
 
+var (
+	// State Expiry Flags
+	StateExpiryEnableFlag = &cli.BoolFlag{
+		Name:     "state-expiry",
+		Usage:    "Enable state expiry, it will mark state's epoch meta and prune un-accessed states later",
+		Category: flags.StateExpiryCategory,
+	}
+)
+
 func init() {
 	if rawdb.PebbleEnabled {
 		DatabasePathFlags = append(DatabasePathFlags, DBEngineFlag)
