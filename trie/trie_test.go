@@ -36,6 +36,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie/trienode"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -993,6 +994,86 @@ func TestCommitSequenceSmallRoot(t *testing.T) {
 	if got, exp := stackTrieSponge.sponge.Sum(nil), s.sponge.Sum(nil); !bytes.Equal(got, exp) {
 		t.Fatalf("test, disk write sequence wrong:\ngot %x exp %x\n", got, exp)
 	}
+}
+
+func TestReviveCustom(t *testing.T) {
+
+	data := map[string]string{
+		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
+		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
+	}
+
+	trie := createCustomTrie(data)
+
+	oriRootHash := trie.Hash()
+
+	for k, v := range data {
+		key := []byte(k)
+		val := []byte(v)
+		prefixKeys := getFullNodePrefixKeys(trie, key)
+		for _, prefixKey := range prefixKeys {
+			var proofList proofList
+			err := trie.ProvePath(key, prefixKey, &proofList)
+			assert.NoError(t, err)
+
+			trie.ExpireByPrefix(prefixKey)
+
+			trie.ReviveTrie(key, prefixKey, proofList)
+
+			v := trie.MustGet(key)
+			assert.Equal(t, val, v)
+
+			// Verify root hash
+			currRootHash := trie.Hash()
+			assert.Equal(t, oriRootHash, currRootHash, "root hash mismatch, got %x, exp %x, key %x, prefixKey %x", currRootHash, oriRootHash, key, prefixKey)
+
+			// Reset trie
+			trie = createCustomTrie(data)
+		}
+	}
+}
+
+func createCustomTrie(data map[string]string) *Trie {
+	trie := NewEmpty(NewDatabase(rawdb.NewMemoryDatabase()))
+	for k, v := range data {
+		trie.MustUpdate([]byte(k), []byte(v))
+	}
+
+	return trie
+}
+
+func getFullNodePrefixKeys(t *Trie, key []byte) [][]byte {
+	var prefixKeys [][]byte
+	key = keybytesToHex(key)
+	tn := t.root
+	currPath := []byte{}
+	for len(key) > 0 && tn != nil {
+		switch n := tn.(type) {
+		case *shortNode:
+			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
+				// The trie doesn't contain the key.
+				tn = nil
+			} else {
+				tn = n.Val
+				prefixKeys = append(prefixKeys, currPath)
+				currPath = append(currPath, n.Key...)
+				key = key[len(n.Key):]
+			}
+		case *fullNode:
+			tn = n.Children[key[0]]
+			currPath = append(currPath, key[0])
+			key = key[1:]
+		default:
+			return nil
+		}
+	}
+
+	// Remove the first item in prefixKeys, which is the empty key
+	if len(prefixKeys) > 0 {
+		prefixKeys = prefixKeys[1:]
+	}
+
+	return prefixKeys
 }
 
 // BenchmarkCommitAfterHashFixedSize benchmarks the Commit (after Hash) of a fixed number of updates to a trie.
