@@ -111,6 +111,109 @@ func (t *StateTrie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 	return t.trie.Prove(key, proofDb)
 }
 
+// traverseNodes traverses the trie with the given key starting at the given node.
+// If the trie contains the key, the returned node is the node that contains the
+// value for the key. If nodes is specified, the traversed nodes are appended to
+// it.
+func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node) (node, error) {
+
+	var prefix []byte
+
+	for len(key) > 0 && tn != nil {
+		switch n := tn.(type) {
+		case *shortNode:
+			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
+				// The trie doesn't contain the key.
+				tn = nil
+			} else {
+				tn = n.Val
+				prefix = append(prefix, n.Key...)
+				key = key[len(n.Key):]
+			}
+			if nodes != nil {
+				*nodes = append(*nodes, n)
+			}
+		case *fullNode:
+			tn = n.Children[key[0]]
+			prefix = append(prefix, key[0])
+			key = key[1:]
+			if nodes != nil {
+				*nodes = append(*nodes, n)
+			}
+		case hashNode:
+			// Retrieve the specified node from the underlying node reader.
+			// trie.resolveAndTrack is not used since in that function the
+			// loaded blob will be tracked, while it's not required here since
+			// all loaded nodes won't be linked to trie at all and track nodes
+			// may lead to out-of-memory issue.
+			blob, err := t.reader.node(prefix, common.BytesToHash(n))
+			if err != nil {
+				log.Error("Unhandled trie error in traverseNodes", "err", err)
+				return nil, err
+			}
+			// The raw-blob format nodes are loaded either from the
+			// clean cache or the database, they are all in their own
+			// copy and safe to use unsafe decoder.
+			tn = mustDecodeNodeUnsafe(n, blob)
+		default:
+			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
+		}
+	}
+
+	return tn, nil
+}
+
+func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueWriter) error {
+
+	if t.committed {
+		return ErrCommitted
+	}
+
+	if len(key) == 0 {
+		return fmt.Errorf("key is empty")
+	}
+
+	key = keybytesToHex(key)
+
+	// traverse down using the prefixKeyHex
+	var nodes []node
+	tn := t.root
+	startNode, err := t.traverseNodes(tn, prefixKeyHex, nil) // obtain the node where the prefixKeyHex leads to
+	if err != nil {
+		return err
+	}
+
+	key = key[len(prefixKeyHex):] // obtain the suffix key
+
+	// traverse through the suffix key
+	_, err = t.traverseNodes(startNode, key, &nodes)
+	if err != nil {
+		return err
+	}
+
+	hasher := newHasher(false)
+	defer returnHasherToPool(hasher)
+
+	// construct the proof
+	for _, n := range nodes {
+		var hn node
+		n, hn = hasher.proofHash(n)
+		if hash, ok := hn.(hashNode); ok {
+			enc := nodeToBytes(n)
+			if !ok {
+				hash = hasher.hashData(enc)
+			}
+			proofDb.Put(hash, enc)
+		}
+	}
+
+	return nil
+}
+
+func (t *StateTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
+	return t.trie.ProvePath(key, path, proofDb)
+}
+
 // VerifyProof checks merkle proofs. The given proof must contain the value for
 // key in a trie with the given root hash. VerifyProof returns an error if the
 // proof contains invalid trie nodes or the wrong value.
