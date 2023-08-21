@@ -682,3 +682,136 @@ func (t *Trie) Size() int {
 func (t *Trie) Owner() common.Hash {
 	return t.owner
 }
+
+// ReviveTrie revives a trie by prefix key with the given proof list.
+func (t *Trie) ReviveTrie(key []byte, prefixKeyHex []byte, proofList [][]byte) {
+	key = keybytesToHex(key)
+
+	// Verify the proof first
+	revivedNode, revivedHash, err := VerifyPathProof(key, prefixKeyHex, proofList)
+	if err != nil {
+		log.Error("Failed to verify proof", "err", err)
+	}
+
+	newRoot, _, err := t.revive(t.root, key, prefixKeyHex, 0, revivedNode, common.BytesToHash(revivedHash))
+	if err != nil {
+		log.Error("Failed to revive trie", "err", err)
+	}
+	t.root = newRoot
+}
+
+func (t *Trie) revive(n node, key []byte, prefixKeyHex []byte, pos int, revivedNode node, revivedHash common.Hash) (node, bool, error) {
+
+	if pos > len(prefixKeyHex) {
+		return nil, false, fmt.Errorf("target revive node not found")
+	}
+
+	if pos == len(prefixKeyHex) {
+		hn, ok := n.(hashNode)
+		if !ok {
+			return nil, false, fmt.Errorf("prefix key path does not lead to a hash node")
+		}
+
+		// Compare the hash of the revived node with the hash of the hash node
+		if revivedHash != common.BytesToHash(hn) {
+			return nil, false, fmt.Errorf("revived node hash does not match the hash node hash")
+		}
+
+		return revivedNode, true, nil
+	}
+
+	switch n := n.(type) {
+	case *shortNode:
+		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
+			// key not found in trie
+			return n, false, nil
+		}
+		newNode, didRevived, err := t.revive(n.Val, key, prefixKeyHex, pos+len(n.Key), revivedNode, revivedHash)
+		if err == nil && didRevived {
+			n = n.copy()
+			n.Val = newNode
+		}
+		return n, didRevived, err
+	case *fullNode:
+		childIndex := int(key[pos])
+		newNode, didRevived, err := t.revive(n.Children[childIndex], key, prefixKeyHex, pos+1, revivedNode, revivedHash)
+		if err == nil && didRevived {
+			n = n.copy()
+			n.Children[key[pos]] = newNode
+		}
+		return n, didRevived, err
+	case hashNode:
+		child, err := t.resolveAndTrack(n, key[:pos])
+		if err != nil {
+			return nil, false, err
+		}
+		newNode, _, err := t.revive(child, key, prefixKeyHex, pos, revivedNode, revivedHash)
+		return newNode, true, err
+	case nil:
+		return nil, false, nil
+	default:
+		panic(fmt.Sprintf("invalid node: %T", n))
+	}
+}
+
+// ExpireByPrefix is used to simulate the expiration of a trie by prefix key.
+// It is not used in the actual trie implementation. ExpireByPrefix makes sure
+// only a child node of a full node is expired, if not an error is returned.
+func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) error {
+	hn, err := t.expireByPrefix(t.root, prefixKeyHex)
+	if prefixKeyHex == nil && hn != nil {
+		t.root = hn
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, error) {
+	// Loop through prefix key
+	// When prefix key is empty, generate the hash node of the current node
+	// Replace current node with the hash node
+
+	if len(prefixKeyHex) == 0 {
+		hasher := newHasher(false)
+		defer returnHasherToPool(hasher)
+		var hn node
+		_, hn = hasher.proofHash(n)
+		if _, ok := hn.(hashNode); ok {
+			return hn, nil
+		}
+
+		return nil, nil
+	}
+
+	switch n := n.(type) {
+	case *shortNode:
+		matchLen := prefixLen(prefixKeyHex, n.Key)
+		hn, err := t.expireByPrefix(n.Val, prefixKeyHex[matchLen:])
+		if err != nil {
+			return nil, err
+		}
+
+		if hn != nil {
+			return nil, fmt.Errorf("can only expire child short node")
+		}
+
+		return nil, err
+	case *fullNode:
+		childIndex := int(prefixKeyHex[0])
+		hn, err := t.expireByPrefix(n.Children[childIndex], prefixKeyHex[1:])
+		if err != nil {
+			return nil, err
+		}
+
+		// Replace child node with hash node
+		if hn != nil {
+			n.Children[prefixKeyHex[0]] = hn
+		}
+
+		return nil, err
+	default:
+		return nil, fmt.Errorf("invalid node type")
+	}
+}

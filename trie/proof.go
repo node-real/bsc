@@ -210,6 +210,93 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	return nil
 }
 
+// VerifyPathProof reconstructs the trie from the given proof and verifies the root hash.
+func VerifyPathProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte) (node, hashNode, error) {
+
+	if len(proofList) == 0 {
+		return nil, nil, fmt.Errorf("proof list is empty")
+	}
+
+	n, err := ConstructTrieFromProof(keyHex, prefixKeyHex, proofList)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// hash the root node
+	hasher := newHasher(false)
+	defer returnHasherToPool(hasher)
+	hn, cn := hasher.hash(n, true)
+	if hash, ok := hn.(hashNode); ok {
+		return cn, hash, nil
+	}
+
+	return nil, nil, fmt.Errorf("path proof verification failed")
+}
+
+// ConstructTrieFromProof constructs a trie from the given proof. It returns the root node of the trie.
+func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte) (node, error) {
+	var parentNode node
+	var root node
+
+	keyHex = keyHex[len(prefixKeyHex):]
+
+	for i := 0; i < len(proofList); i++ {
+
+		var n node
+
+		node := proofList[i]
+		n, err := decodeNode(nil, node)
+		if err != nil {
+			return nil, fmt.Errorf("decode proof item %064x, err: %x", node, err)
+		}
+
+		if parentNode == nil {
+			parentNode = n
+			root = parentNode
+		}
+
+		keyrest, cld := get(n, keyHex, false)
+		switch cld := cld.(type) {
+		case nil:
+			return nil, fmt.Errorf("the trie doesn't contain the key")
+		case hashNode:
+			keyHex = keyrest
+			// Verify that the child node is a hashNode and matches the hash in the proof
+			switch sn := parentNode.(type) {
+			case *shortNode:
+				if hash, ok := sn.Val.(hashNode); ok && !bytes.Equal(hash, cld) {
+					return nil, fmt.Errorf("the child node of shortNode is not a hashNode or doesn't match the hash in the proof")
+				}
+			case *fullNode:
+				if hash, ok := sn.Children[keyHex[0]].(hashNode); ok && !bytes.Equal(hash, cld) {
+					return nil, fmt.Errorf("the child node of fullNode is not a hashNode or doesn't match the hash in the proof")
+				}
+			}
+		case valueNode:
+			switch sn := parentNode.(type) {
+			case *shortNode:
+				sn.Val = cld
+				return root, nil
+			case *fullNode:
+				sn.Children[keyHex[0]] = cld
+				return root, nil
+			}
+		}
+
+		// Link the parent and child.
+		switch sn := parentNode.(type) {
+		case *shortNode:
+			sn.Val = n
+			parentNode = n
+		case *fullNode:
+			sn.Children[keyHex[0]] = n
+			parentNode = n
+		}
+	}
+
+	return root, nil
+}
+
 func (t *StateTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
 	return t.trie.ProvePath(key, path, proofDb)
 }
