@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -115,7 +116,7 @@ func (t *StateTrie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 // If the trie contains the key, the returned node is the node that contains the
 // value for the key. If nodes is specified, the traversed nodes are appended to
 // it.
-func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node) (node, error) {
+func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.StateEpoch, updateEpoch bool) (node, error) {
 
 	var prefix []byte
 
@@ -178,7 +179,7 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	// traverse down using the prefixKeyHex
 	var nodes []node
 	tn := t.root
-	startNode, err := t.traverseNodes(tn, prefixKeyHex, nil) // obtain the node where the prefixKeyHex leads to
+	startNode, err := t.traverseNodes(tn, prefixKeyHex, nil, 0, false) // obtain the node where the prefixKeyHex leads to
 	if err != nil {
 		return err
 	}
@@ -186,7 +187,7 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	key = key[len(prefixKeyHex):] // obtain the suffix key
 
 	// traverse through the suffix key
-	_, err = t.traverseNodes(startNode, key, &nodes)
+	_, err = t.traverseNodes(startNode, key, &nodes, 0, false)
 	if err != nil {
 		return err
 	}
@@ -211,13 +212,13 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 }
 
 // VerifyPathProof reconstructs the trie from the given proof and verifies the root hash.
-func VerifyPathProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte) (node, hashNode, error) {
+func VerifyPathProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte, epoch types.StateEpoch) (node, hashNode, error) {
 
 	if len(proofList) == 0 {
 		return nil, nil, fmt.Errorf("proof list is empty")
 	}
 
-	n, err := ConstructTrieFromProof(keyHex, prefixKeyHex, proofList)
+	n, err := ConstructTrieFromProof(keyHex, prefixKeyHex, proofList, epoch)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -234,7 +235,7 @@ func VerifyPathProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte) (no
 }
 
 // ConstructTrieFromProof constructs a trie from the given proof. It returns the root node of the trie.
-func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte) (node, error) {
+func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte, epoch types.StateEpoch) (node, error) {
 	var parentNode node
 	var root node
 
@@ -276,9 +277,11 @@ func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]by
 			switch sn := parentNode.(type) {
 			case *shortNode:
 				sn.Val = cld
+				sn.setEpoch(epoch)
 				return root, nil
 			case *fullNode:
 				sn.Children[keyHex[0]] = cld
+				sn.setEpoch(epoch)
 				return root, nil
 			}
 		}
@@ -287,14 +290,59 @@ func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]by
 		switch sn := parentNode.(type) {
 		case *shortNode:
 			sn.Val = n
+			sn.setEpoch(epoch)
 			parentNode = n
 		case *fullNode:
 			sn.Children[keyHex[0]] = n
+			sn.setEpoch(epoch)
+			sn.UpdateChildEpoch(int(keyHex[0]), epoch)
 			parentNode = n
 		}
 	}
 
+	// Continue traverse down the trie to update the epoch of the child nodes
+	err := updateEpochInChildNodes(&parentNode, keyHex, epoch)
+	if err != nil {
+		return nil, err
+	}
+
 	return root, nil
+}
+
+// updateEpochInChildNodes traverse down a node and update the epoch of the child nodes
+func updateEpochInChildNodes(tn *node, key []byte, epoch types.StateEpoch) error {
+
+	node := *tn
+	startNode := node
+
+	for len(key) > 0 && tn != nil {
+		switch n := node.(type) {
+		case *shortNode:
+			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
+				// The trie doesn't contain the key.
+				node = nil
+			} else {
+				node = n.Val
+				key = key[len(n.Key):]
+			}
+			n.setEpoch(epoch)
+		case *fullNode:
+			node = n.Children[key[0]]
+			n.UpdateChildEpoch(int(key[0]), epoch)
+			n.setEpoch(epoch)
+
+			key = key[1:]
+		case hashNode:
+			return fmt.Errorf("cannot resolve hash node")
+		case valueNode:
+		default:
+			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
+		}
+	}
+
+	*tn = startNode
+
+	return nil
 }
 
 func (t *StateTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {

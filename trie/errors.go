@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // ErrCommitted is returned when a already committed trie is requested for usage.
@@ -49,4 +50,20 @@ func (err *MissingNodeError) Error() string {
 		return fmt.Sprintf("missing trie node %x (path %x) %v", err.NodeHash, err.Path, err.err)
 	}
 	return fmt.Sprintf("missing trie node %x (owner %x) (path %x) %v", err.NodeHash, err.Owner, err.Path, err.err)
+}
+
+type ExpiredNodeError struct {
+	Path  []byte // hex-encoded path to the expired node
+	Epoch types.StateEpoch
+}
+
+func NewExpiredNodeError(path []byte, epoch types.StateEpoch) error {
+	return &ExpiredNodeError{
+		Path:  path,
+		Epoch: epoch,
+	}
+}
+
+func (err *ExpiredNodeError) Error() string {
+	return "expired trie node"
 }

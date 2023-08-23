@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -37,11 +38,14 @@ type (
 	fullNode struct {
 		Children [17]node // Actual trie node data to encode/decode (needs custom encoder)
 		flags    nodeFlag
+		EpochMap [16]types.StateEpoch `rlp:"-" json:"-"`
+		epoch    types.StateEpoch     `rlp:"-" json:"-"`
 	}
 	shortNode struct {
 		Key   []byte
 		Val   node
 		flags nodeFlag
+		epoch types.StateEpoch `rlp:"-" json:"-"`
 	}
 	hashNode  []byte
 	valueNode []byte
@@ -56,6 +60,56 @@ func (n *fullNode) EncodeRLP(w io.Writer) error {
 	eb := rlp.NewEncoderBuffer(w)
 	n.encode(eb)
 	return eb.Flush()
+}
+
+func (n *fullNode) setEpoch(epoch types.StateEpoch) {
+	if n.epoch >= epoch {
+		return
+	}
+	n.epoch = epoch
+}
+
+func (n *shortNode) setEpoch(epoch types.StateEpoch) {
+	if n.epoch >= epoch {
+		return
+	}
+	n.epoch = epoch
+}
+
+func (n *fullNode) getEpoch() types.StateEpoch {
+	return n.epoch
+}
+
+func (n *shortNode) getEpoch() types.StateEpoch {
+	return n.epoch
+}
+
+func (n *fullNode) GetChildEpoch(index int) types.StateEpoch {
+	if index < 16 {
+		return n.EpochMap[index]
+	}
+	return n.epoch
+}
+
+func (n *fullNode) UpdateChildEpoch(index int, epoch types.StateEpoch) {
+	if index < 16 {
+		n.EpochMap[index] = epoch
+	}
+}
+
+func (n *fullNode) SetEpochMap(epochMap [16]types.StateEpoch) {
+	n.EpochMap = epochMap
+}
+
+func (n *fullNode) ChildExpired(prefix []byte, index int, currentEpoch types.StateEpoch) (bool, error) {
+	childEpoch := n.GetChildEpoch(index)
+	if types.EpochExpired(childEpoch, currentEpoch) {
+		return true, &ExpiredNodeError{
+			Path:  prefix,
+			Epoch: childEpoch,
+		}
+	}
+	return false, nil
 }
 
 func (n *fullNode) copy() *fullNode   { copy := *n; return &copy }
@@ -176,13 +230,13 @@ func decodeShort(hash, elems []byte) (node, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid value node: %v", err)
 		}
-		return &shortNode{key, valueNode(val), flag}, nil
+		return &shortNode{Key: key, Val: valueNode(val), flags: flag}, nil
 	}
 	r, _, err := decodeRef(rest)
 	if err != nil {
 		return nil, wrapError(err, "val")
 	}
-	return &shortNode{key, r, flag}, nil
+	return &shortNode{Key: key, Val: r, flags: flag}, nil
 }
 
 func decodeFull(hash, elems []byte) (*fullNode, error) {
