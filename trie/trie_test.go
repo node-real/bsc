@@ -985,6 +985,40 @@ func TestCommitSequenceSmallRoot(t *testing.T) {
 	}
 }
 
+func TestRevive(t *testing.T) {
+	trie, vals := nonRandomTrieWithExpiry(100)
+
+	oriRootHash := trie.Hash()
+
+	for _, kv := range vals {
+		key := kv.k
+		val := kv.v
+		prefixKeys := getFullNodePrefixKeys(trie, key)
+		for _, prefixKey := range prefixKeys {
+			// Generate proof
+			var proof proofList
+			err := trie.ProvePath(key, prefixKey, &proof)
+			assert.NoError(t, err)
+
+			// Expire trie
+			trie.ExpireByPrefix(prefixKey)
+
+			// Revive trie
+			trie.ReviveTrie(key, prefixKey, proof)
+
+			v := trie.MustGet(key)
+			assert.Equal(t, val, v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
+
+			// Verify root hash
+			currRootHash := trie.Hash()
+			assert.Equal(t, oriRootHash, currRootHash, "root hash mismatch, got %x, exp %x, key %x, prefixKey %x", currRootHash, oriRootHash, key, prefixKey)
+
+			// Reset trie
+			trie, _ = nonRandomTrieWithExpiry(100)
+		}
+	}
+}
+
 func TestReviveCustom(t *testing.T) {
 
 	data := map[string]string{
@@ -992,7 +1026,7 @@ func TestReviveCustom(t *testing.T) {
 		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
 	}
 
-	trie := createCustomTrie(data)
+	trie := createCustomTrie(data, 10)
 
 	oriRootHash := trie.Hash()
 
@@ -1010,20 +1044,21 @@ func TestReviveCustom(t *testing.T) {
 			trie.ReviveTrie(key, prefixKey, proofList)
 
 			v := trie.MustGet(key)
-			assert.Equal(t, val, v)
+			assert.Equal(t, val, v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
 
 			// Verify root hash
 			currRootHash := trie.Hash()
 			assert.Equal(t, oriRootHash, currRootHash, "root hash mismatch, got %x, exp %x, key %x, prefixKey %x", currRootHash, oriRootHash, key, prefixKey)
 
 			// Reset trie
-			trie = createCustomTrie(data)
+			trie = createCustomTrie(data, 10)
 		}
 	}
 }
 
-func createCustomTrie(data map[string]string) *Trie {
-	trie := NewEmpty(NewDatabase(rawdb.NewMemoryDatabase()))
+func createCustomTrie(data map[string]string, epoch types.StateEpoch) *Trie {
+	db := NewDatabase(rawdb.NewMemoryDatabase())
+	trie := NewEmptyWithExpiry(db, epoch)
 	for k, v := range data {
 		trie.MustUpdate([]byte(k), []byte(v))
 	}
@@ -1057,10 +1092,10 @@ func getFullNodePrefixKeys(t *Trie, key []byte) [][]byte {
 		}
 	}
 
-	// Remove the first item in prefixKeys, which is the empty key
-	if len(prefixKeys) > 0 {
-		prefixKeys = prefixKeys[1:]
-	}
+	// // Remove the first item in prefixKeys, which is the empty key
+	// if len(prefixKeys) > 0 {
+	// 	prefixKeys = prefixKeys[1:]
+	// }
 
 	return prefixKeys
 }
