@@ -88,7 +88,7 @@ func TestOneElementPathProof(t *testing.T) {
 		t.Errorf("proof should have one element")
 	}
 
-	_, hn, err := VerifyPathProof(keybytesToHex([]byte("k")), nil, proofList)
+	_, hn, err := VerifyPathProof(keybytesToHex([]byte("k")), nil, proofList, 0)
 	if err != nil {
 		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proofList)
 	}
@@ -1100,6 +1100,23 @@ func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 		binary.LittleEndian.PutUint64(key, i)
 		binary.LittleEndian.PutUint64(value, i-max)
 		//value := &kv{common.LeftPadBytes([]byte{i}, 32), []byte{i}, false}
+		elem := &kv{key, value, false}
+		trie.MustUpdate(elem.k, elem.v)
+		vals[string(elem.k)] = elem
+	}
+	return trie, vals
+}
+
+func nonRandomTrieWithExpiry(n int) (*Trie, map[string]*kv) {
+	db := NewDatabase(rawdb.NewMemoryDatabase())
+	trie := NewEmptyWithExpiry(db, 10)
+	vals := make(map[string]*kv)
+	max := uint64(0xffffffffffffffff)
+	for i := uint64(0); i < uint64(n); i++ {
+		value := make([]byte, 32)
+		key := make([]byte, 32)
+		binary.LittleEndian.PutUint64(key, i)
+		binary.LittleEndian.PutUint64(value, i-max)
 		elem := &kv{key, value, false}
 		trie.MustUpdate(elem.k, elem.v)
 		vals[string(elem.k)] = elem
