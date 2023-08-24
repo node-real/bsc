@@ -24,7 +24,7 @@ func TestShrinkExpiredLeaf(t *testing.T) {
 	err := ShrinkExpiredLeaf(db, accountHash, storageHash1, types.StateEpoch0)
 	assert.NoError(t, err)
 
-	assert.Equal(t, encodeSnapVal(NewValueWithEpoch(types.StateEpoch0, common.Hash{})), rawdb.ReadStorageSnapshot(db, accountHash, storageHash1))
+	assert.Equal(t, encodeSnapVal(NewValueWithEpoch(types.StateEpoch0, nil)), rawdb.ReadStorageSnapshot(db, accountHash, storageHash1))
 }
 
 func encodeSnapVal(val SnapValue) []byte {
