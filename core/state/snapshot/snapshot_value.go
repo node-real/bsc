@@ -3,7 +3,6 @@ package snapshot
 import (
 	"bytes"
 	"errors"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 )
@@ -20,7 +19,7 @@ var (
 type SnapValue interface {
 	GetType() byte
 	GetEpoch() types.StateEpoch
-	GetVal() common.Hash // may cannot provide val in some value types
+	GetVal() []byte // may cannot provide val in some value types
 	EncodeToRLPBytes(buf *rlp.EncoderBuffer)
 }
 
@@ -39,8 +38,8 @@ func (v *RawValue) GetEpoch() types.StateEpoch {
 	return types.StateEpoch0
 }
 
-func (v *RawValue) GetVal() common.Hash {
-	return common.BytesToHash(*v)
+func (v *RawValue) GetVal() []byte {
+	return *v
 }
 
 func (v *RawValue) EncodeToRLPBytes(buf *rlp.EncoderBuffer) {
@@ -49,10 +48,13 @@ func (v *RawValue) EncodeToRLPBytes(buf *rlp.EncoderBuffer) {
 
 type ValueWithEpoch struct {
 	Epoch types.StateEpoch // kv's epoch meta
-	Val   common.Hash      // if val is empty hash, just encode as empty string in RLP
+	Val   []byte           // if val is empty hash, just encode as empty string in RLP
 }
 
-func NewValueWithEpoch(epoch types.StateEpoch, val common.Hash) SnapValue {
+func NewValueWithEpoch(epoch types.StateEpoch, val []byte) SnapValue {
+	if epoch == types.StateEpoch0 {
+		return NewRawValue(val)
+	}
 	return &ValueWithEpoch{
 		Epoch: epoch,
 		Val:   val,
@@ -67,17 +69,17 @@ func (v *ValueWithEpoch) GetEpoch() types.StateEpoch {
 	return v.Epoch
 }
 
-func (v *ValueWithEpoch) GetVal() common.Hash {
+func (v *ValueWithEpoch) GetVal() []byte {
 	return v.Val
 }
 
 func (v *ValueWithEpoch) EncodeToRLPBytes(buf *rlp.EncoderBuffer) {
 	offset := buf.List()
 	buf.WriteUint64(uint64(v.Epoch))
-	if v.Val == (common.Hash{}) {
+	if len(v.Val) == 0 {
 		buf.Write(rlp.EmptyString)
 	} else {
-		buf.WriteBytes(v.Val[:])
+		buf.WriteBytes(v.Val)
 	}
 	buf.ListEnd(offset)
 }
@@ -143,9 +145,9 @@ func decodeValueWithEpoch(data []byte, v *ValueWithEpoch) error {
 		return err
 	}
 	if len(val) == 0 {
-		v.Val = common.Hash{}
+		v.Val = []byte{}
 	} else {
-		v.Val = common.BytesToHash(val)
+		v.Val = val
 	}
 	return nil
 }
