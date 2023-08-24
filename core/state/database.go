@@ -154,6 +154,8 @@ type Trie interface {
 	// nodes of the longest existing prefix of the key (at least the root), ending
 	// with the node that proves the absence of the key.
 	Prove(key []byte, proofDb ethdb.KeyValueWriter) error
+
+	ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for

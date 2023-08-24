@@ -315,7 +315,7 @@ func updateEpochInChildNodes(tn *node, key []byte, epoch types.StateEpoch) error
 	node := *tn
 	startNode := node
 
-	for len(key) > 0 && tn != nil {
+	for len(key) > 0 && node != nil {
 		switch n := node.(type) {
 		case *shortNode:
 			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
