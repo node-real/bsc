@@ -23,6 +23,9 @@ type StateEpoch uint16
 // ElwoodBlock indicates start state epoch2 and start epoch rotate by StateEpochPeriod.
 // When N>=2 and epochN started, epoch(N-2)'s state will expire.
 func GetStateEpoch(config *params.ChainConfig, blockNumber *big.Int) StateEpoch {
+	if blockNumber == nil || config == nil {
+		return StateEpoch0
+	}
 	epochPeriod := new(big.Int).SetUint64(DefaultStateEpochPeriod)
 	epoch1Block := epochPeriod
 	epoch2Block := new(big.Int).Add(epoch1Block, epochPeriod)
@@ -47,7 +50,7 @@ func GetStateEpoch(config *params.ChainConfig, blockNumber *big.Int) StateEpoch 
 
 // EpochExpired check pre epoch if expired compared to current epoch
 func EpochExpired(pre StateEpoch, cur StateEpoch) bool {
-	return cur >= StateEpochKeepLiveNum && pre <= cur-StateEpochKeepLiveNum
+	return cur > pre && cur-pre >= StateEpochKeepLiveNum
 }
 
 // isBlockReached check if reach expected block number

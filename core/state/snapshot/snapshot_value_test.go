@@ -2,7 +2,6 @@ package snapshot
 
 import (
 	"encoding/hex"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
@@ -30,10 +29,10 @@ func TestSnapValEncodeDecode(t *testing.T) {
 			raw: NewRawValue(val),
 		},
 		{
-			raw: NewValueWithEpoch(types.StateEpoch(1000), common.BytesToHash(val)),
+			raw: NewValueWithEpoch(types.StateEpoch(1000), val),
 		},
 		{
-			raw: NewValueWithEpoch(types.StateEpoch(1000), common.Hash{}),
+			raw: NewValueWithEpoch(types.StateEpoch(1000), []byte{}),
 		},
 	}
 	for _, item := range tests {
