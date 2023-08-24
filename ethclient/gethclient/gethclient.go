@@ -78,6 +78,12 @@ type StorageResult struct {
 	Proof []string `json:"proof"`
 }
 
+type ReviveStorageResult struct {
+	Key       string   `json:"key"`
+	PrefixKey string   `json:"prefixKey"`
+	Proof     []string `json:"proof"`
+}
+
 // GetProof returns the account and storage values of the specified account including the Merkle-proof.
 // The block number can be nil, in which case the value is taken from the latest known block.
 func (ec *Client) GetProof(ctx context.Context, account common.Address, keys []string, blockNumber *big.Int) (*AccountResult, error) {
@@ -123,6 +129,24 @@ func (ec *Client) GetProof(ctx context.Context, account common.Address, keys []s
 		StorageProof: storageResults,
 	}
 	return &result, err
+}
+
+// GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
+// Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
+func (ec *Client) GetStorageReviveProof(ctx context.Context, account common.Address, keys []string, prefixKeys []string, hash common.Hash) ([]ReviveStorageResult, error) {
+	var err error
+	storageResults := make([]ReviveStorageResult, 0, len(keys))
+
+	if len(keys) != len(prefixKeys) {
+		return nil, fmt.Errorf("keys and prefixKeys must be same length")
+	}
+
+	if hash == (common.Hash{}) {
+		err = ec.c.CallContext(ctx, &storageResults, "eth_getStorageReviveProof", account, keys, prefixKeys, "latest")
+	} else {
+		err = ec.c.CallContext(ctx, &storageResults, "eth_getStorageReviveProof", account, keys, prefixKeys, hash)
+	}
+	return storageResults, err
 }
 
 // CallContract executes a message call transaction, which is directly executed in the VM
