@@ -669,6 +669,12 @@ type StorageResult struct {
 	Proof []string     `json:"proof"`
 }
 
+type ReviveStorageResult struct {
+	Key       string   `json:"key"`
+	PrefixKey string   `json:"prefixKey"`
+	Proof     []string `json:"proof"`
+}
+
 // proofList implements ethdb.KeyValueWriter and collects the proofs as
 // hex-strings for delivery to rpc-caller.
 type proofList []string
@@ -755,6 +761,76 @@ func (s *BlockChainAPI) GetProof(ctx context.Context, address common.Address, st
 		StorageHash:  storageHash,
 		StorageProof: storageProof,
 	}, state.Error()
+}
+
+// GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
+// Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
+func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address common.Address, storageKeys []string, storagePrefixKeys []string, blockNrOrHash rpc.BlockNumberOrHash) ([]ReviveStorageResult, error) {
+
+	if len(storageKeys) != len(storagePrefixKeys) {
+		return nil, errors.New("storageKeys and storagePrefixKeys must be same length")
+	}
+
+	var (
+		keys         = make([]common.Hash, len(storageKeys))
+		keyLengths   = make([]int, len(storageKeys))
+		prefixKeys   = make([][]byte, len(storagePrefixKeys))
+		storageProof = make([]ReviveStorageResult, len(storageKeys))
+		storageTrie  state.Trie
+	)
+	// Deserialize all keys. This prevents state access on invalid input.
+	for i, hexKey := range storageKeys {
+		var err error
+		keys[i], keyLengths[i], err = decodeHash(hexKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Decode prefix keys
+	for i, prefixKey := range storagePrefixKeys {
+		var err error
+		prefixKeys[i], err = hex.DecodeString(prefixKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
+	}
+	if storageTrie, err = state.StorageTrie(address); err != nil {
+		return nil, err
+	}
+
+	// Must have storage trie
+	if storageTrie == nil {
+		return nil, errors.New("storageTrie is nil")
+	}
+
+	// Create the proofs for the storageKeys.
+	for i, key := range keys {
+		// Output key encoding is a bit special: if the input was a 32-byte hash, it is
+		// returned as such. Otherwise, we apply the QUANTITY encoding mandated by the
+		// JSON-RPC spec for getProof. This behavior exists to preserve backwards
+		// compatibility with older client versions.
+		var outputKey string
+		if keyLengths[i] != 32 {
+			outputKey = hexutil.EncodeBig(key.Big())
+		} else {
+			outputKey = hexutil.Encode(key[:])
+		}
+
+		var proof proofList
+		prefixKey := prefixKeys[i]
+		if err := storageTrie.ProvePath(crypto.Keccak256(key.Bytes()), prefixKey, &proof); err != nil {
+			return nil, err
+		}
+		storageProof[i] = ReviveStorageResult{outputKey, storagePrefixKeys[i], proof}
+	}
+
+	return storageProof, nil
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally

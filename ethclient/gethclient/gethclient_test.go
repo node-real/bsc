@@ -106,6 +106,9 @@ func TestGethClient(t *testing.T) {
 			"TestGetProof",
 			func(t *testing.T) { testGetProof(t, client) },
 		}, {
+			"TestGetStorageReviveProof",
+			func(t *testing.T) { testGetStorageReviveProof(t, client) },
+		}, {
 			"TestGetProofCanonicalizeKeys",
 			func(t *testing.T) { testGetProofCanonicalizeKeys(t, client) },
 		}, {
@@ -233,6 +236,27 @@ func testGetProof(t *testing.T, client *rpc.Client) {
 	}
 	if proof.Key != testSlot.String() {
 		t.Fatalf("invalid storage proof key, want: %q, got: %q", testSlot.String(), proof.Key)
+	}
+}
+
+func testGetStorageReviveProof(t *testing.T, client *rpc.Client) {
+	ec := New(client)
+	result, err := ec.GetStorageReviveProof(context.Background(), testAddr, []string{testSlot.String()}, []string{""}, common.Hash{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// test storage
+	if len(result) != 1 {
+		t.Fatalf("invalid storage proof, want 1 proof, got %v proof(s)", len(result))
+	}
+
+	if result[0].Key != testSlot.String() {
+		t.Fatalf("invalid storage proof key, want: %q, got: %q", testSlot.String(), result[0].Key)
+	}
+
+	if result[0].PrefixKey != "" {
+		t.Fatalf("invalid storage proof prefix key, want: %q, got: %q", "", result[0].PrefixKey)
 	}
 }
 
