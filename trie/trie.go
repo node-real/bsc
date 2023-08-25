@@ -24,6 +24,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 )
@@ -1275,4 +1276,148 @@ func (t *Trie) epochExpired(n node, epoch types.StateEpoch) bool {
 		return false
 	}
 	return types.EpochExpired(epoch, t.currentEpoch)
+}
+
+// PruneExpiredStorageTrie traverses the storage trie and prunes all expired nodes.
+func (t *Trie) PruneExpiredStorageTrie(db ethdb.Database) error {
+
+	if !t.enableExpiry {
+		return nil
+	}
+
+	if t.owner == (common.Hash{}) {
+		return fmt.Errorf("cannot prune account trie")
+	}
+
+	var (
+		hasher = newHasher(false)
+		batch  = db.NewBatch()
+	)
+
+	defer returnHasherToPool(hasher)
+
+	_, _, err := t.pruneExpiredStorageTrie(t.root, nil, t.getRootEpoch(), false, batch, hasher)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *Trie) pruneExpiredStorageTrie(n node, path []byte, curEpoch types.StateEpoch, isExpired bool, batch ethdb.Batch, h *hasher) (node, bool, error) {
+
+	// Upon reaching expired node, it will recursively traverse downwards to all the child nodes
+	// and collect their hashes. Then, the corresponding key-value pairs will be deleted from the
+	// database by batches.
+	if isExpired {
+		var hashList []common.Hash
+		cn, err := t.pruneExpired(n, path, h, &hashList)
+		if err != nil {
+			return nil, false, err
+		}
+
+		for _, hash := range hashList {
+			batch.Delete(hash[:])
+		}
+
+		// Handle 1 expired subtree at a time
+		batch.Write()
+		batch.Reset()
+
+		return cn, true, nil
+	}
+
+	switch n := n.(type) {
+	case *shortNode:
+		newNode, didExpire, err := t.pruneExpiredStorageTrie(n.Val, append(path, n.Key...), curEpoch, isExpired, batch, h)
+		if err == nil && didExpire {
+			n = n.copy()
+			n.Val = newNode
+		}
+		return n, didExpire, err
+	case *fullNode:
+
+		hasExpired := false
+
+		// Go through every child and recursively delete expired nodes
+		for i, child := range n.Children {
+			childExpired, _ := n.ChildExpired(path, i, curEpoch)
+			newNode, didExpire, err := t.pruneExpiredStorageTrie(child, append(path, byte(i)), curEpoch, childExpired, batch, h)
+			if err == nil && didExpire {
+				n = n.copy()
+				n.Children[byte(i)] = newNode
+				hasExpired = true
+			}
+		}
+		return n, hasExpired, nil
+
+	case hashNode:
+		child, err := t.resolveAndTrack(n, path)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// TODO(asyukii): resolve meta
+		if child, ok := child.(*fullNode); ok {
+			epochMap, err := t.resolveMeta(child, 0, nil) // TODO(asyukii): handle this
+			if err != nil {
+				return nil, false, err
+			}
+			child.SetEpochMap(epochMap)
+		}
+
+		newNode, didExpire, err := t.pruneExpiredStorageTrie(child, path, curEpoch, isExpired, batch, h)
+		return newNode, didExpire, err
+	case valueNode:
+		return n, false, nil
+	default:
+		panic(fmt.Sprintf("invalid node type: %T", n))
+	}
+}
+
+func (t *Trie) pruneExpired(n node, path []byte, hasher *hasher, hashList *[]common.Hash) (node, error) {
+
+	switch n := n.(type) {
+	case *shortNode:
+		cn, err := t.pruneExpired(n.Val, append(path, n.Key...), hasher, hashList)
+		if err != nil {
+			return nil, err
+		}
+
+		n.Val = cn
+		hn, _ := hasher.hash(n, false)
+		if hn, ok := hn.(hashNode); ok {
+			*hashList = append(*hashList, common.BytesToHash(hn))
+			return hn, nil
+		}
+
+		return n, nil
+
+	case *fullNode:
+		for i, child := range n.Children {
+			cn, err := t.pruneExpired(child, append(path, byte(i)), hasher, hashList)
+			if err != nil {
+				return nil, err
+			}
+			n.Children[byte(i)] = cn
+		}
+
+		hn, _ := hasher.hash(n, false)
+		if hn, ok := hn.(hashNode); ok {
+			*hashList = append(*hashList, common.BytesToHash(hn))
+			return hn, nil
+		}
+
+		return n, nil
+
+	case hashNode:
+		child, err := t.resolveAndTrack(n, path)
+		if err != nil {
+			return nil, err
+		}
+		newNode, err := t.pruneExpired(child, path, hasher, hashList)
+		return newNode, err
+	case valueNode:
+		return n, nil
+	}
 }
