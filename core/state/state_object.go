@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
+	"github.com/ethereum/go-ethereum/trie"
 	"io"
 	"math/big"
 	"sync"
@@ -266,30 +267,22 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
+			// handle from remoteDB, if got err just setError, just return to revert in consensus version.
 			if err == snapshot.ErrStorageExpired {
-				// TODO(0xbundler): request from remote node;
-				// TODO: query from dirty revive trie, got the newest expired info
-				// TODO: handle from remoteDB, if got err just setError, just return to revert in consensus version .
-				//_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
-				//if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-				//	return common.Hash{}, NewExpiredStateError(s.address, key, enErr).Reason("snap query")
-				//}
-				// proof, remoteErr := request()
-				// if remoteErr != nil {
-				//		s.db.setError(remoteErr)
-				// return common.hash{}
-				// }
-				// TODO: add to revive trie with new epoch, add pending state for snapshot
-				err = nil
+				enc, err = s.fetchExpiredFromRemote(nil, key)
+				if err != nil {
+					s.db.setError(err)
+					return common.Hash{}
+				}
 			}
 			if len(enc) > 0 {
 				var sv snapshot.SnapValue
 				sv, err = snapshot.DecodeValueFromRLPBytes(enc)
-				if err == nil {
+				if err != nil {
+					s.db.setError(err)
+				} else {
 					value.SetBytes(sv.GetVal())
 					s.originStorageEpoch[key] = sv.GetEpoch()
-				} else {
-					enc = []byte{}
 				}
 			}
 		} else {
@@ -321,25 +314,13 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		}
 		// handle state expiry situation
 		if s.db.EnableExpire() {
-			// TODO(0xbundler): using trie expired error
-			if err == snapshot.ErrStorageExpired {
-				// TODO(0xbundler): request from remote node;
-				// TODO: query from dirty revive trie, got the newest expired info
-				// TODO: handle from remoteDB, if got err just setError, just return to revert in consensus version .
-				//_, err = s.getDirtyReviveTrie(db).TryGet(key.Bytes())
-				//if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-				//	return common.Hash{}, NewExpiredStateError(s.address, key, enErr).Reason("snap query")
-				//}
-				// proof, remoteErr := request()
-				// if remoteErr != nil {
-				//		s.db.setError(remoteErr)
-				// }
-				// TODO: add to revive trie with new epoch
-				err = nil
+			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+				val, err = s.fetchExpiredFromRemote(enErr.Path, key)
 			}
-			//val = queried
 			// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
-			//s.originStorageEpoch[key] = epoch
+			//if err != nil {
+			//	s.originStorageEpoch[key] = epoch
+			//}
 		}
 		if err != nil {
 			s.db.setError(err)
@@ -829,4 +810,33 @@ func (s *stateObject) queryFromReviveState(reviveState map[string]common.Hash, k
 	khash := crypto.HashData(s.db.hasher, key[:])
 	val, ok := reviveState[string(khash[:])]
 	return val, ok
+}
+
+// fetchExpiredFromRemote request expired state from remote full state node;
+func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) ([]byte, error) {
+	// if no prefix, query from revive trie, got the newest expired info
+	if len(prefixKey) == 0 {
+		tr, err := s.getPendingReviveTrie()
+		if err != nil {
+			return nil, err
+		}
+		_, err = tr.GetStorage(s.address, key.Bytes())
+		if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+			prefixKey = enErr.Path
+		}
+	}
+	proofs, err := s.db.fullStateDB.GetStorageReviveProof(s.db.originalRoot, s.address, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
+	if err != nil {
+		return nil, err
+	}
+
+	var val []byte
+	for _, proof := range proofs {
+		_ = proof
+		// TODO(0xbundler): s.ReviveStorageTrie(proof)
+		// query key: val
+		// val =
+	}
+
+	return val, nil
 }

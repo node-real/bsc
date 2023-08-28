@@ -1103,6 +1103,11 @@ var (
 		Usage:    "Enable state expiry, it will mark state's epoch meta and prune un-accessed states later",
 		Category: flags.StateExpiryCategory,
 	}
+	StateExpiryFullStateEndpointFlag = &cli.StringFlag{
+		Name:     "state-expiry.remote",
+		Usage:    "set state expiry remote full state rpc endpoint, every expired state will fetch from remote",
+		Category: flags.StateExpiryCategory,
+	}
 )
 
 func init() {
