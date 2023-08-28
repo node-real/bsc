@@ -104,7 +104,8 @@ type Config struct {
 	DisablePeerTxBroadcast bool
 
 	// state expiry configs
-	StateExpiryEnable bool
+	StateExpiryEnable            bool
+	StateExpiryFullStateEndpoint string
 
 	// This can be set to list of enrtree:// URLs which will be queried for
 	// for nodes to connect to.
