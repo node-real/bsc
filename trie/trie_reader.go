@@ -17,9 +17,13 @@
 package trie
 
 import (
+	"errors"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
+	"math/big"
 )
 
 // Reader wraps the Node method of a backing trie store.
@@ -40,6 +44,7 @@ type Reader interface {
 type trieReader struct {
 	owner  common.Hash
 	reader Reader
+	emdb   epochmeta.Storage
 	banned map[string]struct{} // Marker to prevent node from being accessed, for tests
 }
 
@@ -55,7 +60,14 @@ func newTrieReader(stateRoot, owner common.Hash, db *Database) (*trieReader, err
 	if err != nil {
 		return nil, &MissingNodeError{Owner: owner, NodeHash: stateRoot, err: err}
 	}
-	return &trieReader{owner: owner, reader: reader}, nil
+	tr := trieReader{owner: owner, reader: reader}
+	if db.snapTree != nil {
+		tr.emdb, err = epochmeta.NewEpochMetaDatabase(db.snapTree, new(big.Int), stateRoot)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &tr, nil
 }
 
 // newEmptyReader initializes the pure in-memory reader. All read operations
@@ -82,4 +94,30 @@ func (r *trieReader) node(path []byte, hash common.Hash) ([]byte, error) {
 		return nil, &MissingNodeError{Owner: r.owner, NodeHash: hash, Path: path, err: err}
 	}
 	return blob, nil
+}
+
+// epochMeta resolve from epoch meta storage
+func (r *trieReader) epochMeta(path []byte) ([]byte, error) {
+	if r.emdb == nil {
+		return nil, fmt.Errorf("cannot resolve epochmeta without db, path: %#x", path)
+	}
+
+	blob, err := r.emdb.Get(r.owner, string(path))
+	if err != nil || len(blob) == 0 {
+		return nil, fmt.Errorf("resolve epoch meta err, path: %#x, err: %v", path, err)
+	}
+	return blob, nil
+}
+
+// accountMeta resolve account metadata
+func (r *trieReader) accountMeta() (types.MetaNoConsensus, error) {
+	if r.emdb == nil {
+		return types.EmptyMetaNoConsensus, errors.New("cannot resolve epoch meta without db for account")
+	}
+
+	blob, err := r.emdb.Get(r.owner, epochmeta.AccountMetadataPath)
+	if err != nil || len(blob) == 0 {
+		return types.EmptyMetaNoConsensus, fmt.Errorf("resolve epoch meta err for account, err: %v", err)
+	}
+	return types.DecodeMetaNoConsensusFromRLPBytes(blob)
 }

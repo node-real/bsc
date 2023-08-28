@@ -156,6 +156,9 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.Sta
 			// clean cache or the database, they are all in their own
 			// copy and safe to use unsafe decoder.
 			tn = mustDecodeNodeUnsafe(n, blob)
+			if err = t.resolveEpochMeta(tn, epoch, prefix); err != nil {
+				return nil, err
+			}
 		default:
 			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
 		}

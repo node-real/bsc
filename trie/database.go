@@ -18,6 +18,8 @@ package trie
 
 import (
 	"errors"
+	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -36,6 +38,9 @@ type Config struct {
 
 	// Testing hooks
 	OnCommit func(states *triestate.Set) // Hook invoked when commit is performed
+
+	// state expiry feature
+	EnableStateExpiry bool
 }
 
 // backend defines the methods needed to access/update trie nodes in different
@@ -76,6 +81,7 @@ type Database struct {
 	diskdb    ethdb.Database // Persistent database to store the snapshot
 	preimages *preimageStore // The store for caching preimages
 	backend   backend        // The backend for managing trie nodes
+	snapTree  *epochmeta.SnapshotTree
 }
 
 // prepare initializes the database with provided configs, but the
@@ -108,6 +114,13 @@ func NewDatabaseWithConfig(diskdb ethdb.Database, config *Config) *Database {
 	}
 	db := prepare(diskdb, config)
 	db.backend = hashdb.New(diskdb, cleans, mptResolver{})
+	if config != nil && config.EnableStateExpiry {
+		snapTree, err := epochmeta.NewEpochMetaSnapTree(diskdb)
+		if err != nil {
+			panic(fmt.Sprintf("ini SnapshotTree err: %v", err))
+		}
+		db.snapTree = snapTree
+	}
 	return db
 }
 

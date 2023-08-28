@@ -221,6 +221,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			SnapshotLimit:       config.SnapshotCache,
 			TriesInMemory:       config.TriesInMemory,
 			Preimages:           config.Preimages,
+			EnableStateExpiry:   config.StateExpiryEnable,
+			RemoteEndPoint:      config.StateExpiryFullStateEndpoint,
 		}
 	)
 	bcOps := make([]core.BlockChainOption, 0)
@@ -247,11 +249,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth.blockchain, err = core.NewBlockChain(chainDb, cacheConfig, config.Genesis, &overrides, eth.engine, vmConfig, eth.shouldPreserve, &config.TxLookupLimit, bcOps...)
 	if err != nil {
 		return nil, err
-	}
-	if config.StateExpiryEnable {
-		if err = eth.blockchain.InitStateExpiry(config.StateExpiryFullStateEndpoint); err != nil {
-			return nil, err
-		}
 	}
 	eth.bloomIndexer.Start(eth.blockchain)
 
