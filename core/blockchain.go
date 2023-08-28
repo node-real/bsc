@@ -293,6 +293,10 @@ type BlockChain struct {
 
 	// monitor
 	doubleSignMonitor *monitor.DoubleSignMonitor
+
+	// state expiry feature
+	enableStateExpiry bool
+	fullStateDB       ethdb.FullStateDB
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -603,6 +607,24 @@ func (bc *BlockChain) cacheDiffLayer(diffLayer *types.DiffLayer, diffLayerCh cha
 
 func (bc *BlockChain) cacheBlock(hash common.Hash, block *types.Block) {
 	bc.blockCache.Add(hash, block)
+}
+
+func (bc *BlockChain) EnableStateExpiry() bool {
+	return bc.enableStateExpiry
+}
+
+func (bc *BlockChain) FullStateDB() ethdb.FullStateDB {
+	return bc.fullStateDB
+}
+
+func (bc *BlockChain) InitStateExpiry(endpoint string) error {
+	rpcServer, err := ethdb.NewFullStateRPCServer(endpoint)
+	if err != nil {
+		return err
+	}
+	bc.enableStateExpiry = true
+	bc.fullStateDB = rpcServer
+	return nil
 }
 
 // empty returns an indicator whether the blockchain is empty.
@@ -1021,8 +1043,15 @@ func (bc *BlockChain) SnapSyncCommitHead(hash common.Hash) error {
 }
 
 // StateAtWithSharedPool returns a new mutable state based on a particular point in time with sharedStorage
-func (bc *BlockChain) StateAtWithSharedPool(root common.Hash) (*state.StateDB, error) {
-	return state.NewWithSharedPool(root, bc.stateCache, bc.snaps)
+func (bc *BlockChain) StateAtWithSharedPool(root common.Hash, height *big.Int) (*state.StateDB, error) {
+	stateDB, err := state.NewWithSharedPool(root, bc.stateCache, bc.snaps)
+	if err != nil {
+		return nil, err
+	}
+	if bc.enableStateExpiry {
+		stateDB.InitStateExpiry(bc.chainConfig, height, bc.fullStateDB)
+	}
+	return stateDB, err
 }
 
 // Reset purges the entire blockchain, restoring it to its genesis state.
@@ -2015,6 +2044,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			return it.index, err
 		}
 		bc.updateHighestVerifiedHeader(block.Header())
+		if bc.enableStateExpiry {
+			statedb.InitStateExpiry(bc.chainConfig, block.Number(), bc.fullStateDB)
+		}
 
 		// Enable prefetching to pull in trie node paths while processing transactions
 		statedb.StartPrefetcher("chain")
@@ -2022,9 +2054,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 		// For diff sync, it may fallback to full sync, so we still do prefetch
 		if len(block.Transactions()) >= prefetchTxNumber {
 			// do Prefetch in a separate goroutine to avoid blocking the critical path
-
 			// 1.do state prefetch for snapshot cache
 			throwaway := statedb.CopyDoPrefetch()
+			if throwaway != nil && bc.enableStateExpiry {
+				throwaway.InitStateExpiry(bc.chainConfig, block.Number(), bc.fullStateDB)
+			}
 			go bc.prefetcher.Prefetch(block, throwaway, &bc.vmConfig, interruptCh)
 
 			// 2.do trie prefetch for MPT trie node cache

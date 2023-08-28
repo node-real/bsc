@@ -669,12 +669,6 @@ type StorageResult struct {
 	Proof []string     `json:"proof"`
 }
 
-type ReviveStorageResult struct {
-	Key       string   `json:"key"`
-	PrefixKey string   `json:"prefixKey"`
-	Proof     []string `json:"proof"`
-}
-
 // proofList implements ethdb.KeyValueWriter and collects the proofs as
 // hex-strings for delivery to rpc-caller.
 type proofList []string
@@ -765,7 +759,7 @@ func (s *BlockChainAPI) GetProof(ctx context.Context, address common.Address, st
 
 // GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
 // Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
-func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address common.Address, storageKeys []string, storagePrefixKeys []string, blockNrOrHash rpc.BlockNumberOrHash) ([]ReviveStorageResult, error) {
+func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address common.Address, storageKeys []string, storagePrefixKeys []string, blockNrOrHash rpc.BlockNumberOrHash) ([]types.ReviveStorageProof, error) {
 
 	if len(storageKeys) != len(storagePrefixKeys) {
 		return nil, errors.New("storageKeys and storagePrefixKeys must be same length")
@@ -775,7 +769,7 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address commo
 		keys         = make([]common.Hash, len(storageKeys))
 		keyLengths   = make([]int, len(storageKeys))
 		prefixKeys   = make([][]byte, len(storagePrefixKeys))
-		storageProof = make([]ReviveStorageResult, len(storageKeys))
+		storageProof = make([]types.ReviveStorageProof, len(storageKeys))
 		storageTrie  state.Trie
 	)
 	// Deserialize all keys. This prevents state access on invalid input.
@@ -827,7 +821,11 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address commo
 		if err := storageTrie.ProvePath(crypto.Keccak256(key.Bytes()), prefixKey, &proof); err != nil {
 			return nil, err
 		}
-		storageProof[i] = ReviveStorageResult{outputKey, storagePrefixKeys[i], proof}
+		storageProof[i] = types.ReviveStorageProof{
+			Key:       outputKey,
+			PrefixKey: storagePrefixKeys[i],
+			Proof:     proof,
+		}
 	}
 
 	return storageProof, nil

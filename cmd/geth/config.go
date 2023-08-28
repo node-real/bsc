@@ -275,6 +275,9 @@ func applyStateExpiryConfig(ctx *cli.Context, cfg *gethConfig) {
 	if ctx.IsSet(utils.StateExpiryEnableFlag.Name) {
 		cfg.Eth.StateExpiryEnable = ctx.Bool(utils.StateExpiryEnableFlag.Name)
 	}
+	if ctx.IsSet(utils.StateExpiryFullStateEndpointFlag.Name) {
+		cfg.Eth.StateExpiryFullStateEndpoint = ctx.String(utils.StateExpiryFullStateEndpointFlag.Name)
+	}
 }
 
 func deprecated(field string) bool {
