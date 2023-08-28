@@ -242,6 +242,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config.StateExpiryEnable {
+		if err = eth.blockchain.InitStateExpiry(config.StateExpiryFullStateEndpoint); err != nil {
+			return nil, err
+		}
+	}
 	eth.bloomIndexer.Start(eth.blockchain)
 
 	if config.BlobPool.Datadir != "" {
