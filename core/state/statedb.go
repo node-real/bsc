@@ -1376,6 +1376,9 @@ func (s *StateDB) deleteStorage(addr common.Address, addrHash common.Hash, root 
 	if _, ok := tr.(*trie.EmptyTrie); ok {
 		return false, nil, nil, nil
 	}
+	if s.enableStateExpiry {
+		tr.SetEpoch(s.epoch)
+	}
 	it, err := tr.NodeIterator(nil)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to open storage iterator, err: %w", err)

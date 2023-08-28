@@ -1109,7 +1109,8 @@ func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 
 func nonRandomTrieWithExpiry(n int) (*Trie, map[string]*kv) {
 	db := NewDatabase(rawdb.NewMemoryDatabase())
-	trie := NewEmptyWithExpiry(db, 10)
+	trie := NewEmpty(db)
+	trie.rootEpoch = 10
 	vals := make(map[string]*kv)
 	max := uint64(0xffffffffffffffff)
 	for i := uint64(0); i < uint64(n); i++ {

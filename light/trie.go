@@ -137,6 +137,10 @@ func (t *odrTrie) GetStorageAndUpdateEpoch(_ common.Address, key []byte) ([]byte
 	panic("not implemented")
 }
 
+func (t *odrTrie) SetEpoch(epoch types.StateEpoch) {
+	panic("not implemented")
+}
+
 func (t *odrTrie) GetAccount(address common.Address) (*types.StateAccount, error) {
 	var (
 		enc []byte

@@ -170,6 +170,9 @@ func (s *stateObject) getTrie() (Trie, error) {
 			if err != nil {
 				return nil, err
 			}
+			if s.db.enableStateExpiry {
+				tr.SetEpoch(s.db.epoch)
+			}
 			s.trie = tr
 		}
 	}
@@ -259,6 +262,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	// If no live objects are available, attempt to use snapshots
 	var (
 		enc   []byte
+		sv    snapshot.SnapValue
 		err   error
 		value common.Hash
 	)
@@ -266,24 +270,16 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		start := time.Now()
 		// handle state expiry situation
 		if s.db.EnableExpire() {
-			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
-			// handle from remoteDB, if got err just setError, just return to revert in consensus version.
-			if err == snapshot.ErrStorageExpired {
-				enc, err = s.fetchExpiredFromRemote(nil, key)
-				if err != nil {
-					s.db.setError(err)
-					return common.Hash{}
-				}
+			var dbError error
+			sv, err, dbError = s.getExpirySnapStorage(key)
+			if dbError != nil {
+				s.db.setError(dbError)
+				return common.Hash{}
 			}
-			if len(enc) > 0 {
-				var sv snapshot.SnapValue
-				sv, err = snapshot.DecodeValueFromRLPBytes(enc)
-				if err != nil {
-					s.db.setError(err)
-				} else {
-					value.SetBytes(sv.GetVal())
-					s.originStorageEpoch[key] = sv.GetEpoch()
-				}
+			// if query success, just set val, otherwise request from trie
+			if err != nil && sv != nil {
+				value.SetBytes(sv.GetVal())
+				s.originStorageEpoch[key] = sv.GetEpoch()
 			}
 		} else {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
@@ -301,14 +297,14 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	}
 
 	// If the snapshot is unavailable or reading from it fails, load from the database.
-	if s.needLoadFromTrie(enc, err) {
+	if s.needLoadFromTrie(err, sv) {
 		start := time.Now()
 		tr, err := s.getTrie()
 		if err != nil {
 			s.db.setError(err)
 			return common.Hash{}
 		}
-		val, err := tr.GetStorageAndUpdateEpoch(s.address, key.Bytes())
+		val, err := tr.GetStorage(s.address, key.Bytes())
 		if metrics.EnabledExpensive {
 			s.db.StorageReads += time.Since(start)
 		}
@@ -333,7 +329,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 }
 
 // needLoadFromTrie If not found in snap when EnableExpire(), need check insert duplication from trie.
-func (s *stateObject) needLoadFromTrie(enc []byte, err error) bool {
+func (s *stateObject) needLoadFromTrie(err error, sv snapshot.SnapValue) bool {
 	if s.db.snap == nil {
 		return true
 	}
@@ -341,7 +337,7 @@ func (s *stateObject) needLoadFromTrie(enc []byte, err error) bool {
 		return err != nil
 	}
 
-	if err != nil || len(enc) == 0 {
+	if err != nil || sv == nil {
 		return true
 	}
 
@@ -766,14 +762,17 @@ func (s *stateObject) Nonce() uint64 {
 	return s.data.Nonce
 }
 
-func (s *stateObject) ReviveStorageTrie(proof types.ReviveStorageProof) error {
+func (s *stateObject) ReviveStorageTrie(proof types.ReviveStorageProof, targetPrefix []byte) error {
+	prefixKey := common.Hex2Bytes(proof.PrefixKey)
+	if !bytes.Equal(targetPrefix, prefixKey) {
+		return fmt.Errorf("revive with wrong prefix, target: %#x, actual: %#x", targetPrefix, prefixKey)
+	}
+
 	dr, err := s.getPendingReviveTrie()
 	if err != nil {
 		return err
 	}
-
 	key := common.Hex2Bytes(proof.Key)
-	prefixKey := common.Hex2Bytes(proof.PrefixKey)
 	proofList := make([][]byte, 0, len(proof.Proof))
 
 	for _, p := range proof.Proof {
@@ -833,13 +832,41 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 		return nil, err
 	}
 
-	var val []byte
 	for _, proof := range proofs {
-		_ = proof
-		// TODO(0xbundler): s.ReviveStorageTrie(proof)
-		// query key: val
-		// val =
+		if err := s.ReviveStorageTrie(proof, prefixKey); err != nil {
+			return nil, err
+		}
+	}
+	val := s.pendingReviveState[key.String()]
+	return val.Bytes(), nil
+}
+
+func (s *stateObject) getExpirySnapStorage(key common.Hash) (snapshot.SnapValue, error, error) {
+	enc, err := s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
+	if err != nil {
+		return nil, err, nil
+	}
+	var val snapshot.SnapValue
+	if len(enc) > 0 {
+		val, err = snapshot.DecodeValueFromRLPBytes(enc)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	return val, nil
+	if val == nil {
+		return nil, nil, nil
+	}
+
+	if !types.EpochExpired(val.GetEpoch(), s.db.epoch) {
+		return val, nil, nil
+	}
+
+	// handle from remoteDB, if got err just setError, just return to revert in consensus version.
+	valRaw, err := s.fetchExpiredFromRemote(nil, key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return snapshot.NewValueWithEpoch(s.db.epoch, valRaw), nil, nil
 }
