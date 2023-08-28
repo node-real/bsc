@@ -12,7 +12,8 @@ const (
 )
 
 var (
-	ErrMetaNotSupport = errors.New("the meta type not support now")
+	ErrMetaNotSupport    = errors.New("the meta type not support now")
+	EmptyMetaNoConsensus = MetaNoConsensus(StateEpoch0)
 )
 
 type MetaNoConsensus StateEpoch // Represents the epoch number
@@ -35,10 +36,23 @@ func (m MetaNoConsensus) Hash() common.Hash {
 	return common.Hash{}
 }
 
+func (m MetaNoConsensus) Epoch() StateEpoch {
+	return StateEpoch(m)
+}
+
 func (m MetaNoConsensus) EncodeToRLPBytes() ([]byte, error) {
 	enc, err := rlp.EncodeToBytes(m)
 	if err != nil {
 		return nil, err
 	}
 	return enc, nil
+}
+
+func DecodeMetaNoConsensusFromRLPBytes(enc []byte) (MetaNoConsensus, error) {
+	var mc MetaNoConsensus
+	if err := rlp.DecodeBytes(enc, &mc); err != nil {
+		return EmptyMetaNoConsensus, err
+	}
+
+	return mc, nil
 }

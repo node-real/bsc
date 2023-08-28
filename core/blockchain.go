@@ -158,14 +158,19 @@ type CacheConfig struct {
 
 	SnapshotNoBuild bool // Whether the background generation is allowed
 	SnapshotWait    bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
+
+	// state expiry feature
+	EnableStateExpiry bool
+	RemoteEndPoint    string
 }
 
 // triedbConfig derives the configures for trie database.
 func (c *CacheConfig) triedbConfig() *trie.Config {
 	config := &trie.Config{
-		Cache:     c.TrieCleanLimit,
-		Preimages: c.Preimages,
-		NoTries:   c.NoTries,
+		Cache:             c.TrieCleanLimit,
+		Preimages:         c.Preimages,
+		NoTries:           c.NoTries,
+		EnableStateExpiry: c.EnableStateExpiry,
 	}
 	if c.StateScheme == rawdb.HashScheme {
 		config.HashDB = &hashdb.Config{
@@ -318,6 +323,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 
 	// Open trie database with provided config
 	triedb := trie.NewDatabase(db, cacheConfig.triedbConfig())
+
 	// Setup the genesis block, commit the provided genesis specification
 	// to database if the genesis block is not present yet, or load the
 	// stored one from database.
@@ -548,6 +554,14 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		bc.wg.Add(1)
 		go bc.maintainTxIndex()
 	}
+
+	if cacheConfig.EnableStateExpiry {
+		bc.enableStateExpiry = true
+		bc.fullStateDB, err = ethdb.NewFullStateRPCServer(cacheConfig.RemoteEndPoint)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return bc, nil
 }
 
@@ -615,16 +629,6 @@ func (bc *BlockChain) EnableStateExpiry() bool {
 
 func (bc *BlockChain) FullStateDB() ethdb.FullStateDB {
 	return bc.fullStateDB
-}
-
-func (bc *BlockChain) InitStateExpiry(endpoint string) error {
-	rpcServer, err := ethdb.NewFullStateRPCServer(endpoint)
-	if err != nil {
-		return err
-	}
-	bc.enableStateExpiry = true
-	bc.fullStateDB = rpcServer
-	return nil
 }
 
 // empty returns an indicator whether the blockchain is empty.

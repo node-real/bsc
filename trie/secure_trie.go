@@ -254,6 +254,10 @@ func (t *StateTrie) Hash() common.Hash {
 	return t.trie.Hash()
 }
 
+func (t *StateTrie) SetEpoch(epoch types.StateEpoch) {
+	t.trie.currentEpoch = epoch
+}
+
 // Copy returns a copy of StateTrie.
 func (t *StateTrie) Copy() *StateTrie {
 	return &StateTrie{
