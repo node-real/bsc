@@ -141,7 +141,7 @@ func (b *testBackend) teardown() {
 }
 
 func (b *testBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, StateReleaseFunc, error) {
-	statedb, err := b.chain.StateAt(block.Root())
+	statedb, err := b.chain.StateAt(block.Root(), block.Number())
 	if err != nil {
 		return nil, nil, errStateNotFound
 	}
