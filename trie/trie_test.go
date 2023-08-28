@@ -1069,7 +1069,8 @@ func TestReviveCustom(t *testing.T) {
 
 func createCustomTrie(data map[string]string, epoch types.StateEpoch) *Trie {
 	db := NewDatabase(rawdb.NewMemoryDatabase())
-	trie := NewEmptyWithExpiry(db, epoch)
+	trie := NewEmpty(db)
+	trie.rootEpoch = epoch
 	for k, v := range data {
 		trie.MustUpdate([]byte(k), []byte(v))
 	}
