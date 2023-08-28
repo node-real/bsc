@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -104,43 +105,26 @@ func New(id *ID, db *Database) (*Trie, error) {
 		}
 		trie.root = rootnode
 	}
+
+	// resolve root epoch
+	if db.snapTree != nil {
+		meta, err := reader.accountMeta()
+		if err != nil {
+			return nil, err
+		}
+		trie.rootEpoch = meta.Epoch()
+		trie.enableExpiry = true
+	}
 	return trie, nil
 }
 
 // NewEmpty is a shortcut to create empty tree. It's mostly used in tests.
 func NewEmpty(db *Database) *Trie {
 	tr, _ := New(TrieID(types.EmptyRootHash), db)
+	if db.snapTree != nil {
+		tr.enableExpiry = true
+	}
 	return tr
-}
-
-func NewEmptyWithExpiry(db *Database, rootEpoch types.StateEpoch) *Trie {
-	tr, _ := New(TrieID(types.EmptyRootHash), db)
-	tr.enableExpiry = true
-	tr.rootEpoch = rootEpoch
-	return tr
-}
-
-// TODO (asyukii): handle meta storage later
-func NewWithExpiry(id *ID, db *Database, rootEpoch types.StateEpoch) (*Trie, error) {
-	reader, err := newTrieReader(id.StateRoot, id.Owner, db)
-	if err != nil {
-		return nil, err
-	}
-	trie := &Trie{
-		owner:        id.Owner,
-		reader:       reader,
-		tracer:       newTracer(),
-		rootEpoch:    rootEpoch,
-		enableExpiry: true,
-	}
-	if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
-		rootnode, err := trie.resolveAndTrack(id.Root[:], nil)
-		if err != nil {
-			return nil, err
-		}
-		trie.root = rootnode
-	}
-	return trie, nil
 }
 
 // MustNodeIterator is a wrapper of NodeIterator and will omit any encountered
@@ -292,11 +276,9 @@ func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.Stat
 		}
 
 		if child, ok := child.(*fullNode); ok {
-			epochMap, err := t.resolveMeta(child, epoch, key[:pos])
-			if err != nil {
+			if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
 				return nil, n, true, err
 			}
-			child.SetEpochMap(epochMap)
 		}
 		value, newnode, _, err := t.getWithEpoch(child, key, pos, epoch, updateEpoch)
 		return value, newnode, true, err
@@ -626,13 +608,10 @@ func (t *Trie) insertWithEpoch(n node, prefix, key []byte, value node, epoch typ
 			return false, nil, err
 		}
 
-		// TODO(asyukii): if resolved node is a full node, then resolve epochMap as well
 		if child, ok := rn.(*fullNode); ok {
-			epochMap, err := t.resolveMeta(child, epoch, prefix)
-			if err != nil {
+			if err = t.resolveEpochMeta(child, epoch, prefix); err != nil {
 				return false, nil, err
 			}
-			child.SetEpochMap(epochMap)
 		}
 
 		dirty, nn, err := t.insertWithEpoch(rn, prefix, key, value, epoch)
@@ -941,11 +920,9 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 		}
 
 		if child, ok := rn.(*fullNode); ok {
-			epochMap, err := t.resolveMeta(child, epoch, prefix)
-			if err != nil {
+			if err = t.resolveEpochMeta(child, epoch, prefix); err != nil {
 				return false, nil, err
 			}
-			child.SetEpochMap(epochMap)
 		}
 
 		dirty, nn, err := t.deleteWithEpoch(rn, prefix, key, epoch)
@@ -987,10 +964,39 @@ func (t *Trie) resolveAndTrack(n hashNode, prefix []byte) (node, error) {
 	return mustDecodeNode(n, blob), nil
 }
 
-// TODO(asyukii): implement resolve full node's epoch map.
-func (t *Trie) resolveMeta(n node, epoch types.StateEpoch, prefix []byte) ([16]types.StateEpoch, error) {
+// resolveEpochMeta resolve full node's epoch map.
+func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) error {
+	if !t.enableExpiry {
+		return nil
+	}
 	// 1. Check if the node is a full node
-	panic("implement me!")
+	switch n := n.(type) {
+	case *shortNode:
+		n.setEpoch(epoch)
+		return nil
+	case *fullNode:
+		n.setEpoch(epoch)
+		blob, err := t.reader.epochMeta(prefix)
+		if err != nil {
+			return err
+		}
+		if len(blob) == 0 {
+			// set default epoch map
+			n.EpochMap = [16]types.StateEpoch{}
+		} else {
+			meta, decErr := epochmeta.DecodeFullNodeEpochMeta(blob)
+			if decErr != nil {
+				return decErr
+			}
+			n.EpochMap = meta.EpochMap
+		}
+		return nil
+	case valueNode, hashNode, nil:
+		// just skip
+		return nil
+	default:
+		return errors.New("resolveShadowNode unsupported node type")
+	}
 }
 
 // Hash returns the root hash of the trie. It does not write to the
@@ -1161,11 +1167,9 @@ func (t *Trie) revive(n node, key []byte, prefixKeyHex []byte, pos int, revivedN
 		}
 
 		if child, ok := child.(*fullNode); ok {
-			epochMap, err := t.resolveMeta(child, epoch, key[:pos])
-			if err != nil {
+			if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
 				return nil, false, err
 			}
-			child.SetEpochMap(epochMap)
 		}
 
 		newNode, _, err := t.revive(child, key, prefixKeyHex, pos, revivedNode, revivedHash, epoch, isExpired)
@@ -1253,7 +1257,7 @@ func (t *Trie) getRootEpoch() types.StateEpoch {
 // renewNode check if renew node, according to trie node epoch and childDirty,
 // childDirty or updateEpoch need copy for prevent reuse trie cache
 func (t *Trie) renewNode(epoch types.StateEpoch, childDirty bool, updateEpoch bool) bool {
-	// when !updateEpoch, it same as !t.withShadowNodes
+	// when !updateEpoch, it same as !t.withEpochMeta
 	if !t.enableExpiry || !updateEpoch {
 		return childDirty
 	}
@@ -1353,14 +1357,8 @@ func (t *Trie) pruneExpiredStorageTrie(n node, path []byte, curEpoch types.State
 		if err != nil {
 			return nil, false, err
 		}
-
-		// TODO(asyukii): resolve meta
-		if child, ok := child.(*fullNode); ok {
-			epochMap, err := t.resolveMeta(child, 0, nil) // TODO(asyukii): handle this
-			if err != nil {
-				return nil, false, err
-			}
-			child.SetEpochMap(epochMap)
+		if err = t.resolveEpochMeta(child, curEpoch, path); err != nil {
+			return nil, false, err
 		}
 
 		newNode, didExpire, err := t.pruneExpiredStorageTrie(child, path, curEpoch, isExpired, batch, h)
@@ -1416,5 +1414,7 @@ func (t *Trie) pruneExpired(n node, path []byte, hasher *hasher, hashList *[]com
 		return newNode, err
 	case valueNode:
 		return n, nil
+	default:
+		panic(fmt.Sprintf("invalid node type: %T", n))
 	}
 }

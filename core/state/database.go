@@ -136,9 +136,14 @@ type Trie interface {
 	// with the node that proves the absence of the key.
 	Prove(key []byte, proofDb ethdb.KeyValueWriter) error
 
+	// ProvePath generate proof state in trie.
 	ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error
 
+	// ReviveTrie revive expired state from proof.
 	ReviveTrie(key []byte, prefixKeyHex []byte, proofList [][]byte) error
+
+	// SetEpoch set current epoch in trie, it must set in initial period, or it will get error behavior.
+	SetEpoch(types.StateEpoch)
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for

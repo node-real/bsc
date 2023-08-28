@@ -18,6 +18,8 @@ package trie
 
 import (
 	"errors"
+	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -40,6 +42,9 @@ type Config struct {
 
 	// Testing hooks
 	OnCommit func(states *triestate.Set) // Hook invoked when commit is performed
+
+	// state expiry feature
+	EnableStateExpiry bool
 }
 
 // HashDefaults represents a config for using hash-based scheme with
@@ -87,6 +92,7 @@ type Database struct {
 	diskdb    ethdb.Database // Persistent database to store the snapshot
 	preimages *preimageStore // The store for caching preimages
 	backend   backend        // The backend for managing trie nodes
+	snapTree  *epochmeta.SnapshotTree
 }
 
 // prepare initializes the database with provided configs, but the
