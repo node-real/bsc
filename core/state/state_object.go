@@ -308,7 +308,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			s.db.setError(err)
 			return common.Hash{}
 		}
-		val, err := tr.GetStorage(s.address, key.Bytes())
+		val, err := tr.GetStorageAndUpdateEpoch(s.address, key.Bytes())
 		if metrics.EnabledExpensive {
 			s.db.StorageReads += time.Since(start)
 		}
@@ -784,7 +784,7 @@ func (s *stateObject) ReviveStorageTrie(proof types.ReviveStorageProof) error {
 	}
 
 	// Update pending revive state
-	val, err := dr.GetStorage(s.address, key) // TODO(asyukii): may optimize this, return value when revive trie
+	val, err := dr.GetStorageAndUpdateEpoch(s.address, key) // TODO(asyukii): may optimize this, return value when revive trie
 	if err != nil {
 		return fmt.Errorf("get storage value failed, err: %v", err)
 	}
