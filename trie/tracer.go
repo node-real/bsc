@@ -40,17 +40,19 @@ import (
 // Note tracer is not thread-safe, callers should be responsible for handling
 // the concurrency issues by themselves.
 type tracer struct {
-	inserts    map[string]struct{}
-	deletes    map[string]struct{}
-	accessList map[string][]byte
+	inserts           map[string]struct{}
+	deletes           map[string]struct{}
+	deleteBranchNodes map[string]struct{} // record for epoch meta
+	accessList        map[string][]byte
 }
 
 // newTracer initializes the tracer for capturing trie changes.
 func newTracer() *tracer {
 	return &tracer{
-		inserts:    make(map[string]struct{}),
-		deletes:    make(map[string]struct{}),
-		accessList: make(map[string][]byte),
+		inserts:           make(map[string]struct{}),
+		deletes:           make(map[string]struct{}),
+		deleteBranchNodes: make(map[string]struct{}),
+		accessList:        make(map[string][]byte),
 	}
 }
 
@@ -72,6 +74,13 @@ func (t *tracer) onInsert(path []byte) {
 	t.inserts[string(path)] = struct{}{}
 }
 
+// onExpandToBranchNode tracks the newly inserted trie branch node.
+func (t *tracer) onExpandToBranchNode(path []byte) {
+	if _, present := t.deleteBranchNodes[string(path)]; present {
+		delete(t.deleteBranchNodes, string(path))
+	}
+}
+
 // onDelete tracks the newly deleted trie node. If it's already
 // in the addition set, then just wipe it from the addition set
 // as it's untouched.
@@ -83,19 +92,26 @@ func (t *tracer) onDelete(path []byte) {
 	t.deletes[string(path)] = struct{}{}
 }
 
+// onDeleteBranchNode tracks the newly deleted trie branch node.
+func (t *tracer) onDeleteBranchNode(path []byte) {
+	t.deleteBranchNodes[string(path)] = struct{}{}
+}
+
 // reset clears the content tracked by tracer.
 func (t *tracer) reset() {
 	t.inserts = make(map[string]struct{})
 	t.deletes = make(map[string]struct{})
+	t.deleteBranchNodes = make(map[string]struct{})
 	t.accessList = make(map[string][]byte)
 }
 
 // copy returns a deep copied tracer instance.
 func (t *tracer) copy() *tracer {
 	var (
-		inserts    = make(map[string]struct{})
-		deletes    = make(map[string]struct{})
-		accessList = make(map[string][]byte)
+		inserts           = make(map[string]struct{})
+		deletes           = make(map[string]struct{})
+		deleteBranchNodes = make(map[string]struct{})
+		accessList        = make(map[string][]byte)
 	)
 	for path := range t.inserts {
 		inserts[path] = struct{}{}
@@ -103,13 +119,17 @@ func (t *tracer) copy() *tracer {
 	for path := range t.deletes {
 		deletes[path] = struct{}{}
 	}
+	for path := range t.deleteBranchNodes {
+		deleteBranchNodes[path] = struct{}{}
+	}
 	for path, blob := range t.accessList {
 		accessList[path] = common.CopyBytes(blob)
 	}
 	return &tracer{
-		inserts:    inserts,
-		deletes:    deletes,
-		accessList: accessList,
+		inserts:           inserts,
+		deletes:           deletes,
+		deleteBranchNodes: deleteBranchNodes,
+		accessList:        accessList,
 	}
 }
 
@@ -124,6 +144,15 @@ func (t *tracer) deletedNodes() []string {
 		if !ok {
 			continue
 		}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+// deletedBranchNodes returns a list of branch node paths which are deleted from the trie.
+func (t *tracer) deletedBranchNodes() []string {
+	var paths []string
+	for path := range t.deleteBranchNodes {
 		paths = append(paths, path)
 	}
 	return paths

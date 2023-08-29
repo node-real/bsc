@@ -480,12 +480,14 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 		}
 		// Replace this shortNode with the branch if it occurs at index 0.
 		if matchlen == 0 {
+			t.tracer.onExpandToBranchNode(prefix)
 			return true, branch, nil
 		}
 		// New branch node is created as a child of the original short node.
 		// Track the newly inserted node in the tracer. The node identifier
 		// passed is the path from the root node.
 		t.tracer.onInsert(append(prefix, key[:matchlen]...))
+		t.tracer.onExpandToBranchNode(append(prefix, key[:matchlen]...))
 
 		// Replace it with a short node leading up to the branch.
 		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag()}, nil
@@ -757,6 +759,7 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 					// Mark the original short node as deleted since the
 					// value is embedded into the parent now.
 					t.tracer.onDelete(append(prefix, byte(pos)))
+					t.tracer.onDeleteBranchNode(prefix)
 
 					k := append([]byte{byte(pos)}, cnode.Key...)
 					return true, &shortNode{Key: k, Val: cnode.Val, flags: t.newFlag()}, nil
@@ -764,6 +767,7 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 			}
 			// Otherwise, n is replaced by a one-nibble short node
 			// containing the child.
+			t.tracer.onDeleteBranchNode(prefix)
 			return true, &shortNode{Key: []byte{byte(pos)}, Val: n.Children[pos], flags: t.newFlag()}, nil
 		}
 		// n still contains at least two values and cannot be reduced.
@@ -892,6 +896,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 					// Mark the original short node as deleted since the
 					// value is embedded into the parent now.
 					t.tracer.onDelete(append(prefix, byte(pos)))
+					t.tracer.onDeleteBranchNode(prefix)
 
 					k := append([]byte{byte(pos)}, cnode.Key...)
 					return true, &shortNode{Key: k, Val: cnode.Val, flags: t.newFlag(), epoch: t.currentEpoch}, nil
@@ -899,6 +904,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 			}
 			// Otherwise, n is replaced by a one-nibble short node
 			// containing the child.
+			t.tracer.onDeleteBranchNode(prefix)
 			return true, &shortNode{Key: []byte{byte(pos)}, Val: n.Children[pos], flags: t.newFlag(), epoch: t.currentEpoch}, nil
 		}
 		// n still contains at least two values and cannot be reduced.
@@ -1031,6 +1037,10 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 		for _, path := range paths {
 			nodes.AddNode([]byte(path), trienode.NewDeleted())
 		}
+		paths = t.tracer.deletedBranchNodes()
+		for _, path := range paths {
+			nodes.AddBranchNodeEpochMeta([]byte(path), nil)
+		}
 		return types.EmptyRootHash, nodes, nil // case (b)
 	}
 	// Derive the hash for all dirty nodes first. We hold the assumption
@@ -1049,7 +1059,10 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 	for _, path := range t.tracer.deletedNodes() {
 		nodes.AddNode([]byte(path), trienode.NewDeleted())
 	}
-	t.root = newCommitter(nodes, t.tracer, collectLeaf).Commit(t.root)
+	for _, path := range t.tracer.deletedBranchNodes() {
+		nodes.AddBranchNodeEpochMeta([]byte(path), nil)
+	}
+	t.root = newCommitter(nodes, t.tracer, collectLeaf, t.enableExpiry).Commit(t.root)
 	return rootHash, nodes, nil
 }
 

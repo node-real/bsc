@@ -19,14 +19,15 @@ const (
 	AccountMetadataPath = "m"
 )
 
-type FullNodeEpochMeta struct {
+type BranchNodeEpochMeta struct {
 	EpochMap [16]types.StateEpoch
 }
 
-func NewFullNodeEpochMeta(epochMap [16]types.StateEpoch) FullNodeEpochMeta {
-	return FullNodeEpochMeta{EpochMap: epochMap}
+func NewBranchNodeEpochMeta(epochMap [16]types.StateEpoch) *BranchNodeEpochMeta {
+	return &BranchNodeEpochMeta{EpochMap: epochMap}
 }
-func (n *FullNodeEpochMeta) Encode(w rlp.EncoderBuffer) {
+
+func (n *BranchNodeEpochMeta) Encode(w rlp.EncoderBuffer) {
 	offset := w.List()
 	for _, e := range n.EpochMap {
 		w.WriteUint64(uint64(e))
@@ -34,8 +35,8 @@ func (n *FullNodeEpochMeta) Encode(w rlp.EncoderBuffer) {
 	w.ListEnd(offset)
 }
 
-func DecodeFullNodeEpochMeta(enc []byte) (*FullNodeEpochMeta, error) {
-	var n FullNodeEpochMeta
+func DecodeFullNodeEpochMeta(enc []byte) (*BranchNodeEpochMeta, error) {
+	var n BranchNodeEpochMeta
 
 	if err := rlp.DecodeBytes(enc, &n.EpochMap); err != nil {
 		return nil, err
