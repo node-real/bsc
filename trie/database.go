@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -154,7 +155,16 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 	if db.preimages != nil {
 		db.preimages.commit(false)
 	}
-	return db.backend.Update(root, parent, block, nodes, states)
+	if err := db.backend.Update(root, parent, block, nodes, states); err != nil {
+		return err
+	}
+	if db.snapTree != nil {
+		err := db.snapTree.Update(parent, new(big.Int).SetUint64(block), root, nodes.FlattenEpochMeta())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Commit iterates over all the children of a particular node, writes them out
@@ -164,7 +174,15 @@ func (db *Database) Commit(root common.Hash, report bool) error {
 	if db.preimages != nil {
 		db.preimages.commit(true)
 	}
-	return db.backend.Commit(root, report)
+	if err := db.backend.Commit(root, report); err != nil {
+		return err
+	}
+	if db.snapTree != nil {
+		if err := db.snapTree.Cap(root); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Size returns the storage size of dirty trie nodes in front of the persistent
