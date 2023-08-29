@@ -98,25 +98,25 @@ func TestEpochMetaRW_Commit(t *testing.T) {
 
 func TestShadowBranchNode_encodeDecode(t *testing.T) {
 	dt := []struct {
-		n FullNodeEpochMeta
+		n BranchNodeEpochMeta
 	}{
 		{
-			n: FullNodeEpochMeta{
+			n: BranchNodeEpochMeta{
 				EpochMap: [16]types.StateEpoch{},
 			},
 		},
 		{
-			n: FullNodeEpochMeta{
+			n: BranchNodeEpochMeta{
 				EpochMap: [16]types.StateEpoch{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
 			},
 		},
 		{
-			n: FullNodeEpochMeta{
+			n: BranchNodeEpochMeta{
 				EpochMap: [16]types.StateEpoch{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
 			},
 		},
 		{
-			n: FullNodeEpochMeta{
+			n: BranchNodeEpochMeta{
 				EpochMap: [16]types.StateEpoch{},
 			},
 		},

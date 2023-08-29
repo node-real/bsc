@@ -18,6 +18,7 @@ package trie
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/trie/trienode"
@@ -27,17 +28,19 @@ import (
 // capture all dirty nodes during the commit process and keep them cached in
 // insertion order.
 type committer struct {
-	nodes       *trienode.NodeSet
-	tracer      *tracer
-	collectLeaf bool
+	nodes             *trienode.NodeSet
+	tracer            *tracer
+	collectLeaf       bool
+	enableStateExpiry bool
 }
 
 // newCommitter creates a new committer or picks one from the pool.
-func newCommitter(nodeset *trienode.NodeSet, tracer *tracer, collectLeaf bool) *committer {
+func newCommitter(nodeset *trienode.NodeSet, tracer *tracer, collectLeaf bool, enableStateExpiry bool) *committer {
 	return &committer{
-		nodes:       nodeset,
-		tracer:      tracer,
-		collectLeaf: collectLeaf,
+		nodes:             nodeset,
+		tracer:            tracer,
+		collectLeaf:       collectLeaf,
+		enableStateExpiry: enableStateExpiry,
 	}
 }
 
@@ -140,6 +143,12 @@ func (c *committer) store(path []byte, n node) node {
 	// Collect the dirty node to nodeset for return.
 	nhash := common.BytesToHash(hash)
 	c.nodes.AddNode(path, trienode.New(nhash, nodeToBytes(n)))
+	if c.enableStateExpiry {
+		switch n := n.(type) {
+		case *fullNode:
+			c.nodes.AddBranchNodeEpochMeta(path, epochmeta.NewBranchNodeEpochMeta(n.EpochMap))
+		}
+	}
 
 	// Collect the corresponding leaf node if it's required. We don't check
 	// full node since it's impossible to store value in fullNode. The key
