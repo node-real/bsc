@@ -763,32 +763,35 @@ func (s *stateObject) Nonce() uint64 {
 	return s.data.Nonce
 }
 
-// ReviveStorageTrie TODO(0xbundler): combine with trie
-//func (s *stateObject) ReviveStorageTrie(proofCache trie.MPTProofCache) error {
-//	dr := s.getDirtyReviveTrie(s.db.db)
-//	s.db.journal.append(reviveStorageTrieNodeChange{
-//		address: &s.address,
-//	})
-//	// revive nub and cache revive state TODO(0xbundler): support proofs merge, revive in nubs
-//	for _, nub := range dr.ReviveTrie(proofCache.CacheNubs()) {
-//		kv, err := nub.ResolveKV()
-//		if err != nil {
-//			return err
-//		}
-//		for k, enc := range kv {
-//			var value common.Hash
-//			if len(enc) > 0 {
-//				_, content, _, err := rlp.Split(enc)
-//				if err != nil {
-//					return err
-//				}
-//				value.SetBytes(content)
-//			}
-//			s.dirtyReviveState[k] = value
-//		}
-//	}
-//	return nil
-//}
+func (s *stateObject) ReviveStorageTrie(proof types.ReviveStorageProof) error {
+	dr, err := s.getPendingReviveTrie()
+	if err != nil {
+		return err
+	}
+
+	key := common.Hex2Bytes(proof.Key)
+	prefixKey := common.Hex2Bytes(proof.PrefixKey)
+	proofList := make([][]byte, 0, len(proof.Proof))
+
+	for _, p := range proof.Proof {
+		proofList = append(proofList, common.Hex2Bytes(p))
+	}
+
+	// TODO(asyukii): support proofs merge, revive in nubs
+	err = dr.ReviveTrie(crypto.Keccak256(key), prefixKey, proofList)
+	if err != nil {
+		return fmt.Errorf("revive storage trie failed, err: %v", err)
+	}
+
+	// Update pending revive state
+	val, err := dr.GetStorage(s.address, key) // TODO(asyukii): may optimize this, return value when revive trie
+	if err != nil {
+		return fmt.Errorf("get storage value failed, err: %v", err)
+	}
+
+	s.pendingReviveState[proof.Key] = common.BytesToHash(val)
+	return nil
+}
 
 // accessState record all access states, now in pendingAccessedStateEpoch without consensus
 func (s *stateObject) accessState(key common.Hash) {

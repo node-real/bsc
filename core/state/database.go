@@ -135,6 +135,8 @@ type Trie interface {
 	Prove(key []byte, proofDb ethdb.KeyValueWriter) error
 
 	ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error
+
+	ReviveTrie(key []byte, prefixKeyHex []byte, proofList [][]byte) error
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for
