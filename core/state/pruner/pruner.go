@@ -705,10 +705,9 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, expiredCh chan *trie.
 		}
 		// replace snapshot kv only epoch
 		if info.IsLeaf {
-			sv := snapshot.NewValueWithEpoch(info.Epoch, nil)
-			buf := rlp.NewEncoderBuffer(nil)
-			sv.EncodeToRLPBytes(&buf)
-			rawdb.WriteStorageSnapshot(batch, addr, info.Key, buf.ToBytes())
+			if err := snapshot.ShrinkExpiredLeaf(batch, addr, info.Key, info.Epoch); err != nil {
+				log.Error("ShrinkExpiredLeaf err", "addr", addr, "key", info.Key, "err", err)
+			}
 		}
 		if batch.ValueSize() >= ethdb.IdealBatchSize {
 			batch.Write()
