@@ -735,7 +735,7 @@ func (it *unionIterator) AddResolver(resolver NodeResolver) {
 //
 // In the case that descend=false - eg, we're asked to ignore all subnodes of the
 // current node - we also advance any iterators in the heap that have the current
-// path as a prefix.
+// Path as a prefix.
 func (it *unionIterator) Next(descend bool) bool {
 	if len(*it.items) == 0 {
 		return false
