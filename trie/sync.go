@@ -72,7 +72,7 @@ var (
 //   - Path 0x012345678901234567890123456789010123456789012345678901234567890199 -> {0x0123456789012345678901234567890101234567890123456789012345678901, 0x0099}
 type SyncPath [][]byte
 
-// NewSyncPath converts an expanded trie path from nibble form into a compact
+// NewSyncPath converts an expanded trie Path from nibble form into a compact
 // version that can be sent over the network.
 func NewSyncPath(path []byte) SyncPath {
 	// If the hash is from the account trie, append a single item, if it
@@ -93,8 +93,8 @@ func NewSyncPath(path []byte) SyncPath {
 // trie (account) or a layered trie (account -> storage). Each key in the tuple
 // is in the raw format(32 bytes).
 //
-// The path is a composite hexary path identifying the trie node. All the key
-// bytes are converted to the hexary nibbles and composited with the parent path
+// The Path is a composite hexary Path identifying the trie node. All the key
+// bytes are converted to the hexary nibbles and composited with the parent Path
 // if the trie node is in a layered trie.
 //
 // It's used by state sync and commit to allow handling external references
@@ -154,7 +154,7 @@ func newSyncMemBatch() *syncMemBatch {
 	}
 }
 
-// hasNode reports the trie node with specific path is already cached.
+// hasNode reports the trie node with specific Path is already cached.
 func (batch *syncMemBatch) hasNode(path []byte) bool {
 	_, ok := batch.nodes[string(path)]
 	return ok
