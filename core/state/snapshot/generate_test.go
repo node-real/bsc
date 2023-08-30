@@ -124,12 +124,12 @@ func checkSnapRoot(t *testing.T, snap *diskLayer, trieRoot common.Hash) {
 			storageIt, _ := snap.StorageIterator(accountHash, common.Hash{})
 			defer storageIt.Release()
 
-			hash, err := generateTrieRoot(nil, "", storageIt, accountHash, stackTrieGenerate, nil, stat, false)
+			hash, err := generateTrieRoot(nil, "", storageIt, accountHash, stackTrieGenerate, nil, stat, false, nil)
 			if err != nil {
 				return common.Hash{}, err
 			}
 			return hash, nil
-		}, newGenerateStats(), true)
+		}, newGenerateStats(), true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

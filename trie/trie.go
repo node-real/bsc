@@ -25,7 +25,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 )
@@ -1292,8 +1291,22 @@ func (t *Trie) epochExpired(n node, epoch types.StateEpoch) bool {
 	return types.EpochExpired(epoch, t.currentEpoch)
 }
 
-// PruneExpiredStorageTrie traverses the storage trie and prunes all expired nodes.
-func (t *Trie) PruneExpiredStorageTrie(db ethdb.Database) error {
+func (t *Trie) SetEpoch(epoch types.StateEpoch) {
+	t.currentEpoch = epoch
+}
+
+type NodeInfo struct {
+	Addr     common.Hash
+	Path     []byte
+	Hash     common.Hash
+	Epoch    types.StateEpoch
+	Key      common.Hash // only leaf has right Key.
+	IsLeaf   bool
+	IsBranch bool
+}
+
+// PruneExpired traverses the storage trie and prunes all expired nodes.
+func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo) error {
 
 	if !t.enableExpiry {
 		return nil
@@ -1303,14 +1316,11 @@ func (t *Trie) PruneExpiredStorageTrie(db ethdb.Database) error {
 		return fmt.Errorf("cannot prune account trie")
 	}
 
-	var (
-		hasher = newHasher(false)
-		batch  = db.NewBatch()
-	)
-
-	defer returnHasherToPool(hasher)
-
-	_, _, err := t.pruneExpiredStorageTrie(t.root, nil, t.getRootEpoch(), false, batch, hasher)
+	err := t.findExpiredSubTree(t.root, nil, t.getRootEpoch(), func(n node, path []byte, epoch types.StateEpoch) {
+		if pruneErr := t.recursePruneExpiredNode(n, path, epoch, pruneItemCh); pruneErr != nil {
+			log.Error("recursePruneExpiredNode err", "Path", path, "err", pruneErr)
+		}
+	})
 	if err != nil {
 		return err
 	}
@@ -1318,115 +1328,101 @@ func (t *Trie) PruneExpiredStorageTrie(db ethdb.Database) error {
 	return nil
 }
 
-func (t *Trie) pruneExpiredStorageTrie(n node, path []byte, curEpoch types.StateEpoch, isExpired bool, batch ethdb.Batch, h *hasher) (node, bool, error) {
-
+func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch)) error {
 	// Upon reaching expired node, it will recursively traverse downwards to all the child nodes
 	// and collect their hashes. Then, the corresponding key-value pairs will be deleted from the
 	// database by batches.
-	if isExpired {
-		var hashList []common.Hash
-		cn, err := t.pruneExpired(n, path, h, &hashList)
-		if err != nil {
-			return nil, false, err
-		}
-
-		for _, hash := range hashList {
-			batch.Delete(hash[:])
-		}
-
-		// Handle 1 expired subtree at a time
-		batch.Write()
-		batch.Reset()
-
-		return cn, true, nil
+	if t.epochExpired(n, epoch) {
+		pruner(n, path, epoch)
+		return nil
 	}
 
 	switch n := n.(type) {
 	case *shortNode:
-		newNode, didExpire, err := t.pruneExpiredStorageTrie(n.Val, append(path, n.Key...), curEpoch, isExpired, batch, h)
-		if err == nil && didExpire {
-			n = n.copy()
-			n.Val = newNode
+		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner)
+		if err != nil {
+			return err
 		}
-		return n, didExpire, err
+		return nil
 	case *fullNode:
-
-		hasExpired := false
-
+		var err error
 		// Go through every child and recursively delete expired nodes
 		for i, child := range n.Children {
-			childExpired, _ := n.ChildExpired(path, i, curEpoch)
-			newNode, didExpire, err := t.pruneExpiredStorageTrie(child, append(path, byte(i)), curEpoch, childExpired, batch, h)
-			if err == nil && didExpire {
-				n = n.copy()
-				n.Children[byte(i)] = newNode
-				hasExpired = true
+			err = t.findExpiredSubTree(child, append(path, byte(i)), epoch, pruner)
+			if err != nil {
+				return err
 			}
 		}
-		return n, hasExpired, nil
+		return nil
 
 	case hashNode:
-		child, err := t.resolveAndTrack(n, path)
+		resolve, err := t.resolveAndTrack(n, path)
 		if err != nil {
-			return nil, false, err
+			return err
 		}
-		if err = t.resolveEpochMeta(child, curEpoch, path); err != nil {
-			return nil, false, err
+		if err = t.resolveEpochMeta(resolve, epoch, path); err != nil {
+			return err
 		}
 
-		newNode, didExpire, err := t.pruneExpiredStorageTrie(child, path, curEpoch, isExpired, batch, h)
-		return newNode, didExpire, err
+		return t.findExpiredSubTree(resolve, path, epoch, pruner)
 	case valueNode:
-		return n, false, nil
+		return nil
 	default:
 		panic(fmt.Sprintf("invalid node type: %T", n))
 	}
 }
 
-func (t *Trie) pruneExpired(n node, path []byte, hasher *hasher, hashList *[]common.Hash) (node, error) {
-
+func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpoch, pruneItemCh chan *NodeInfo) error {
 	switch n := n.(type) {
 	case *shortNode:
-		cn, err := t.pruneExpired(n.Val, append(path, n.Key...), hasher, hashList)
+		key := common.Hash{}
+		_, ok := n.Val.(valueNode)
+		if ok {
+			key = common.BytesToHash(hexToKeybytes(append(path, n.Key...)))
+		}
+		err := t.recursePruneExpiredNode(n.Val, append(path, n.Key...), epoch, pruneItemCh)
 		if err != nil {
-			return nil, err
+			return err
 		}
-
-		n.Val = cn
-		hn, _ := hasher.hash(n, false)
-		if hn, ok := hn.(hashNode); ok {
-			*hashList = append(*hashList, common.BytesToHash(hn))
-			return hn, nil
+		// prune child first
+		pruneItemCh <- &NodeInfo{
+			Addr:   t.owner,
+			Hash:   common.BytesToHash(n.flags.hash),
+			Path:   path,
+			Key:    key,
+			Epoch:  epoch,
+			IsLeaf: ok,
 		}
-
-		return n, nil
-
+		return nil
 	case *fullNode:
 		for i, child := range n.Children {
-			cn, err := t.pruneExpired(child, append(path, byte(i)), hasher, hashList)
+			err := t.recursePruneExpiredNode(child, append(path, byte(i)), n.EpochMap[i], pruneItemCh)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			n.Children[byte(i)] = cn
 		}
-
-		hn, _ := hasher.hash(n, false)
-		if hn, ok := hn.(hashNode); ok {
-			*hashList = append(*hashList, common.BytesToHash(hn))
-			return hn, nil
+		// prune child first
+		pruneItemCh <- &NodeInfo{
+			Addr:     t.owner,
+			Hash:     common.BytesToHash(n.flags.hash),
+			Path:     path,
+			Epoch:    epoch,
+			IsBranch: true,
 		}
-
-		return n, nil
-
+		return nil
 	case hashNode:
-		child, err := t.resolveAndTrack(n, path)
+		// hashNode is a index of trie node storage, need not prune.
+		resolve, err := t.resolveAndTrack(n, path)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		newNode, err := t.pruneExpired(child, path, hasher, hashList)
-		return newNode, err
+		if err = t.resolveEpochMeta(resolve, epoch, path); err != nil {
+			return err
+		}
+		return t.recursePruneExpiredNode(resolve, path, epoch, pruneItemCh)
 	case valueNode:
-		return n, nil
+		// value node is not a single storage uint, so pass to prune.
+		return nil
 	default:
 		panic(fmt.Sprintf("invalid node type: %T", n))
 	}
