@@ -8,7 +8,7 @@ import (
 )
 
 // ShrinkExpiredLeaf tool function for snapshot kv prune
-func ShrinkExpiredLeaf(db ethdb.KeyValueStore, accountHash common.Hash, storageHash common.Hash, epoch types.StateEpoch) error {
+func ShrinkExpiredLeaf(db ethdb.KeyValueWriter, accountHash common.Hash, storageHash common.Hash, epoch types.StateEpoch) error {
 	valWithEpoch := NewValueWithEpoch(epoch, nil)
 	enc, err := EncodeValueToRLPBytes(valWithEpoch)
 	if err != nil {
