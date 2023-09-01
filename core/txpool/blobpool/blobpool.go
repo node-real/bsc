@@ -365,7 +365,7 @@ func (p *BlobPool) Init(gasTip *big.Int, head *types.Header, reserve txpool.Addr
 			return err
 		}
 	}
-	state, err := p.chain.StateAt(head.Root, head.Number)
+	state, err := p.chain.StateAt(head.Root, head.Hash(), head.Number)
 	if err != nil {
 		return err
 	}
@@ -746,7 +746,7 @@ func (p *BlobPool) Reset(oldHead, newHead *types.Header) {
 		resettimeHist.Update(time.Since(start).Nanoseconds())
 	}(time.Now())
 
-	statedb, err := p.chain.StateAt(newHead.Root, newHead.Number)
+	statedb, err := p.chain.StateAt(newHead.Root, newHead.Hash(), newHead.Number)
 	if err != nil {
 		log.Error("Failed to reset blobpool state", "err", err)
 		return

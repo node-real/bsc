@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	lru "github.com/hashicorp/golang-lru"
 	"strings"
 	"time"
 )
@@ -13,12 +14,13 @@ import (
 // FullStateDB expired state could fetch from it
 type FullStateDB interface {
 	// GetStorageReviveProof fetch target proof according to specific params
-	GetStorageReviveProof(root common.Hash, account common.Address, prefixKeys, keys []string) ([]types.ReviveStorageProof, error)
+	GetStorageReviveProof(blockHash common.Hash, account common.Address, prefixKeys, keys []string) ([]types.ReviveStorageProof, error)
 }
 
 type FullStateRPCServer struct {
 	endpoint string
 	client   *rpc.Client
+	cache    *lru.Cache
 }
 
 func NewFullStateRPCServer(endpoint string) (FullStateDB, error) {
@@ -30,25 +32,52 @@ func NewFullStateRPCServer(endpoint string) (FullStateDB, error) {
 		// these prefixes.
 		endpoint = endpoint[4:]
 	}
-	// TODO(0xbundler): add more opts, like auth?
-	client, err := rpc.DialOptions(context.Background(), endpoint, nil)
+	// TODO(0xbundler): add more opts, like auth, cache size?
+	client, err := rpc.DialOptions(context.Background(), endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	cache, err := lru.New(10000)
 	if err != nil {
 		return nil, err
 	}
 	return &FullStateRPCServer{
 		endpoint: endpoint,
 		client:   client,
+		cache:    cache,
 	}, nil
 }
 
-func (f *FullStateRPCServer) GetStorageReviveProof(root common.Hash, account common.Address, prefixKeys, keys []string) ([]types.ReviveStorageProof, error) {
+func (f *FullStateRPCServer) GetStorageReviveProof(blockHash common.Hash, account common.Address, prefixKeys, keys []string) ([]types.ReviveStorageProof, error) {
+	// find from lru cache, now it cache key proof
+	uncahcedPrefixKeys := make([]string, 0, len(prefixKeys))
+	uncahcedKeys := make([]string, 0, len(keys))
+	ret := make([]types.ReviveStorageProof, 0, len(keys))
+	for i, key := range keys {
+		val, ok := f.cache.Get(key)
+		if !ok {
+			uncahcedPrefixKeys = append(uncahcedPrefixKeys, prefixKeys[i])
+			uncahcedKeys = append(uncahcedKeys, keys[i])
+			continue
+		}
+		ret = append(ret, val.(types.ReviveStorageProof))
+	}
+
 	// TODO(0xbundler): add timeout in flags?
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancelFunc()
-	proofs := make([]types.ReviveStorageProof, 0, len(keys))
-	err := f.client.CallContext(ctx, &proofs, "eth_getStorageReviveProof", account, prefixKeys, keys, root)
+	proofs := make([]types.ReviveStorageProof, 0, len(uncahcedKeys))
+	err := f.client.CallContext(ctx, &proofs, "eth_getStorageReviveProof", account, uncahcedKeys, uncahcedPrefixKeys, blockHash)
 	if err != nil {
 		return nil, err
 	}
-	return proofs, err
+
+	// add to cache
+	for _, proof := range proofs {
+		f.cache.Add(proof.Key, proof)
+	}
+
+	ret = append(ret, proofs...)
+	return ret, err
 }

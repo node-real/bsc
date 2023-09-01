@@ -142,9 +142,10 @@ type StateDB struct {
 	nextRevisionId int
 
 	// state expiry feature
-	enableStateExpiry bool
+	enableStateExpiry bool              // default disable
 	epoch             types.StateEpoch  // epoch indicate stateDB start at which block's target epoch
-	fullStateDB       ethdb.FullStateDB //RemoteFullStateNode
+	fullStateDB       ethdb.FullStateDB // RemoteFullStateNode
+	originalHash      common.Hash
 
 	// Measurements gathered during execution for debugging purposes
 	// MetricsMux should be used in more places, but will affect on performance, so following meteration is not accruate
@@ -238,14 +239,17 @@ func (s *StateDB) TransferPrefetcher(prev *StateDB) {
 	s.prefetcherLock.Unlock()
 }
 
-// InitStateExpiry it must set in initial, reset later will cause wrong result
-func (s *StateDB) InitStateExpiry(config *params.ChainConfig, height *big.Int, remote ethdb.FullStateDB) *StateDB {
-	if config == nil || height == nil || remote == nil {
+// InitStateExpiryFeature it must set in initial, reset later will cause wrong result
+// Attention: startAtBlockHash corresponding to stateDB's originalRoot, expectHeight is the epoch indicator.
+func (s *StateDB) InitStateExpiryFeature(config *params.ChainConfig, remote ethdb.FullStateDB, startAtBlockHash common.Hash, expectHeight *big.Int) *StateDB {
+	if config == nil || expectHeight == nil || remote == nil {
 		panic("cannot init state expiry stateDB with nil config/height/remote")
 	}
 	s.enableStateExpiry = true
 	s.fullStateDB = remote
-	s.epoch = types.GetStateEpoch(config, height)
+	s.epoch = types.GetStateEpoch(config, expectHeight)
+	s.originalHash = startAtBlockHash
+	log.Info("StateDB enable state expiry feature", "expectHeight", expectHeight, "startAtBlockHash", startAtBlockHash, "epoch", s.epoch)
 	return s
 }
 
@@ -269,6 +273,7 @@ func (s *StateDB) StartPrefetcher(namespace string) {
 		} else {
 			s.prefetcher = newTriePrefetcher(s.db, s.originalRoot, common.Hash{}, namespace)
 		}
+		s.prefetcher.InitStateExpiryFeature(s.epoch, s.originalHash, s.fullStateDB)
 	}
 }
 
@@ -1903,10 +1908,7 @@ func (s *StateDB) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 }
 
 func (s *StateDB) EnableExpire() bool {
-	if !s.enableStateExpiry {
-		return false
-	}
-	return types.EpochExpired(types.StateEpoch0, s.epoch)
+	return s.enableStateExpiry
 }
 
 // AddressInAccessList returns true if the given address is in the access list.
