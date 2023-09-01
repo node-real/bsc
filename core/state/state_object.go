@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -277,7 +278,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 				return common.Hash{}
 			}
 			// if query success, just set val, otherwise request from trie
-			if err != nil && sv != nil {
+			if err == nil && sv != nil {
 				value.SetBytes(sv.GetVal())
 				s.originStorageEpoch[key] = sv.GetEpoch()
 			}
@@ -759,39 +760,6 @@ func (s *stateObject) Nonce() uint64 {
 	return s.data.Nonce
 }
 
-func (s *stateObject) ReviveStorageTrie(proof types.ReviveStorageProof, targetPrefix []byte) error {
-	prefixKey := common.Hex2Bytes(proof.PrefixKey)
-	if !bytes.Equal(targetPrefix, prefixKey) {
-		return fmt.Errorf("revive with wrong prefix, target: %#x, actual: %#x", targetPrefix, prefixKey)
-	}
-
-	dr, err := s.getPendingReviveTrie()
-	if err != nil {
-		return err
-	}
-	key := common.Hex2Bytes(proof.Key)
-	proofList := make([][]byte, 0, len(proof.Proof))
-
-	for _, p := range proof.Proof {
-		proofList = append(proofList, common.Hex2Bytes(p))
-	}
-
-	// TODO(asyukii): support proofs merge, revive in nubs
-	err = dr.ReviveTrie(crypto.Keccak256(key), prefixKey, proofList)
-	if err != nil {
-		return fmt.Errorf("revive storage trie failed, err: %v", err)
-	}
-
-	// Update pending revive state
-	val, err := dr.GetStorageAndUpdateEpoch(s.address, key) // TODO(asyukii): may optimize this, return value when revive trie
-	if err != nil {
-		return fmt.Errorf("get storage value failed, err: %v", err)
-	}
-
-	s.pendingReviveState[proof.Key] = common.BytesToHash(val)
-	return nil
-}
-
 // accessState record all access states, now in pendingAccessedStateEpoch without consensus
 func (s *stateObject) accessState(key common.Hash) {
 	if !s.db.EnableExpire() {
@@ -811,31 +779,20 @@ func (s *stateObject) queryFromReviveState(reviveState map[string]common.Hash, k
 	return val, ok
 }
 
-// fetchExpiredFromRemote request expired state from remote full state node;
+// fetchExpiredStorageFromRemote request expired state from remote full state node;
 func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) ([]byte, error) {
-	// if no prefix, query from revive trie, got the newest expired info
-	if len(prefixKey) == 0 {
-		tr, err := s.getPendingReviveTrie()
-		if err != nil {
-			return nil, err
-		}
-		_, err = tr.GetStorage(s.address, key.Bytes())
-		if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-			prefixKey = enErr.Path
-		}
-	}
-	proofs, err := s.db.fullStateDB.GetStorageReviveProof(s.db.originalRoot, s.address, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
+	log.Info("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key)
+	tr, err := s.getPendingReviveTrie()
 	if err != nil {
 		return nil, err
 	}
 
-	for _, proof := range proofs {
-		if err := s.ReviveStorageTrie(proof, prefixKey); err != nil {
-			return nil, err
-		}
+	val, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalHash, s.address, tr, prefixKey, key)
+	if err != nil {
+		return nil, err
 	}
-	val := s.pendingReviveState[key.String()]
-	return val.Bytes(), nil
+	s.pendingReviveState[key.String()] = common.BytesToHash(val)
+	return val, nil
 }
 
 func (s *stateObject) getExpirySnapStorage(key common.Hash) (snapshot.SnapValue, error, error) {

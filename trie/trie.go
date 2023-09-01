@@ -21,8 +21,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/trie/epochmeta"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
@@ -93,9 +91,10 @@ func New(id *ID, db *Database) (*Trie, error) {
 		return nil, err
 	}
 	trie := &Trie{
-		owner:  id.Owner,
-		reader: reader,
-		tracer: newTracer(),
+		owner:        id.Owner,
+		reader:       reader,
+		tracer:       newTracer(),
+		enableExpiry: db.snapTree != nil,
 	}
 	if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
 		rootnode, err := trie.resolveAndTrack(id.Root[:], nil)
@@ -103,17 +102,16 @@ func New(id *ID, db *Database) (*Trie, error) {
 			return nil, err
 		}
 		trie.root = rootnode
+		// resolve root epoch
+		if trie.enableExpiry {
+			meta, err := reader.accountMeta()
+			if err != nil {
+				return nil, err
+			}
+			trie.rootEpoch = meta.Epoch()
+		}
 	}
 
-	// resolve root epoch
-	if db.snapTree != nil {
-		meta, err := reader.accountMeta()
-		if err != nil {
-			return nil, err
-		}
-		trie.rootEpoch = meta.Epoch()
-		trie.enableExpiry = true
-	}
 	return trie, nil
 }
 
@@ -981,20 +979,11 @@ func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) e
 		return nil
 	case *fullNode:
 		n.setEpoch(epoch)
-		blob, err := t.reader.epochMeta(prefix)
+		meta, err := t.reader.epochMeta(prefix)
 		if err != nil {
 			return err
 		}
-		if len(blob) == 0 {
-			// set default epoch map
-			n.EpochMap = [16]types.StateEpoch{}
-		} else {
-			meta, decErr := epochmeta.DecodeFullNodeEpochMeta(blob)
-			if decErr != nil {
-				return decErr
-			}
-			n.EpochMap = meta.EpochMap
-		}
+		n.EpochMap = meta.EpochMap
 		return nil
 	case valueNode, hashNode, nil:
 		// just skip
