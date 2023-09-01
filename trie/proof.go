@@ -262,7 +262,7 @@ func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]by
 		keyrest, cld := get(n, keyHex, false)
 		switch cld := cld.(type) {
 		case nil:
-			return nil, fmt.Errorf("the trie doesn't contain the key")
+			return nil, NewKeyDoesNotExistError(keyHex)
 		case hashNode:
 			keyHex = keyrest
 			// Verify that the child node is a hashNode and matches the hash in the proof
