@@ -341,17 +341,17 @@ func (bc *BlockChain) ContractCodeWithPrefix(hash common.Hash) ([]byte, error) {
 
 // State returns a new mutable state based on the current HEAD block.
 func (bc *BlockChain) State() (*state.StateDB, error) {
-	return bc.StateAt(bc.CurrentBlock().Root, bc.CurrentBlock().Number)
+	return bc.StateAt(bc.CurrentBlock().Root, bc.CurrentBlock().Hash(), bc.CurrentBlock().Number)
 }
 
 // StateAt returns a new mutable state based on a particular point in time.
-func (bc *BlockChain) StateAt(root common.Hash, height *big.Int) (*state.StateDB, error) {
-	sdb, err := state.New(root, bc.stateCache, bc.snaps)
+func (bc *BlockChain) StateAt(startAtRoot common.Hash, startAtBlockHash common.Hash, expectHeight *big.Int) (*state.StateDB, error) {
+	sdb, err := state.New(startAtRoot, bc.stateCache, bc.snaps)
 	if err != nil {
 		return nil, err
 	}
 	if bc.enableStateExpiry {
-		sdb.InitStateExpiry(bc.chainConfig, height, bc.fullStateDB)
+		sdb.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, startAtBlockHash, expectHeight)
 	}
 	return sdb, err
 }

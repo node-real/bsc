@@ -72,7 +72,7 @@ func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexe
 		// The state is available in live database, create a reference
 		// on top to prevent garbage collection and return a release
 		// function to deref it.
-		if statedb, err = eth.blockchain.StateAt(block.Root(), block.Number()); err == nil {
+		if statedb, err = eth.blockchain.StateAt(block.Root(), block.Hash(), block.Number()); err == nil {
 			statedb.Database().TrieDB().Reference(block.Root(), common.Hash{})
 			return statedb, func() {
 				statedb.Database().TrieDB().Dereference(block.Root())
@@ -89,7 +89,7 @@ func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexe
 			database = state.NewDatabaseWithConfig(eth.chainDb, &trie.Config{Cache: 16})
 			if statedb, err = state.New(block.Root(), database, nil); err == nil {
 				if eth.blockchain.EnableStateExpiry() {
-					statedb.InitStateExpiry(eth.blockchain.Config(), block.Number(), eth.blockchain.FullStateDB())
+					statedb.InitStateExpiryFeature(eth.blockchain.Config(), eth.blockchain.FullStateDB(), block.Hash(), block.Number())
 				}
 				log.Info("Found disk backend for state trie", "root", block.Root(), "number", block.Number())
 				return statedb, noopReleaser, nil
@@ -116,7 +116,7 @@ func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexe
 			statedb, err = state.New(current.Root(), database, nil)
 			if err == nil {
 				if eth.blockchain.EnableStateExpiry() {
-					statedb.InitStateExpiry(eth.blockchain.Config(), block.Number(), eth.blockchain.FullStateDB())
+					statedb.InitStateExpiryFeature(eth.blockchain.Config(), eth.blockchain.FullStateDB(), current.Hash(), block.Number())
 				}
 				return statedb, noopReleaser, nil
 			}
@@ -138,7 +138,7 @@ func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexe
 			statedb, err = state.New(current.Root(), database, nil)
 			if err == nil {
 				if eth.blockchain.EnableStateExpiry() {
-					statedb.InitStateExpiry(eth.blockchain.Config(), block.Number(), eth.blockchain.FullStateDB())
+					statedb.InitStateExpiryFeature(eth.blockchain.Config(), eth.blockchain.FullStateDB(), current.Hash(), block.Number())
 				}
 				break
 			}
@@ -190,7 +190,7 @@ func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexe
 			return nil, nil, fmt.Errorf("state reset after block %d failed: %v", current.NumberU64(), err)
 		}
 		if eth.blockchain.EnableStateExpiry() {
-			statedb.InitStateExpiry(eth.blockchain.Config(), block.Number(), eth.blockchain.FullStateDB())
+			statedb.InitStateExpiryFeature(eth.blockchain.Config(), eth.blockchain.FullStateDB(), current.Hash(), new(big.Int).Add(current.Number(), common.Big1))
 		}
 		// Hold the state reference and also drop the parent state
 		// to prevent accumulating too many nodes in memory.

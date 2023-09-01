@@ -339,6 +339,14 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	bc.processor = NewStateProcessor(chainConfig, bc, engine)
 
 	var err error
+	if cacheConfig.EnableStateExpiry {
+		log.Info("enable state expiry feature", "RemoteEndPoint", cacheConfig.RemoteEndPoint)
+		bc.enableStateExpiry = true
+		bc.fullStateDB, err = ethdb.NewFullStateRPCServer(cacheConfig.RemoteEndPoint)
+		if err != nil {
+			return nil, err
+		}
+	}
 	bc.hc, err = NewHeaderChain(db, chainConfig, engine, bc.insertStopped)
 	if err != nil {
 		return nil, err
@@ -510,14 +518,6 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 
 		bc.wg.Add(1)
 		go bc.maintainTxIndex()
-	}
-
-	if cacheConfig.EnableStateExpiry {
-		bc.enableStateExpiry = true
-		bc.fullStateDB, err = ethdb.NewFullStateRPCServer(cacheConfig.RemoteEndPoint)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return bc, nil
 }
@@ -985,13 +985,13 @@ func (bc *BlockChain) SnapSyncCommitHead(hash common.Hash) error {
 }
 
 // StateAtWithSharedPool returns a new mutable state based on a particular point in time with sharedStorage
-func (bc *BlockChain) StateAtWithSharedPool(root common.Hash, height *big.Int) (*state.StateDB, error) {
+func (bc *BlockChain) StateAtWithSharedPool(root, startAtBlockHash common.Hash, height *big.Int) (*state.StateDB, error) {
 	stateDB, err := state.NewWithSharedPool(root, bc.stateCache, bc.snaps)
 	if err != nil {
 		return nil, err
 	}
 	if bc.enableStateExpiry {
-		stateDB.InitStateExpiry(bc.chainConfig, height, bc.fullStateDB)
+		stateDB.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, startAtBlockHash, height)
 	}
 	return stateDB, err
 }
@@ -1969,7 +1969,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 		}
 		bc.updateHighestVerifiedHeader(block.Header())
 		if bc.enableStateExpiry {
-			statedb.InitStateExpiry(bc.chainConfig, block.Number(), bc.fullStateDB)
+			statedb.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, parent.Hash(), block.Number())
 		}
 
 		// Enable prefetching to pull in trie node paths while processing transactions
@@ -1981,7 +1981,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			// 1.do state prefetch for snapshot cache
 			throwaway := statedb.CopyDoPrefetch()
 			if throwaway != nil && bc.enableStateExpiry {
-				throwaway.InitStateExpiry(bc.chainConfig, block.Number(), bc.fullStateDB)
+				throwaway.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, parent.Hash(), block.Number())
 			}
 			go bc.prefetcher.Prefetch(block, throwaway, &bc.vmConfig, interruptCh)
 

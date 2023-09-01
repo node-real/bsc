@@ -19,6 +19,7 @@ package pruner
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/params"
@@ -674,6 +675,7 @@ func asyncPruneExpired(diskdb ethdb.Database, stateRoot common.Hash, currentEpoc
 	pruneItemCh := make(chan *trie.NodeInfo, 100000)
 	go asyncPruneExpiredStorageInDisk(diskdb, pruneItemCh)
 	for item := range expireRootCh {
+		log.Info("start scan trie expired state", "addr", item.Addr, "root", item.Root)
 		tr, err := trie.New(&trie.ID{
 			StateRoot: stateRoot,
 			Owner:     item.Addr,
@@ -693,6 +695,9 @@ func asyncPruneExpired(diskdb ethdb.Database, stateRoot common.Hash, currentEpoc
 func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, expiredCh chan *trie.NodeInfo) {
 	batch := diskdb.NewBatch()
 	for info := range expiredCh {
+		log.Info("found expired state", "addr", info.Addr, "path",
+			hex.EncodeToString(info.Path), "epoch", info.Epoch, "isBranch",
+			info.IsBranch, "isLeaf", info.IsLeaf)
 		addr := info.Addr
 		// delete trie kv
 		rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)

@@ -97,16 +97,25 @@ func (r *trieReader) node(path []byte, hash common.Hash) ([]byte, error) {
 }
 
 // epochMeta resolve from epoch meta storage
-func (r *trieReader) epochMeta(path []byte) ([]byte, error) {
+func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, error) {
 	if r.emdb == nil {
 		return nil, fmt.Errorf("cannot resolve epochmeta without db, path: %#x", path)
 	}
 
+	// epoch meta cloud be empty, because epoch0 or delete?
 	blob, err := r.emdb.Get(r.owner, string(path))
-	if err != nil || len(blob) == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("resolve epoch meta err, path: %#x, err: %v", path, err)
 	}
-	return blob, nil
+	if len(blob) == 0 {
+		// set default epoch map
+		return epochmeta.NewBranchNodeEpochMeta([16]types.StateEpoch{}), nil
+	}
+	meta, err := epochmeta.DecodeFullNodeEpochMeta(blob)
+	if err != nil {
+		return nil, err
+	}
+	return meta, nil
 }
 
 // accountMeta resolve account metadata
@@ -116,7 +125,7 @@ func (r *trieReader) accountMeta() (types.MetaNoConsensus, error) {
 	}
 
 	blob, err := r.emdb.Get(r.owner, epochmeta.AccountMetadataPath)
-	if err != nil || len(blob) == 0 {
+	if err != nil {
 		return types.EmptyMetaNoConsensus, fmt.Errorf("resolve epoch meta err for account, err: %v", err)
 	}
 	return types.DecodeMetaNoConsensusFromRLPBytes(blob)

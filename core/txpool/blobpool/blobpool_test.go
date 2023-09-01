@@ -158,7 +158,7 @@ func (bt *testBlockChain) GetBlock(hash common.Hash, number uint64) *types.Block
 	return nil
 }
 
-func (bc *testBlockChain) StateAt(common.Hash, *big.Int) (*state.StateDB, error) {
+func (bc *testBlockChain) StateAt(common.Hash, common.Hash, *big.Int) (*state.StateDB, error) {
 	return bc.statedb, nil
 }
 
