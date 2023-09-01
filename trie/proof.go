@@ -251,7 +251,7 @@ func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]by
 		node := proofList[i]
 		n, err := decodeNode(nil, node)
 		if err != nil {
-			return nil, fmt.Errorf("decode proof item %064x, err: %x", node, err)
+			return nil, fmt.Errorf("decode proof item %#x, err: %v", node, err)
 		}
 
 		if parentNode == nil {

@@ -17,12 +17,15 @@
 package state
 
 import (
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"sync"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	trie2 "github.com/ethereum/go-ethereum/trie"
 )
 
 const (
@@ -62,6 +65,12 @@ type triePrefetcher struct {
 	closeMainDoneChan chan struct{}
 	fetchersMutex     sync.RWMutex
 	prefetchChan      chan *prefetchMsg // no need to wait for return
+
+	// state expiry feature
+	enableStateExpiry bool              // default disable
+	epoch             types.StateEpoch  // epoch indicate stateDB start at which block's target epoch
+	fullStateDB       ethdb.FullStateDB // RemoteFullStateNode
+	blockHash         common.Hash
 
 	deliveryMissMeter metrics.Meter
 	accountLoadMeter  metrics.Meter
@@ -123,6 +132,9 @@ func (p *triePrefetcher) mainLoop() {
 			fetcher := p.fetchers[id]
 			if fetcher == nil {
 				fetcher = newSubfetcher(p.db, p.root, pMsg.owner, pMsg.root, pMsg.addr)
+				if p.enableStateExpiry {
+					fetcher.initStateExpiryFeature(p.epoch, p.blockHash, p.fullStateDB)
+				}
 				p.fetchersMutex.Lock()
 				p.fetchers[id] = fetcher
 				p.fetchersMutex.Unlock()
@@ -202,6 +214,14 @@ func (p *triePrefetcher) mainLoop() {
 			return
 		}
 	}
+}
+
+// InitStateExpiryFeature it must call in initial period.
+func (p *triePrefetcher) InitStateExpiryFeature(epoch types.StateEpoch, blockHash common.Hash, fullStateDB ethdb.FullStateDB) {
+	p.enableStateExpiry = true
+	p.epoch = epoch
+	p.fullStateDB = fullStateDB
+	p.blockHash = blockHash
 }
 
 // close iterates over all the subfetchers, aborts any that were left spinning
@@ -354,6 +374,12 @@ type subfetcher struct {
 	addr  common.Address // Address of the account that the trie belongs to
 	trie  Trie           // Trie being populated with nodes
 
+	// state expiry feature
+	enableStateExpiry bool              // default disable
+	epoch             types.StateEpoch  // epoch indicate stateDB start at which block's target epoch
+	fullStateDB       ethdb.FullStateDB // RemoteFullStateNode
+	blockHash         common.Hash
+
 	tasks [][]byte   // Items queued up for retrieval
 	lock  sync.Mutex // Lock protecting the task queue
 
@@ -385,8 +411,19 @@ func newSubfetcher(db Database, state common.Hash, owner common.Hash, root commo
 		copy:  make(chan chan Trie),
 		seen:  make(map[string]struct{}),
 	}
-	go sf.loop()
 	return sf
+}
+
+func (sf *subfetcher) start() {
+	go sf.loop()
+}
+
+// InitStateExpiryFeature it must call in initial period.
+func (sf *subfetcher) initStateExpiryFeature(epoch types.StateEpoch, blockHash common.Hash, fullStateDB ethdb.FullStateDB) {
+	sf.enableStateExpiry = true
+	sf.epoch = epoch
+	sf.fullStateDB = fullStateDB
+	sf.blockHash = blockHash
 }
 
 // schedule adds a batch of trie keys to the queue to prefetch.
@@ -432,6 +469,9 @@ func (sf *subfetcher) scheduleParallel(keys [][]byte) {
 	keysLeftSize := len(keysLeft)
 	for i := 0; i*parallelTriePrefetchCapacity < keysLeftSize; i++ {
 		child := newSubfetcher(sf.db, sf.state, sf.owner, sf.root, sf.addr)
+		if sf.enableStateExpiry {
+			child.initStateExpiryFeature(sf.epoch, sf.blockHash, sf.fullStateDB)
+		}
 		sf.paraChildren = append(sf.paraChildren, child)
 		endIndex := (i + 1) * parallelTriePrefetchCapacity
 		if endIndex >= keysLeftSize {
@@ -484,6 +524,9 @@ func (sf *subfetcher) loop() {
 		trie, err = sf.db.OpenTrie(sf.root)
 	} else {
 		trie, err = sf.db.OpenStorageTrie(sf.state, sf.addr, sf.root)
+		if err == nil && sf.enableStateExpiry {
+			trie.SetEpoch(sf.epoch)
+		}
 	}
 	if err != nil {
 		log.Debug("Trie prefetcher failed opening trie", "root", sf.root, "err", err)
@@ -535,7 +578,18 @@ func (sf *subfetcher) loop() {
 						if len(task) == common.AddressLength {
 							sf.trie.GetAccount(common.BytesToAddress(task))
 						} else {
-							sf.trie.GetStorage(sf.addr, task)
+							_, err := sf.trie.GetStorage(sf.addr, task)
+							// handle expired state
+							if sf.enableStateExpiry {
+								if exErr, match := err.(*trie2.ExpiredNodeError); match {
+									key := common.BytesToHash(task)
+									log.Info("fetchExpiredStorageFromRemote in trie prefetcher", "addr", sf.addr, "prefixKey", exErr.Path, "key", key)
+									_, err = fetchExpiredStorageFromRemote(sf.fullStateDB, sf.blockHash, sf.addr, sf.trie, exErr.Path, key)
+									if err != nil {
+										log.Error("subfetcher fetchExpiredStorageFromRemote err", "addr", sf.addr, "path", exErr.Path, "err", err)
+									}
+								}
+							}
 						}
 						sf.seen[string(task)] = struct{}{}
 					}
