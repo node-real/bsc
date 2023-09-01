@@ -106,7 +106,7 @@ func (s *SnapshotTree) Cap(blockRoot common.Hash) error {
 		return nil
 	}
 
-	last, ok := flatten[len(flatten)-1].(*epochMetaDiskLayer)
+	last, ok := flatten[len(flatten)-1].(*diskLayer)
 	if !ok {
 		return errors.New("the diff layers not link to disk layer")
 	}
@@ -213,7 +213,7 @@ func (s *SnapshotTree) removeSubLayers(layers []common.Hash, skip *common.Hash) 
 }
 
 // flattenDiffs2Disk delete all flatten and push them to db
-func (s *SnapshotTree) flattenDiffs2Disk(flatten []snapshot, diskLayer *epochMetaDiskLayer) (*epochMetaDiskLayer, error) {
+func (s *SnapshotTree) flattenDiffs2Disk(flatten []snapshot, diskLayer *diskLayer) (*diskLayer, error) {
 	var err error
 	for i := len(flatten) - 1; i >= 0; i-- {
 		diskLayer, err = diskLayer.PushDiff(flatten[i].(*diffLayer))
@@ -226,7 +226,7 @@ func (s *SnapshotTree) flattenDiffs2Disk(flatten []snapshot, diskLayer *epochMet
 }
 
 // loadDiskLayer load from db, could be nil when none in db
-func loadDiskLayer(db ethdb.KeyValueStore) (*epochMetaDiskLayer, error) {
+func loadDiskLayer(db ethdb.KeyValueStore) (*diskLayer, error) {
 	val := rawdb.ReadEpochMetaPlainStateMeta(db)
 	// if there is no disk layer, will construct a fake disk layer
 	if len(val) == 0 {
@@ -248,7 +248,7 @@ func loadDiskLayer(db ethdb.KeyValueStore) (*epochMetaDiskLayer, error) {
 	return layer, nil
 }
 
-func loadDiffLayers(db ethdb.KeyValueStore, diskLayer *epochMetaDiskLayer) (map[common.Hash]snapshot, map[common.Hash][]common.Hash, error) {
+func loadDiffLayers(db ethdb.KeyValueStore, diskLayer *diskLayer) (map[common.Hash]snapshot, map[common.Hash][]common.Hash, error) {
 	layers := make(map[common.Hash]snapshot)
 	children := make(map[common.Hash][]common.Hash)
 
@@ -369,8 +369,8 @@ func (s *diffLayer) Parent() snapshot {
 // Update append new diff layer onto current, nodeChgRecord when val is []byte{}, it delete the kv
 func (s *diffLayer) Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (snapshot, error) {
 	s.lock.RLock()
-	if s.blockNumber.Cmp(blockNumber) >= 0 {
-		return nil, errors.New("update a unordered diff layer")
+	if s.blockNumber.Int64() != 0 && s.blockNumber.Cmp(blockNumber) >= 0 {
+		return nil, errors.New("update a unordered diff layer in diff layer")
 	}
 	s.lock.RUnlock()
 	return newEpochMetaDiffLayer(blockNumber, blockRoot, s, nodeSet), nil
@@ -436,7 +436,7 @@ type epochMetaPlainMeta struct {
 	BlockRoot   common.Hash
 }
 
-type epochMetaDiskLayer struct {
+type diskLayer struct {
 	diskdb      ethdb.KeyValueStore
 	blockNumber *big.Int
 	blockRoot   common.Hash
@@ -444,12 +444,12 @@ type epochMetaDiskLayer struct {
 	lock        sync.RWMutex
 }
 
-func newEpochMetaDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blockRoot common.Hash) (*epochMetaDiskLayer, error) {
+func newEpochMetaDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blockRoot common.Hash) (*diskLayer, error) {
 	cache, err := lru.New(defaultDiskLayerCacheSize)
 	if err != nil {
 		return nil, err
 	}
-	return &epochMetaDiskLayer{
+	return &diskLayer{
 		diskdb:      diskdb,
 		blockNumber: blockNumber,
 		blockRoot:   blockRoot,
@@ -457,13 +457,13 @@ func newEpochMetaDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blo
 	}, nil
 }
 
-func (s *epochMetaDiskLayer) Root() common.Hash {
+func (s *diskLayer) Root() common.Hash {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.blockRoot
 }
 
-func (s *epochMetaDiskLayer) EpochMeta(addr common.Hash, path string) ([]byte, error) {
+func (s *diskLayer) EpochMeta(addr common.Hash, path string) ([]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -478,24 +478,24 @@ func (s *epochMetaDiskLayer) EpochMeta(addr common.Hash, path string) ([]byte, e
 	return val, nil
 }
 
-func (s *epochMetaDiskLayer) Parent() snapshot {
+func (s *diskLayer) Parent() snapshot {
 	return nil
 }
 
-func (s *epochMetaDiskLayer) Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (snapshot, error) {
+func (s *diskLayer) Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (snapshot, error) {
 	s.lock.RLock()
-	if s.blockNumber.Cmp(blockNumber) >= 0 {
-		return nil, errors.New("update a unordered diff layer")
+	if s.blockNumber.Int64() != 0 && s.blockNumber.Cmp(blockNumber) >= 0 {
+		return nil, errors.New("update a unordered diff layer in disk layer")
 	}
 	s.lock.RUnlock()
 	return newEpochMetaDiffLayer(blockNumber, blockRoot, s, nodeSet), nil
 }
 
-func (s *epochMetaDiskLayer) Journal(buffer *bytes.Buffer) (common.Hash, error) {
+func (s *diskLayer) Journal(buffer *bytes.Buffer) (common.Hash, error) {
 	return common.Hash{}, nil
 }
 
-func (s *epochMetaDiskLayer) PushDiff(diff *diffLayer) (*epochMetaDiskLayer, error) {
+func (s *diskLayer) PushDiff(diff *diffLayer) (*diskLayer, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -525,7 +525,7 @@ func (s *epochMetaDiskLayer) PushDiff(diff *diffLayer) (*epochMetaDiskLayer, err
 	if err = batch.Write(); err != nil {
 		return nil, err
 	}
-	diskLayer := &epochMetaDiskLayer{
+	diskLayer := &diskLayer{
 		diskdb:      s.diskdb,
 		blockNumber: number,
 		blockRoot:   diff.blockRoot,
@@ -541,7 +541,7 @@ func (s *epochMetaDiskLayer) PushDiff(diff *diffLayer) (*epochMetaDiskLayer, err
 	return diskLayer, nil
 }
 
-func (s *epochMetaDiskLayer) writeHistory(number *big.Int, batch ethdb.Batch, nodeSet map[common.Hash]map[string][]byte) error {
+func (s *diskLayer) writeHistory(number *big.Int, batch ethdb.Batch, nodeSet map[common.Hash]map[string][]byte) error {
 	for addr, subSet := range nodeSet {
 		for path, val := range subSet {
 			// refresh plain state

@@ -49,6 +49,9 @@ func (m MetaNoConsensus) EncodeToRLPBytes() ([]byte, error) {
 }
 
 func DecodeMetaNoConsensusFromRLPBytes(enc []byte) (MetaNoConsensus, error) {
+	if len(enc) == 0 {
+		return EmptyMetaNoConsensus, nil
+	}
 	var mc MetaNoConsensus
 	if err := rlp.DecodeBytes(enc, &mc); err != nil {
 		return EmptyMetaNoConsensus, err

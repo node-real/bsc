@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	DefaultStateEpochPeriod = uint64(7_008_000)
+	//DefaultStateEpochPeriod = uint64(7_008_000)
+	DefaultStateEpochPeriod = uint64(50)
 	StateEpoch0             = StateEpoch(0)
 	StateEpoch1             = StateEpoch(1)
 	StateEpochKeepLiveNum   = StateEpoch(2)

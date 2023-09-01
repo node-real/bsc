@@ -28,3 +28,7 @@ var (
 	Big256 = big.NewInt(256)
 	Big257 = big.NewInt(257)
 )
+
+func AddBig1(tmp *big.Int) *big.Int {
+	return new(big.Int).Add(tmp, Big1)
+}
