@@ -75,6 +75,7 @@ func (t *Trie) Copy() *Trie {
 		reader:       t.reader,
 		tracer:       t.tracer.copy(),
 		rootEpoch:    t.rootEpoch,
+		currentEpoch: t.currentEpoch,
 		enableExpiry: t.enableExpiry,
 	}
 }
@@ -442,6 +443,7 @@ func (t *Trie) updateWithEpoch(key, value []byte, epoch types.StateEpoch) error 
 		}
 		t.root = n
 	}
+	t.rootEpoch = t.currentEpoch
 	return nil
 }
 
@@ -648,6 +650,7 @@ func (t *Trie) Delete(key []byte) error {
 
 	if t.enableExpiry {
 		_, n, err = t.deleteWithEpoch(t.root, nil, k, t.getRootEpoch())
+		t.rootEpoch = t.currentEpoch
 	} else {
 		_, n, err = t.delete(t.root, nil, k)
 	}
@@ -1098,12 +1101,22 @@ func (t *Trie) ReviveTrie(key []byte, prefixKeyHex []byte, proofList [][]byte) e
 		return err
 	}
 
-	newRoot, _, err := t.revive(t.root, key, prefixKeyHex, 0, revivedNode, common.BytesToHash(revivedHash), t.getRootEpoch(), false)
+	newRoot, didRevive, err := t.revive(t.root, key, prefixKeyHex, 0, revivedNode, common.BytesToHash(revivedHash), t.getRootEpoch(), types.EpochExpired(t.getRootEpoch(), t.currentEpoch))
 	if err != nil {
 		return err
 	}
 
-	t.root = newRoot
+	if didRevive {
+		switch n := newRoot.(type) {
+		case *shortNode:
+			n.setEpoch(t.currentEpoch)
+		case *fullNode:
+			n.setEpoch(t.currentEpoch)
+			n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
+		}
+		t.root = newRoot
+		t.rootEpoch = t.currentEpoch
+	}
 
 	return nil
 }
@@ -1120,14 +1133,11 @@ func (t *Trie) revive(n node, key []byte, prefixKeyHex []byte, pos int, revivedN
 			return nil, false, fmt.Errorf("target revive node is not expired")
 		}
 
-		hn, ok := n.(hashNode)
-		if !ok {
-			return nil, false, fmt.Errorf("prefix key path does not lead to a hash node")
-		}
-
-		// Compare the hash of the revived node with the hash of the hash node
-		if revivedHash != common.BytesToHash(hn) {
-			return nil, false, fmt.Errorf("revived node hash does not match the hash node hash")
+		if hn, ok := n.(hashNode); ok {
+			// Compare the hash of the revived node with the hash of the hash node
+			if revivedHash != common.BytesToHash(hn) {
+				return nil, false, fmt.Errorf("revived node hash does not match the hash node hash")
+			}
 		}
 
 		return revivedNode, true, nil
@@ -1152,7 +1162,7 @@ func (t *Trie) revive(n node, key []byte, prefixKeyHex []byte, pos int, revivedN
 		return n, didRevived, err
 	case *fullNode:
 		childIndex := int(key[pos])
-		childExpired, _ := n.ChildExpired(key[:pos], childIndex, t.getRootEpoch())
+		childExpired, _ := n.ChildExpired(key[:pos], childIndex, t.currentEpoch)
 		newNode, didRevived, err := t.revive(n.Children[childIndex], key, prefixKeyHex, pos+1, revivedNode, revivedHash, n.GetChildEpoch(childIndex), childExpired)
 		if err == nil && didRevived {
 			n = n.copy()

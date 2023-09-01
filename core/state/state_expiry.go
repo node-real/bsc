@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -35,26 +36,30 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Ha
 
 // reviveStorageTrie revive trie's expired state from proof
 func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetPrefix []byte) ([]byte, error) {
-	prefixKey := common.Hex2Bytes(proof.PrefixKey)
+	// prefixKey := common.Hex2Bytes(proof.PrefixKey)
+
+	prefixKey, _ := hexutil.Decode(proof.PrefixKey)
+
 	if !bytes.Equal(targetPrefix, prefixKey) {
 		return nil, fmt.Errorf("revive with wrong prefix, target: %#x, actual: %#x", targetPrefix, prefixKey)
 	}
 
-	key := common.Hex2Bytes(proof.Key)
+	key := hexutil.MustDecode(proof.Key)
 	proofs := make([][]byte, 0, len(proof.Proof))
 
 	for _, p := range proof.Proof {
 		proofs = append(proofs, common.Hex2Bytes(p))
+		proofs = append(proofs, hexutil.MustDecode(p))
 	}
 
 	// TODO(asyukii): support proofs merge, revive in nubs
 	err := tr.ReviveTrie(crypto.Keccak256(key), prefixKey, proofs)
 	if err != nil {
-		return nil, fmt.Errorf("revive storage trie failed, err: %v", err)
+		return nil, err
 	}
 
 	// Update pending revive state
-	val, err := tr.GetStorage(addr, key) // TODO(asyukii): may optimize this, return value when revive trie
+	val, err := tr.GetStorageAndUpdateEpoch(addr, key) // TODO(asyukii): may optimize this, return value when revive trie
 	if err != nil {
 		return nil, fmt.Errorf("get storage value failed, err: %v", err)
 	}

@@ -788,10 +788,16 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 	}
 
 	val, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalHash, s.address, tr, prefixKey, key)
+
 	if err != nil {
-		return nil, err
+		// Keys may not exist in the trie, so they can't be revived.
+		if _, ok := err.(*trie.KeyDoesNotExistError); ok {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("revive storage trie failed, err: %v", err)
 	}
 	s.pendingReviveState[key.String()] = common.BytesToHash(val)
+
 	return val, nil
 }
 
