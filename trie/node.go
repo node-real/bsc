@@ -26,12 +26,25 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+const (
+	BranchNodeLength = 17
+)
+
+const (
+	shortNodeType = iota
+	fullNodeType
+	hashNodeType
+	valueNodeType
+	rawNodeType
+)
+
 var indices = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "[17]"}
 
 type node interface {
 	cache() (hashNode, bool)
 	encode(w rlp.EncoderBuffer)
 	fstring(string) string
+	nodeType() int
 }
 
 type (
@@ -161,6 +174,10 @@ type rawNode []byte
 func (n rawNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawNode) fstring(ind string) string { panic("this should never end up in a live trie") }
 
+func (n rawNode) nodeType() int {
+	return rawNodeType
+}
+
 func (n rawNode) EncodeRLP(w io.Writer) error {
 	_, err := w.Write(n)
 	return err
@@ -169,6 +186,22 @@ func (n rawNode) EncodeRLP(w io.Writer) error {
 func NodeString(hash, buf []byte) string {
 	node := mustDecodeNode(hash, buf)
 	return node.fstring("NodeString: ")
+}
+
+func (n *shortNode) nodeType() int {
+	return shortNodeType
+}
+
+func (n *fullNode) nodeType() int {
+	return fullNodeType
+}
+
+func (n hashNode) nodeType() int {
+	return hashNodeType
+}
+
+func (n valueNode) nodeType() int {
+	return valueNodeType
 }
 
 // mustDecodeNode is a wrapper of decodeNode and panic if any error is encountered.
