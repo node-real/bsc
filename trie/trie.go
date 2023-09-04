@@ -95,7 +95,7 @@ func New(id *ID, db *Database) (*Trie, error) {
 		owner:        id.Owner,
 		reader:       reader,
 		tracer:       newTracer(),
-		enableExpiry: db.snapTree != nil,
+		enableExpiry: enableStateExpiry(id, db),
 	}
 	if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
 		rootnode, err := trie.resolveAndTrack(id.Root[:], nil)
@@ -114,6 +114,16 @@ func New(id *ID, db *Database) (*Trie, error) {
 	}
 
 	return trie, nil
+}
+
+func enableStateExpiry(id *ID, db *Database) bool {
+	if db.snapTree == nil {
+		return false
+	}
+	if id.Owner == (common.Hash{}) {
+		return false
+	}
+	return true
 }
 
 // NewEmpty is a shortcut to create empty tree. It's mostly used in tests.

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -31,25 +30,21 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Ha
 		return nil, fmt.Errorf("cannot find any revive proof from remoteDB")
 	}
 
-	return reviveStorageTrie(addr, tr, proofs[0], prefixKey)
+	return reviveStorageTrie(addr, tr, proofs[0], key)
 }
 
 // reviveStorageTrie revive trie's expired state from proof
-func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetPrefix []byte) ([]byte, error) {
-	// prefixKey := common.Hex2Bytes(proof.PrefixKey)
-
-	prefixKey, _ := hexutil.Decode(proof.PrefixKey)
-
-	if !bytes.Equal(targetPrefix, prefixKey) {
-		return nil, fmt.Errorf("revive with wrong prefix, target: %#x, actual: %#x", targetPrefix, prefixKey)
+func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) ([]byte, error) {
+	key := common.FromHex(proof.Key)
+	if !bytes.Equal(targetKey[:], key) {
+		return nil, fmt.Errorf("revive with wrong key, target: %#x, actual: %#x", targetKey, key)
 	}
 
-	key := hexutil.MustDecode(proof.Key)
+	prefixKey := common.FromHex(proof.PrefixKey)
 	proofs := make([][]byte, 0, len(proof.Proof))
 
 	for _, p := range proof.Proof {
-		proofs = append(proofs, common.Hex2Bytes(p))
-		proofs = append(proofs, hexutil.MustDecode(p))
+		proofs = append(proofs, common.FromHex(p))
 	}
 
 	// TODO(asyukii): support proofs merge, revive in nubs
@@ -59,7 +54,7 @@ func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 	}
 
 	// Update pending revive state
-	val, err := tr.GetStorageAndUpdateEpoch(addr, key) // TODO(asyukii): may optimize this, return value when revive trie
+	val, err := tr.GetStorage(addr, key) // TODO(asyukii): may optimize this, return value when revive trie
 	if err != nil {
 		return nil, fmt.Errorf("get storage value failed, err: %v", err)
 	}

@@ -996,6 +996,7 @@ func (s *StateDB) copyInternal(doPrefetch bool) *StateDB {
 		epoch:             s.epoch,
 		enableStateExpiry: s.enableStateExpiry,
 		fullStateDB:       s.fullStateDB,
+		originalHash:      s.originalHash,
 
 		// In order for the block producer to be able to use and make additions
 		// to the snapshot tree, we need to copy that as well. Otherwise, any
