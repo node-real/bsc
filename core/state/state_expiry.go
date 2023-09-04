@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
@@ -35,29 +34,35 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Ha
 
 // reviveStorageTrie revive trie's expired state from proof
 func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) ([]byte, error) {
+
+	// Decode keys and proofs
 	key := common.FromHex(proof.Key)
 	if !bytes.Equal(targetKey[:], key) {
 		return nil, fmt.Errorf("revive with wrong key, target: %#x, actual: %#x", targetKey, key)
 	}
-
 	prefixKey := common.FromHex(proof.PrefixKey)
-	proofs := make([][]byte, 0, len(proof.Proof))
-
+	innerProofs := make([][]byte, 0, len(proof.Proof))
 	for _, p := range proof.Proof {
-		proofs = append(proofs, common.FromHex(p))
+		innerProofs = append(innerProofs, common.FromHex(p))
 	}
 
-	// TODO(asyukii): support proofs merge, revive in nubs
-	err := tr.ReviveTrie(crypto.Keccak256(key), prefixKey, proofs)
-	if err != nil {
+	proofCache := trie.MPTProofCache{
+		MPTProof: trie.MPTProof{
+			RootKeyHex: prefixKey,
+			Proof:      innerProofs,
+		},
+	}
+
+	if err := proofCache.VerifyProof(); err != nil {
 		return nil, err
 	}
 
-	// Update pending revive state
-	val, err := tr.GetStorage(addr, key) // TODO(asyukii): may optimize this, return value when revive trie
-	if err != nil {
-		return nil, fmt.Errorf("get storage value failed, err: %v", err)
+	nubs := tr.ReviveTrie(key, proofCache.CacheNubs())
+	for _, nub := range nubs {
+		val := nub.GetValue()
+		if val != nil {
+			return val, nil
+		}
 	}
-
-	return val, nil
+	return nil, nil
 }
