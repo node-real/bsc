@@ -36,6 +36,13 @@ func FromHex(s string) []byte {
 	return Hex2Bytes(s)
 }
 
+func No0xPrefix(s string) string {
+	if has0xPrefix(s) {
+		return s[2:]
+	}
+	return s
+}
+
 // CopyBytes returns an exact copy of the provided bytes.
 func CopyBytes(b []byte) (copiedBytes []byte) {
 	if b == nil {

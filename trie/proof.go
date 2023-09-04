@@ -239,74 +239,67 @@ func VerifyPathProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte, epo
 
 // ConstructTrieFromProof constructs a trie from the given proof. It returns the root node of the trie.
 func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte, epoch types.StateEpoch) (node, error) {
-	var parentNode node
-	var root node
-
+	if len(proofList) == 0 {
+		return nil, nil
+	}
+	h := newHasher(false)
+	defer returnHasherToPool(h)
 	keyHex = keyHex[len(prefixKeyHex):]
 
-	for i := 0; i < len(proofList); i++ {
+	root, err := decodeNode(nil, proofList[0])
+	if err != nil {
+		return nil, fmt.Errorf("decode proof root %#x, err: %v", proofList[0], err)
+	}
+	// update epoch
+	switch n := root.(type) {
+	case *shortNode:
+		n.setEpoch(epoch)
+	case *fullNode:
+		n.setEpoch(epoch)
+	}
 
-		var n node
-
-		node := proofList[i]
-		n, err := decodeNode(nil, node)
+	parentNode := root
+	for i := 1; i < len(proofList); i++ {
+		n, err := decodeNode(nil, proofList[i])
 		if err != nil {
-			return nil, fmt.Errorf("decode proof item %#x, err: %v", node, err)
+			return nil, fmt.Errorf("decode proof item %#x, err: %v", proofList[i], err)
 		}
 
-		if parentNode == nil {
-			parentNode = n
-			root = parentNode
-		}
-
-		keyrest, cld := get(n, keyHex, false)
-		switch cld := cld.(type) {
+		// verify proof continuous
+		keyrest, child := get(parentNode, keyHex, false)
+		switch cld := child.(type) {
 		case nil:
 			return nil, NewKeyDoesNotExistError(keyHex)
 		case hashNode:
-			keyHex = keyrest
-			// Verify that the child node is a hashNode and matches the hash in the proof
-			switch sn := parentNode.(type) {
-			case *shortNode:
-				if hash, ok := sn.Val.(hashNode); ok && !bytes.Equal(hash, cld) {
-					return nil, fmt.Errorf("the child node of shortNode is not a hashNode or doesn't match the hash in the proof")
-				}
-			case *fullNode:
-				if hash, ok := sn.Children[keyHex[0]].(hashNode); ok && !bytes.Equal(hash, cld) {
-					return nil, fmt.Errorf("the child node of fullNode is not a hashNode or doesn't match the hash in the proof")
-				}
+			hashed, _ := h.hash(n, false)
+			if !bytes.Equal(cld, hashed.(hashNode)) {
+				return nil, fmt.Errorf("the child node of shortNode is not a hashNode or doesn't match the hash in the proof")
 			}
-		case valueNode:
-			switch sn := parentNode.(type) {
-			case *shortNode:
-				sn.Val = cld
-				sn.setEpoch(epoch)
-				return root, nil
-			case *fullNode:
-				sn.Children[keyHex[0]] = cld
-				sn.setEpoch(epoch)
-				return root, nil
-			}
+		default:
+			// proof's child cannot contain valueNode/shortNode/fullNode
+			return nil, fmt.Errorf("worng proof, got unexpect node, fstr: %v", child.fstring(""))
+		}
+
+		// update epoch
+		switch n := n.(type) {
+		case *shortNode:
+			n.setEpoch(epoch)
+		case *fullNode:
+			n.setEpoch(epoch)
 		}
 
 		// Link the parent and child.
 		switch sn := parentNode.(type) {
 		case *shortNode:
 			sn.Val = n
-			sn.setEpoch(epoch)
-			parentNode = n
 		case *fullNode:
 			sn.Children[keyHex[0]] = n
-			sn.setEpoch(epoch)
 			sn.UpdateChildEpoch(int(keyHex[0]), epoch)
-			parentNode = n
 		}
-	}
 
-	// Continue traverse down the trie to update the epoch of the child nodes
-	err := updateEpochInChildNodes(&parentNode, keyHex, epoch)
-	if err != nil {
-		return nil, err
+		// reset
+		parentNode = n
+		keyHex = keyrest
 	}
 
 	return root, nil
