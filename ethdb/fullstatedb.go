@@ -1,10 +1,12 @@
 package ethdb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
 	"strings"
@@ -55,7 +57,8 @@ func (f *FullStateRPCServer) GetStorageReviveProof(blockHash common.Hash, accoun
 	uncahcedKeys := make([]string, 0, len(keys))
 	ret := make([]types.ReviveStorageProof, 0, len(keys))
 	for i, key := range keys {
-		val, ok := f.cache.Get(key)
+		val, ok := f.cache.Get(proofCacheKey(blockHash, account, key))
+		log.Info("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
 		if !ok {
 			uncahcedPrefixKeys = append(uncahcedPrefixKeys, prefixKeys[i])
 			uncahcedKeys = append(uncahcedKeys, keys[i])
@@ -75,9 +78,20 @@ func (f *FullStateRPCServer) GetStorageReviveProof(blockHash common.Hash, accoun
 
 	// add to cache
 	for _, proof := range proofs {
-		f.cache.Add(proof.Key, proof)
+		log.Info("GetStorageReviveProof cache", "account", account, "key", proof.Key)
+		f.cache.Add(proofCacheKey(blockHash, account, proof.Key), proof)
 	}
 
 	ret = append(ret, proofs...)
 	return ret, err
+}
+
+func proofCacheKey(blockHash common.Hash, account common.Address, key string) string {
+	buf := bytes.NewBuffer(make([]byte, 0, 66+len(key)))
+	buf.Write(blockHash[:])
+	buf.WriteByte('$')
+	buf.Write(account[:])
+	buf.WriteByte('$')
+	buf.WriteString(common.No0xPrefix(key))
+	return buf.String()
 }
