@@ -328,9 +328,9 @@ func updateEpochInChildNodes(tn *node, key []byte, epoch types.StateEpoch) error
 			n.setEpoch(epoch)
 
 			key = key[1:]
-		case hashNode:
-			return fmt.Errorf("cannot resolve hash node")
-		case valueNode:
+		case nil, hashNode, valueNode:
+			*tn = startNode
+			return nil
 		default:
 			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
 		}
@@ -846,4 +846,272 @@ func get(tn node, key []byte, skipResolved bool) ([]byte, node) {
 			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
 		}
 	}
+}
+
+type MPTProof struct {
+	RootKeyHex []byte   // prefix key in nibbles format, max 65 bytes. TODO: optimize witness size
+	Proof      [][]byte // list of RLP-encoded nodes
+}
+
+type MPTProofNub struct {
+	n1PrefixKey []byte // n1's prefix hex key, max 64bytes
+	n1          node
+	n2PrefixKey []byte // n2's prefix hex key, max 64bytes
+	n2          node
+}
+
+// ResolveKV revive state could revive KV from fullNode[0-15] or fullNode[16] or shortNode.Val, return KVs for cache & snap
+func (m *MPTProofNub) ResolveKV() (map[string][]byte, error) {
+	kvMap := make(map[string][]byte)
+	if err := resolveKV(m.n1, m.n1PrefixKey, kvMap); err != nil {
+		return nil, err
+	}
+	if err := resolveKV(m.n2, m.n2PrefixKey, kvMap); err != nil {
+		return nil, err
+	}
+
+	return kvMap, nil
+}
+
+func (m *MPTProofNub) GetValue() []byte {
+	if val := getNubValue(m.n1, m.n1PrefixKey); val != nil {
+		return val
+	}
+
+	if val := getNubValue(m.n2, m.n2PrefixKey); val != nil {
+		return val
+	}
+
+	return nil
+}
+
+func getNubValue(origin node, prefixKey []byte) []byte {
+	switch n := origin.(type) {
+	case nil, hashNode:
+		return nil
+	case valueNode:
+		return n
+	case *shortNode:
+		return getNubValue(n.Val, append(prefixKey, n.Key...))
+	case *fullNode:
+		for i := 0; i < BranchNodeLength-1; i++ {
+			if val := getNubValue(n.Children[i], append(prefixKey, byte(i))); val != nil {
+				return val
+			}
+		}
+		return getNubValue(n.Children[BranchNodeLength-1], prefixKey)
+	default:
+		panic(fmt.Sprintf("invalid node: %v", origin))
+	}
+}
+
+func resolveKV(origin node, prefixKey []byte, kvWriter map[string][]byte) error {
+	switch n := origin.(type) {
+	case nil, hashNode:
+		return nil
+	case valueNode:
+		kvWriter[string(hexToKeybytes(prefixKey))] = n
+		return nil
+	case *shortNode:
+		return resolveKV(n.Val, append(prefixKey, n.Key...), kvWriter)
+	case *fullNode:
+		for i := 0; i < BranchNodeLength-1; i++ {
+			if err := resolveKV(n.Children[i], append(prefixKey, byte(i)), kvWriter); err != nil {
+				return err
+			}
+		}
+		return resolveKV(n.Children[BranchNodeLength-1], prefixKey, kvWriter)
+	default:
+		panic(fmt.Sprintf("invalid node: %v", origin))
+	}
+}
+
+type MPTProofCache struct {
+	MPTProof
+
+	cacheHexPath [][]byte       // cache path for performance
+	cacheHashes  [][]byte       // cache hash for performance
+	cacheNodes   []node         // cache node for performance
+	cacheNubs    []*MPTProofNub // cache proof nubs to check revive duplicate
+}
+
+// VerifyProof verify proof in MPT witness
+// 1. calculate hash
+// 2. decode trie node
+// 3. verify partial merkle proof of the witness
+// 4. split to partial witness
+func (m *MPTProofCache) VerifyProof() error {
+	m.cacheHashes = make([][]byte, len(m.Proof))
+	m.cacheNodes = make([]node, len(m.Proof))
+	m.cacheHexPath = make([][]byte, len(m.Proof))
+	hasher := newHasher(false)
+	defer returnHasherToPool(hasher)
+
+	var child []byte
+	for i := len(m.Proof) - 1; i >= 0; i-- {
+		m.cacheHashes[i] = hasher.hashData(m.Proof[i])
+		n, err := decodeNode(m.cacheHashes[i], m.Proof[i])
+		if err != nil {
+			return err
+		}
+		m.cacheNodes[i] = n
+
+		switch t := n.(type) {
+		case *shortNode:
+			m.cacheHexPath[i] = t.Key
+			if err := matchHashNodeInShortNode(child, t); err != nil {
+				return err
+			}
+		case *fullNode:
+			index, err := matchHashNodeInFullNode(child, t)
+			if err != nil {
+				return err
+			}
+			if index >= 0 {
+				m.cacheHexPath[i] = []byte{byte(index)}
+			}
+		case valueNode:
+			if child != nil {
+				return errors.New("proof wrong child in valueNode")
+			}
+		default:
+			return fmt.Errorf("proof got wrong trie node: %v", t.nodeType())
+		}
+
+		child = m.cacheHashes[i]
+	}
+
+	// cache proof nubs
+	m.cacheNubs = make([]*MPTProofNub, 0, len(m.Proof))
+	prefix := m.RootKeyHex
+	for i := 0; i < len(m.cacheNodes); i++ {
+		if i-1 >= 0 {
+			prefix = copyNewSlice(prefix, m.cacheHexPath[i-1])
+		}
+		// prefix = append(prefix, m.cacheHexPath[i]...)
+		n1 := m.cacheNodes[i]
+		nub := MPTProofNub{
+			n1PrefixKey: prefix,
+			n1:          n1,
+			n2:          nil,
+			n2PrefixKey: nil,
+		}
+
+		// check if satisfy partial witness rules,
+		// that short node must with its child, may full node or valueNode
+		merge, err := mergeNextNode(m.cacheNodes, i)
+		if err != nil {
+			return err
+		}
+		if merge {
+			i++
+			prefix = copyNewSlice(prefix, m.cacheHexPath[i-1])
+			nub.n2 = m.cacheNodes[i]
+			nub.n2PrefixKey = prefix
+		}
+		m.cacheNubs = append(m.cacheNubs, &nub)
+	}
+
+	return nil
+}
+
+func copyNewSlice(s1, s2 []byte) []byte {
+	ret := make([]byte, len(s1)+len(s2))
+	copy(ret, s1)
+	copy(ret[len(s1):], s2)
+	return ret
+}
+
+func (m *MPTProofCache) CacheNubs() []*MPTProofNub {
+	return m.cacheNubs
+}
+
+// mergeNextNode check short node must with child in same nub
+func mergeNextNode(nodes []node, i int) (bool, error) {
+	if i >= len(nodes) {
+		return false, errors.New("mergeNextNode input outbound index")
+	}
+
+	n1 := nodes[i]
+	switch n := n1.(type) {
+	case *shortNode:
+		need, err := needNextProofNode(n, n.Val)
+		if err != nil {
+			return false, err
+		}
+		if need && i+1 >= len(nodes) {
+			return false, errors.New("mergeNextNode short node must with its child")
+		}
+		return need, nil
+	case valueNode:
+		return false, errors.New("mergeNextNode value node need merge with prev node")
+	}
+
+	if i+1 >= len(nodes) {
+		return false, nil
+	}
+	return nodes[i+1].nodeType() == valueNodeType, nil
+}
+
+// needNextProofNode check if node need merge next node into a proofNub, because TrieExtendNode must with its child to revive together
+func needNextProofNode(parent, origin node) (bool, error) {
+	switch n := origin.(type) {
+	case *fullNode:
+		for i := 0; i < BranchNodeLength-1; i++ {
+			need, err := needNextProofNode(n, n.Children[i])
+			if err != nil {
+				return false, err
+			}
+			if need {
+				return true, nil
+			}
+		}
+		return false, nil
+	case *shortNode:
+		if parent.nodeType() == shortNodeType {
+			return false, errors.New("needNextProofNode cannot short node's child is short node")
+		}
+		return needNextProofNode(n, n.Val)
+	case valueNode:
+		return false, nil
+	case hashNode:
+		if parent.nodeType() == fullNodeType {
+			return false, nil
+		}
+		return true, nil
+	default:
+		return false, errors.New("needNextProofNode unsupported node")
+	}
+}
+
+func matchHashNodeInFullNode(child []byte, n *fullNode) (int, error) {
+	if child == nil {
+		return -1, nil
+	}
+
+	for i := 0; i < BranchNodeLength-1; i++ {
+		switch v := n.Children[i].(type) {
+		case hashNode:
+			if bytes.Equal(child, v) {
+				return i, nil
+			}
+		}
+	}
+	return -1, errors.New("proof cannot find target child in fullNode")
+}
+
+func matchHashNodeInShortNode(child []byte, n *shortNode) error {
+	if child == nil {
+		return nil
+	}
+
+	switch v := n.Val.(type) {
+	case hashNode:
+		if !bytes.Equal(child, v) {
+			return errors.New("proof wrong child in shortNode")
+		}
+	default:
+		return errors.New("proof must hashNode when meet shortNode")
+	}
+	return nil
 }

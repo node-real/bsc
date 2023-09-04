@@ -1003,9 +1003,15 @@ func TestRevive(t *testing.T) {
 			// Expire trie
 			trie.ExpireByPrefix(prefixKey)
 
-			// Revive trie
-			trie.ReviveTrie(key, prefixKey, proof)
+			proofCache := makeRawMPTProofCache(prefixKey, proof)
+			err = proofCache.VerifyProof()
+			assert.NoError(t, err)
 
+			// Revive trie
+			_, err = trie.TryRevive(keybytesToHex(key), proofCache.CacheNubs())
+			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+
+			// Verifiy value exists after revive
 			v := trie.MustGet(key)
 			assert.Equal(t, val, v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
 
@@ -1041,10 +1047,16 @@ func TestReviveCustom(t *testing.T) {
 
 			trie.ExpireByPrefix(prefixKey)
 
-			trie.ReviveTrie(key, prefixKey, proofList)
+			proofCache := makeRawMPTProofCache(prefixKey, proofList)
+			err = proofCache.VerifyProof()
+			assert.NoError(t, err)
 
-			v := trie.MustGet(key)
-			assert.Equal(t, val, v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
+			// Revive trie
+			_, err = trie.TryRevive(keybytesToHex(key), proofCache.cacheNubs)
+			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+
+			res := trie.MustGet(key)
+			assert.Equal(t, val, res, "value mismatch, got %x, exp %x, key %x, prefixKey %x", res, val, key, prefixKey)
 
 			// Verify root hash
 			currRootHash := trie.Hash()
@@ -1060,6 +1072,8 @@ func createCustomTrie(data map[string]string, epoch types.StateEpoch) *Trie {
 	db := NewDatabase(rawdb.NewMemoryDatabase())
 	trie := NewEmpty(db)
 	trie.rootEpoch = epoch
+	trie.currentEpoch = epoch
+	trie.enableExpiry = true
 	for k, v := range data {
 		trie.MustUpdate([]byte(k), []byte(v))
 	}
@@ -1285,5 +1299,14 @@ func TestDecodeNode(t *testing.T) {
 		prng.Read(hash)
 		prng.Read(elems)
 		decodeNode(hash, elems)
+	}
+}
+
+func makeRawMPTProofCache(rootKeyHex []byte, proof [][]byte) MPTProofCache {
+	return MPTProofCache{
+		MPTProof: MPTProof{
+			RootKeyHex: rootKeyHex,
+			Proof:      proof,
+		},
 	}
 }
