@@ -316,6 +316,6 @@ func (t *StateTrie) getSecKeyCache() map[string][]byte {
 	return t.secKeyCache
 }
 
-func (t *StateTrie) ReviveTrie(key []byte, prefixKeyHex []byte, proofList [][]byte) error {
-	return t.trie.ReviveTrie(key, prefixKeyHex, proofList)
+func (t *StateTrie) ReviveTrie(key []byte, proof []*MPTProofNub) []*MPTProofNub {
+	return t.trie.ReviveTrie(key, proof)
 }
