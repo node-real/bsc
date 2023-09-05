@@ -81,6 +81,20 @@ func (t *EmptyTrie) NodeIterator(startKey []byte) (NodeIterator, error) {
 func (t *EmptyTrie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 	return nil
 }
+func (t *EmptyTrie) GetStorageAndUpdateEpoch(addr common.Address, key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (t *EmptyTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
+	return nil
+}
+
+func (t *EmptyTrie) ReviveTrie(key []byte, proof []*MPTProofNub) []*MPTProofNub {
+	return nil
+}
+
+func (t *EmptyTrie) SetEpoch(epoch types.StateEpoch) {
+}
 
 // Copy returns a copy of SecureTrie.
 func (t *EmptyTrie) Copy() *EmptyTrie {

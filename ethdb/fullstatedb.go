@@ -57,7 +57,7 @@ func (f *FullStateRPCServer) GetStorageReviveProof(blockHash common.Hash, accoun
 	uncahcedKeys := make([]string, 0, len(keys))
 	ret := make([]types.ReviveStorageProof, 0, len(keys))
 	for i, key := range keys {
-		val, ok := f.cache.Get(proofCacheKey(blockHash, account, key))
+		val, ok := f.cache.Get(proofCacheKey(blockHash, account, prefixKeys[i], key))
 		log.Info("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
 		if !ok {
 			uncahcedPrefixKeys = append(uncahcedPrefixKeys, prefixKeys[i])
@@ -78,19 +78,20 @@ func (f *FullStateRPCServer) GetStorageReviveProof(blockHash common.Hash, accoun
 
 	// add to cache
 	for _, proof := range proofs {
-		log.Info("GetStorageReviveProof cache", "account", account, "key", proof.Key)
-		f.cache.Add(proofCacheKey(blockHash, account, proof.Key), proof)
+		f.cache.Add(proofCacheKey(blockHash, account, proof.PrefixKey, proof.Key), proof)
 	}
 
 	ret = append(ret, proofs...)
 	return ret, err
 }
 
-func proofCacheKey(blockHash common.Hash, account common.Address, key string) string {
-	buf := bytes.NewBuffer(make([]byte, 0, 66+len(key)))
+func proofCacheKey(blockHash common.Hash, account common.Address, prefix, key string) string {
+	buf := bytes.NewBuffer(make([]byte, 0, 67+len(prefix)+len(key)))
 	buf.Write(blockHash[:])
 	buf.WriteByte('$')
 	buf.Write(account[:])
+	buf.WriteByte('$')
+	buf.WriteString(common.No0xPrefix(prefix))
 	buf.WriteByte('$')
 	buf.WriteString(common.No0xPrefix(key))
 	return buf.String()
