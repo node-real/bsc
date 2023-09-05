@@ -11,7 +11,7 @@ import (
 )
 
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
-func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Hash, addr common.Address, tr Trie, prefixKey []byte, key common.Hash) ([]byte, error) {
+func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Hash, addr common.Address, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
 	// if no prefix, query from revive trie, got the newest expired info
 	if len(prefixKey) == 0 {
 		_, err := tr.GetStorage(addr, key.Bytes())
@@ -33,8 +33,7 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Ha
 }
 
 // reviveStorageTrie revive trie's expired state from proof
-func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) ([]byte, error) {
-
+func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) (map[string][]byte, error) {
 	// Decode keys and proofs
 	key := common.FromHex(proof.Key)
 	if !bytes.Equal(targetKey[:], key) {
@@ -58,11 +57,21 @@ func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 	}
 
 	nubs := tr.ReviveTrie(key, proofCache.CacheNubs())
+
+	// check if it could get from trie
+	if _, err := tr.GetStorage(addr, key); err != nil {
+		return nil, err
+	}
+
+	ret := make(map[string][]byte)
 	for _, nub := range nubs {
-		val := nub.GetValue()
-		if val != nil {
-			return val, nil
+		kvs, err := nub.ResolveKV()
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range kvs {
+			ret[k] = v
 		}
 	}
-	return nil, nil
+	return ret, nil
 }

@@ -65,7 +65,7 @@ func NewExpiredNodeError(path []byte, epoch types.StateEpoch) error {
 }
 
 func (err *ExpiredNodeError) Error() string {
-	return "expired trie node"
+	return fmt.Sprintf("expired trie node, path: %v, epoch: %v", err.Path, err.Epoch)
 }
 
 type KeyDoesNotExistError struct {
