@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/rlp"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -890,7 +891,8 @@ func getNubValue(origin node, prefixKey []byte) []byte {
 	case nil, hashNode:
 		return nil
 	case valueNode:
-		return n
+		_, content, _, _ := rlp.Split(n)
+		return content
 	case *shortNode:
 		return getNubValue(n.Val, append(prefixKey, n.Key...))
 	case *fullNode:
@@ -910,7 +912,11 @@ func resolveKV(origin node, prefixKey []byte, kvWriter map[string][]byte) error 
 	case nil, hashNode:
 		return nil
 	case valueNode:
-		kvWriter[string(hexToKeybytes(prefixKey))] = n
+		_, content, _, err := rlp.Split(n)
+		if err != nil {
+			return err
+		}
+		kvWriter[string(hexToKeybytes(prefixKey))] = content
 		return nil
 	case *shortNode:
 		return resolveKV(n.Val, append(prefixKey, n.Key...), kvWriter)

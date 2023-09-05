@@ -317,5 +317,6 @@ func (t *StateTrie) getSecKeyCache() map[string][]byte {
 }
 
 func (t *StateTrie) ReviveTrie(key []byte, proof []*MPTProofNub) []*MPTProofNub {
+	key = t.hashKey(key)
 	return t.trie.ReviveTrie(key, proof)
 }
