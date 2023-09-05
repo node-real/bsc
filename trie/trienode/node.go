@@ -18,6 +18,7 @@ package trienode
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"sort"
@@ -61,21 +62,21 @@ type leaf struct {
 // NodeSet contains a set of nodes collected during the commit operation.
 // Each node is keyed by path. It's not thread-safe to use.
 type NodeSet struct {
-	Owner                common.Hash
-	Leaves               []*leaf
-	Nodes                map[string]*Node
-	BranchNodeEpochMetas map[string][]byte
-	updates              int // the count of updated and inserted nodes
-	deletes              int // the count of deleted nodes
+	Owner      common.Hash
+	Leaves     []*leaf
+	Nodes      map[string]*Node
+	EpochMetas map[string][]byte
+	updates    int // the count of updated and inserted nodes
+	deletes    int // the count of deleted nodes
 }
 
 // NewNodeSet initializes a node set. The owner is zero for the account trie and
 // the owning account address hash for storage tries.
 func NewNodeSet(owner common.Hash) *NodeSet {
 	return &NodeSet{
-		Owner:                owner,
-		Nodes:                make(map[string]*Node),
-		BranchNodeEpochMetas: make(map[string][]byte),
+		Owner:      owner,
+		Nodes:      make(map[string]*Node),
+		EpochMetas: make(map[string][]byte),
 	}
 }
 
@@ -106,12 +107,26 @@ func (set *NodeSet) AddNode(path []byte, n *Node) {
 // AddBranchNodeEpochMeta adds the provided epoch meta into set.
 func (set *NodeSet) AddBranchNodeEpochMeta(path []byte, meta *epochmeta.BranchNodeEpochMeta) {
 	if meta == nil || *meta == (epochmeta.BranchNodeEpochMeta{}) {
-		set.BranchNodeEpochMetas[string(path)] = []byte{}
+		set.EpochMetas[string(path)] = []byte{}
 		return
 	}
 	buf := rlp.NewEncoderBuffer(nil)
 	meta.Encode(buf)
-	set.BranchNodeEpochMetas[string(path)] = buf.ToBytes()
+	set.EpochMetas[string(path)] = buf.ToBytes()
+}
+
+// AddAccountMeta adds the provided account into set.
+func (set *NodeSet) AddAccountMeta(meta types.StateMeta) error {
+	if meta == nil {
+		set.EpochMetas[epochmeta.AccountMetadataPath] = []byte{}
+		return nil
+	}
+	enc, err := meta.EncodeToRLPBytes()
+	if err != nil {
+		return err
+	}
+	set.EpochMetas[epochmeta.AccountMetadataPath] = enc
+	return nil
 }
 
 // Merge adds a set of nodes into the set.
@@ -216,7 +231,7 @@ func (set *MergedNodeSet) Flatten() map[common.Hash]map[string]*Node {
 func (set *MergedNodeSet) FlattenEpochMeta() map[common.Hash]map[string][]byte {
 	nodes := make(map[common.Hash]map[string][]byte)
 	for owner, set := range set.Sets {
-		nodes[owner] = set.BranchNodeEpochMetas
+		nodes[owner] = set.EpochMetas
 	}
 	return nodes
 }

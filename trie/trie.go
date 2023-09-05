@@ -97,20 +97,25 @@ func New(id *ID, db *Database) (*Trie, error) {
 		tracer:       newTracer(),
 		enableExpiry: enableStateExpiry(id, db),
 	}
+	// resolve root epoch
+	if trie.enableExpiry {
+		meta, err := reader.accountMeta()
+		if err != nil {
+			return nil, err
+		}
+		trie.rootEpoch = meta.Epoch()
+		if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
+			trie.root = hashNode(id.Root[:])
+		}
+		return trie, nil
+	}
+
 	if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
 		rootnode, err := trie.resolveAndTrack(id.Root[:], nil)
 		if err != nil {
 			return nil, err
 		}
 		trie.root = rootnode
-		// resolve root epoch
-		if trie.enableExpiry {
-			meta, err := reader.accountMeta()
-			if err != nil {
-				return nil, err
-			}
-			trie.rootEpoch = meta.Epoch()
-		}
 	}
 
 	return trie, nil
@@ -1102,6 +1107,12 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 	for _, path := range t.tracer.deletedBranchNodes() {
 		nodes.AddBranchNodeEpochMeta([]byte(path), nil)
 	}
+	// store state expiry account meta
+	if t.enableExpiry {
+		if err := nodes.AddAccountMeta(types.NewMetaNoConsensus(t.rootEpoch)); err != nil {
+			return common.Hash{}, nil, err
+		}
+	}
 	t.root = newCommitter(nodes, t.tracer, collectLeaf, t.enableExpiry).Commit(t.root)
 	return rootHash, nodes, nil
 }
@@ -1187,9 +1198,13 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 		if !isExpired {
 			return nil, false, fmt.Errorf("target revive node is not expired")
 		}
+		hn, ok := n.(hashNode)
+		if !ok {
+			return nil, false, fmt.Errorf("not match hashNode stub")
+		}
 
 		cachedHash, _ := nub.n1.cache()
-		if hn, ok := n.(hashNode); ok && !bytes.Equal(cachedHash, hn) {
+		if !bytes.Equal(cachedHash, hn) {
 			return nil, false, fmt.Errorf("hash values does not match")
 		}
 

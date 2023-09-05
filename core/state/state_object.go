@@ -82,7 +82,7 @@ type stateObject struct {
 
 	// for state expiry feature
 	pendingReviveTrie    Trie                             // pendingReviveTrie it contains pending revive trie nodes, could update & commit later
-	pendingReviveState   map[string]common.Hash           // pendingReviveState for block, when R&W, access revive state first
+	pendingReviveState   map[string]common.Hash           // pendingReviveState for block, when R&W, access revive state first, saved in hash key
 	pendingAccessedState map[common.Hash]int              // pendingAccessedState record which state is accessed(only read now, update/delete/insert will auto update epoch), it will update epoch index late
 	originStorageEpoch   map[common.Hash]types.StateEpoch // originStorageEpoch record origin state epoch, prevent frequency epoch update
 
@@ -784,13 +784,13 @@ func (s *stateObject) queryFromReviveState(reviveState map[string]common.Hash, k
 
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
 func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) ([]byte, error) {
-	log.Info("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key)
 	tr, err := s.getPendingReviveTrie()
 	if err != nil {
 		return nil, err
 	}
 
-	val, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalHash, s.address, tr, prefixKey, key)
+	log.Info("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
+	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalHash, s.address, tr, prefixKey, key)
 
 	if err != nil {
 		// Keys may not exist in the trie, so they can't be revived.
@@ -799,9 +799,12 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 		}
 		return nil, fmt.Errorf("revive storage trie failed, err: %v", err)
 	}
-	s.pendingReviveState[key.String()] = common.BytesToHash(val)
+	for k, v := range kvs {
+		s.pendingReviveState[k] = common.BytesToHash(v)
+	}
 
-	return val, nil
+	val := s.pendingReviveState[string(crypto.Keccak256(key[:]))]
+	return val.Bytes(), nil
 }
 
 func (s *stateObject) getExpirySnapStorage(key common.Hash) (snapshot.SnapValue, error, error) {
