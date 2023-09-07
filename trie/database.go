@@ -276,3 +276,7 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 	}
 	return hdb.Node(hash)
 }
+
+func (db *Database) EpochMetaSnapTree() *epochmeta.SnapshotTree {
+	return db.snapTree
+}

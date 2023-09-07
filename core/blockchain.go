@@ -1145,6 +1145,13 @@ func (bc *BlockChain) Stop() {
 		}
 	}
 
+	epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
+	if epochMetaSnapTree != nil {
+		if err := epochMetaSnapTree.Journal(); err != nil {
+			log.Error("Failed to journal epochMetaSnapTree", "err", err)
+		}
+	}
+
 	// Ensure the state of a recent block is also stored to disk before exiting.
 	// We're writing three different states to catch different restart scenarios:
 	//  - HEAD:     So we don't need to reprocess any blocks in the general case

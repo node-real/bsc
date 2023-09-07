@@ -161,7 +161,7 @@ type Trie interface {
 	ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error
 
 	// ReviveTrie revive expired state from proof.
-	ReviveTrie(key []byte, proof []*trie.MPTProofNub) []*trie.MPTProofNub
+	ReviveTrie(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error)
 
 	// SetEpoch set current epoch in trie, it must set in initial period, or it will get error behavior.
 	SetEpoch(types.StateEpoch)
