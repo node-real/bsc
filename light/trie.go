@@ -110,7 +110,7 @@ type odrTrie struct {
 	trie *trie.Trie
 }
 
-func (t *odrTrie) ReviveTrie(key []byte, proof []*trie.MPTProofNub) []*trie.MPTProofNub {
+func (t *odrTrie) ReviveTrie(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error) {
 	panic("not implemented")
 }
 

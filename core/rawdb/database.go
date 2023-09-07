@@ -642,6 +642,11 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		metadata    stat
 		unaccounted stat
 
+		// state expiry statistics
+		epochMetaMetaSize        stat
+		epochMetaSnapJournalSize stat
+		epochMetaPlainStateSize  stat
+
 		// Totals
 		total common.StorageSize
 	)
@@ -703,6 +708,12 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			bytes.HasPrefix(key, BloomTrieIndexPrefix) ||
 			bytes.HasPrefix(key, BloomTriePrefix): // Bloomtrie sub
 			bloomTrieNodes.Add(size)
+		case bytes.Equal(key, epochMetaPlainStateMeta):
+			epochMetaMetaSize.Add(size)
+		case bytes.Equal(key, epochMetaSnapshotJournalKey):
+			epochMetaSnapJournalSize.Add(size)
+		case bytes.HasPrefix(key, EpochMetaPlainStatePrefix) && len(key) >= (len(EpochMetaPlainStatePrefix)+common.HashLength):
+			epochMetaPlainStateSize.Add(size)
 		default:
 			var accounted bool
 			for _, meta := range [][]byte{
@@ -751,6 +762,9 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		{"Key-Value store", "Singleton metadata", metadata.Size(), metadata.Count()},
 		{"Light client", "CHT trie nodes", chtTrieNodes.Size(), chtTrieNodes.Count()},
 		{"Light client", "Bloom trie nodes", bloomTrieNodes.Size(), bloomTrieNodes.Count()},
+		{"State Expiry", "Epoch Metadata", epochMetaMetaSize.Size(), epochMetaMetaSize.Count()},
+		{"State Expiry", "EpochMeta KV", epochMetaPlainStateSize.Size(), epochMetaPlainStateSize.Count()},
+		{"State Expiry", "EpochMeta Snap Journal", epochMetaSnapJournalSize.Size(), epochMetaSnapJournalSize.Count()},
 	}
 	// Inspect all registered append-only file store then.
 	ancients, err := inspectFreezers(db)

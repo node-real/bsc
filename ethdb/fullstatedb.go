@@ -7,10 +7,16 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
 	"strings"
 	"time"
+)
+
+var (
+	getProofMeter         = metrics.NewRegisteredMeter("ethdb/fullstatedb/getproof", nil)
+	getProofHitCacheMeter = metrics.NewRegisteredMeter("ethdb/fullstatedb/getproof/cache", nil)
 )
 
 // FullStateDB expired state could fetch from it
@@ -52,18 +58,20 @@ func NewFullStateRPCServer(endpoint string) (FullStateDB, error) {
 }
 
 func (f *FullStateRPCServer) GetStorageReviveProof(blockHash common.Hash, account common.Address, prefixKeys, keys []string) ([]types.ReviveStorageProof, error) {
+	getProofMeter.Mark(1)
 	// find from lru cache, now it cache key proof
 	uncahcedPrefixKeys := make([]string, 0, len(prefixKeys))
 	uncahcedKeys := make([]string, 0, len(keys))
 	ret := make([]types.ReviveStorageProof, 0, len(keys))
 	for i, key := range keys {
 		val, ok := f.cache.Get(proofCacheKey(blockHash, account, prefixKeys[i], key))
-		log.Info("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
+		log.Debug("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
 		if !ok {
 			uncahcedPrefixKeys = append(uncahcedPrefixKeys, prefixKeys[i])
 			uncahcedKeys = append(uncahcedKeys, keys[i])
 			continue
 		}
+		getProofHitCacheMeter.Mark(1)
 		ret = append(ret, val.(types.ReviveStorageProof))
 	}
 

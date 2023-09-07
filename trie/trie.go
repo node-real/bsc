@@ -24,7 +24,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie/trienode"
+)
+
+var (
+	reviveMeter           = metrics.NewRegisteredMeter("trie/revive", nil)
+	reviveNotExpiredMeter = metrics.NewRegisteredMeter("trie/revive/noexpired", nil)
+	reviveErrMeter        = metrics.NewRegisteredMeter("trie/revive/err", nil)
 )
 
 // Trie is a Merkle Patricia Trie. Use New to create a trie that sits on
@@ -1151,36 +1158,32 @@ func (t *Trie) Owner() common.Hash {
 // ReviveTrie performs full or partial revive and returns a list of successful
 // nubs. ReviveTrie does not guarantee that a value will be revived completely,
 // if the proof is not fully valid.
-func (t *Trie) ReviveTrie(key []byte, proof []*MPTProofNub) (successNubs []*MPTProofNub) {
+func (t *Trie) ReviveTrie(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
 	key = keybytesToHex(key)
-	successNubs, err := t.TryRevive(key, proof)
-	if err != nil {
-		log.Error(fmt.Sprintf("Failed to revive trie: %v", err))
-	}
-	return successNubs
+	return t.TryRevive(key, proof)
 }
 
-func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) (successNubs []*MPTProofNub, err error) {
-
+func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+	successNubs := make([]*MPTProofNub, 0, len(proof))
+	reviveMeter.Mark(int64(len(proof)))
 	// Revive trie with each proof nub
 	for _, nub := range proof {
 		rootExpired := types.EpochExpired(t.getRootEpoch(), t.currentEpoch)
 		newNode, didRevive, err := t.tryRevive(t.root, key, nub.n1PrefixKey, *nub, 0, t.currentEpoch, rootExpired)
-		if err != nil {
-			log.Error("tryRevive err", "prefix", nub.n1PrefixKey, "didRevive", didRevive, "err", err)
+		if _, ok := err.(*ReviveNotExpiredError); ok {
+			reviveNotExpiredMeter.Mark(1)
+			continue
 		}
-		if didRevive && err == nil {
+		if err != nil {
+			reviveErrMeter.Mark(1)
+			return nil, err
+		}
+		if didRevive {
 			successNubs = append(successNubs, nub)
 			t.root = newNode
 			t.rootEpoch = t.currentEpoch
 		}
 	}
-
-	// If no nubs were successful, return error
-	if len(successNubs) == 0 && len(proof) != 0 {
-		return successNubs, fmt.Errorf("all nubs failed to revive trie")
-	}
-
 	return successNubs, nil
 }
 
@@ -1193,7 +1196,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 	if pos == len(targetPrefixKey) {
 
 		if !isExpired {
-			return nil, false, fmt.Errorf("target revive node is not expired")
+			return nil, false, NewReviveNotExpiredErr(key[:pos], epoch)
 		}
 		hn, ok := n.(hashNode)
 		if !ok {

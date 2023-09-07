@@ -64,8 +64,10 @@ const (
 
 // Config includes all the configurations for pruning.
 type Config struct {
-	Datadir   string // The directory of the state database
-	BloomSize uint64 // The Megabytes of memory allocated to bloom-filter
+	Datadir           string // The directory of the state database
+	BloomSize         uint64 // The Megabytes of memory allocated to bloom-filter
+	EnableStateExpiry bool
+	ChainConfig       *params.ChainConfig
 }
 
 // Pruner is an offline tool to prune the stale state with the
@@ -86,7 +88,6 @@ type Pruner struct {
 	stateBloom    *stateBloom
 	snaptree      *snapshot.Tree
 	triesInMemory uint64
-	chainConfig   *params.ChainConfig
 }
 
 type BlockPruner struct {
@@ -105,11 +106,8 @@ func NewPruner(db ethdb.Database, config Config, triesInMemory uint64) (*Pruner,
 	}
 	// Offline pruning is only supported in legacy hash based scheme.
 	triedb := trie.NewDatabase(db, trie.HashDefaults)
+	log.Info("ChainConfig", "headBlock", headBlock.NumberU64(), "config", config.ChainConfig)
 
-	chainConfig := rawdb.ReadChainConfig(db, headBlock.Hash())
-	if chainConfig == nil {
-		return nil, errors.New("failed to load chainConfig")
-	}
 	snapconfig := snapshot.Config{
 		CacheSize:  256,
 		Recovery:   false,
@@ -136,7 +134,6 @@ func NewPruner(db ethdb.Database, config Config, triesInMemory uint64) (*Pruner,
 		stateBloom:    stateBloom,
 		snaptree:      snaptree,
 		triesInMemory: triesInMemory,
-		chainConfig:   chainConfig,
 	}, nil
 }
 
@@ -642,9 +639,14 @@ func (p *Pruner) Prune(root common.Hash) error {
 		middleRoots[layer.Root()] = struct{}{}
 	}
 
-	pruneExpiredCh := make(chan *snapshot.ContractItem, 100000)
-	epoch := types.GetStateEpoch(p.chainConfig, p.chainHeader.Number)
-	go asyncPruneExpired(p.db, root, epoch, pruneExpiredCh)
+	var pruneExpiredCh chan *snapshot.ContractItem
+	var expireRetCh chan error
+	if p.config.EnableStateExpiry {
+		pruneExpiredCh = make(chan *snapshot.ContractItem, 100000)
+		expireRetCh = make(chan error, 1)
+		epoch := types.GetStateEpoch(p.config.ChainConfig, p.chainHeader.Number)
+		go asyncPruneExpired(p.db, root, epoch, pruneExpiredCh, expireRetCh)
+	}
 	// Traverse the target state, re-construct the whole state trie and
 	// commit to the given bloom filter.
 	start := time.Now()
@@ -663,20 +665,30 @@ func (p *Pruner) Prune(root common.Hash) error {
 		return err
 	}
 	log.Info("State bloom filter committed", "name", filterName)
-	return prune(p.snaptree, root, p.db, p.stateBloom, filterName, middleRoots, start)
+	err = prune(p.snaptree, root, p.db, p.stateBloom, filterName, middleRoots, start)
+
+	// wait expired result
+	if expireRetCh != nil {
+		expireErr := <-expireRetCh
+		if expireErr != nil {
+			return expireErr
+		}
+	}
+	return err
 }
 
 // asyncPruneExpired prune trie expired state
 // TODO(0xbundler): here are some issues when just delete it from hash-based storage, because it's shared kv in hbss
 // but it's ok for pbss.
-func asyncPruneExpired(diskdb ethdb.Database, stateRoot common.Hash, currentEpoch types.StateEpoch, expireRootCh chan *snapshot.ContractItem) {
+func asyncPruneExpired(diskdb ethdb.Database, stateRoot common.Hash, currentEpoch types.StateEpoch, expireRootCh chan *snapshot.ContractItem, expirePruneCh chan error) {
 	db := trie.NewDatabaseWithConfig(diskdb, &trie.Config{
 		EnableStateExpiry: true,
 		PathDB:            nil, // TODO(0xbundler): support later
 	})
 
 	pruneItemCh := make(chan *trie.NodeInfo, 100000)
-	go asyncPruneExpiredStorageInDisk(diskdb, pruneItemCh)
+	pruneDiskRet := make(chan error, 1)
+	go asyncPruneExpiredStorageInDisk(diskdb, pruneItemCh, pruneDiskRet)
 	for item := range expireRootCh {
 		log.Info("start scan trie expired state", "addr", item.Addr, "root", item.Root)
 		tr, err := trie.New(&trie.ID{
@@ -693,9 +705,35 @@ func asyncPruneExpired(diskdb ethdb.Database, stateRoot common.Hash, currentEpoc
 			log.Error("asyncPruneExpired, PruneExpired err", "id", item, "err", err)
 		}
 	}
+
+	err := <-pruneDiskRet
+	if err != nil {
+		log.Error("asyncPruneExpired, pruneDiskRet err", "err", err)
+		expirePruneCh <- err
+		return
+	}
+
+	st := db.EpochMetaSnapTree()
+	if st != nil {
+		if err := st.Journal(); err != nil {
+			log.Error("asyncPruneExpired, SnapTree Journal err", "err", err)
+			expirePruneCh <- err
+			return
+		}
+	}
 }
 
-func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, expiredCh chan *trie.NodeInfo) {
+func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, expiredCh chan *trie.NodeInfo, ret chan error) {
+	var (
+		trieCount      = 0
+		trieSize       common.StorageSize
+		snapCount      = 0
+		snapSize       common.StorageSize
+		epochMetaCount = 0
+		epochMetaSize  common.StorageSize
+		start          = time.Now()
+		logged         = time.Now()
+	)
 	batch := diskdb.NewBatch()
 	for info := range expiredCh {
 		log.Info("found expired state", "addr", info.Addr, "path",
@@ -703,13 +741,19 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, expiredCh chan *trie.
 			info.IsBranch, "isLeaf", info.IsLeaf)
 		addr := info.Addr
 		// delete trie kv
+		trieCount++
+		trieSize += common.StorageSize(len(info.Key) + 32)
 		rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
 		// delete epoch meta
 		if info.IsBranch {
+			epochMetaCount++
+			epochMetaSize += common.StorageSize(32 + len(info.Path) + 32)
 			rawdb.DeleteEpochMetaPlainState(batch, addr, string(info.Path))
 		}
 		// replace snapshot kv only epoch
 		if info.IsLeaf {
+			snapCount++
+			snapSize += common.StorageSize(32)
 			if err := snapshot.ShrinkExpiredLeaf(batch, addr, info.Key, info.Epoch); err != nil {
 				log.Error("ShrinkExpiredLeaf err", "addr", addr, "key", info.Key, "err", err)
 			}
@@ -718,11 +762,21 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, expiredCh chan *trie.
 			batch.Write()
 			batch.Reset()
 		}
+		if time.Since(logged) > 8*time.Second {
+			log.Info("Pruning expired states", "trieNodes", trieCount, "trieSize", trieSize,
+				"SnapKV", snapCount, "SnapKVSize", snapSize, "EpochMeta", epochMetaCount,
+				"EpochMetaSize", epochMetaSize)
+			logged = time.Now()
+		}
 	}
 	if batch.ValueSize() > 0 {
 		batch.Write()
 		batch.Reset()
 	}
+	log.Info("Pruned expired states", "trieNodes", trieCount, "trieSize", trieSize,
+		"SnapKV", snapCount, "SnapKVSize", snapSize, "EpochMeta", epochMetaCount,
+		"EpochMetaSize", epochMetaSize, "elapsed", common.PrettyDuration(time.Since(start)))
+	ret <- nil
 }
 
 // RecoverPruning will resume the pruning procedure during the system restart.
