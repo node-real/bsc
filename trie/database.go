@@ -377,3 +377,7 @@ func (db *Database) SetBufferSize(size int) error {
 	}
 	return pdb.SetBufferSize(size)
 }
+
+func (db *Database) EpochMetaSnapTree() *epochmeta.SnapshotTree {
+	return db.snapTree
+}

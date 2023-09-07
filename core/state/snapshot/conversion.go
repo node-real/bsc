@@ -337,7 +337,7 @@ func generateTrieRoot(db ethdb.KeyValueWriter, scheme string, it Iterator, accou
 					// async prune trie expired states
 					if pruneExpiredCh != nil {
 						pruneExpiredCh <- &ContractItem{
-							Addr: it.Hash(),
+							Addr: hash,
 							Root: account.Root,
 						}
 					}

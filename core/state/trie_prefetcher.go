@@ -584,7 +584,7 @@ func (sf *subfetcher) loop() {
 							if sf.enableStateExpiry {
 								if exErr, match := err.(*trie2.ExpiredNodeError); match {
 									key := common.BytesToHash(task)
-									log.Info("fetchExpiredStorageFromRemote in trie prefetcher", "addr", sf.addr, "prefixKey", exErr.Path, "key", key, "tr", fmt.Sprintf("%p", sf.trie))
+									log.Debug("fetchExpiredStorageFromRemote in trie prefetcher", "addr", sf.addr, "prefixKey", exErr.Path, "key", key, "tr", fmt.Sprintf("%p", sf.trie))
 									_, err = fetchExpiredStorageFromRemote(sf.fullStateDB, sf.blockHash, sf.addr, sf.trie, exErr.Path, key)
 									if err != nil {
 										log.Error("subfetcher fetchExpiredStorageFromRemote err", "addr", sf.addr, "path", exErr.Path, "err", err)
