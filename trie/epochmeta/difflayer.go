@@ -82,7 +82,7 @@ func NewEpochMetaSnapTree(diskdb ethdb.KeyValueStore) (*SnapshotTree, error) {
 func (s *SnapshotTree) Cap(blockRoot common.Hash) error {
 	snap := s.Snapshot(blockRoot)
 	if snap == nil {
-		return errors.New("snapshot missing")
+		return fmt.Errorf("epoch meta snapshot missing: [%#x]", blockRoot)
 	}
 	nextDiff, ok := snap.(*diffLayer)
 	if !ok {
@@ -384,14 +384,12 @@ func (s *diffLayer) Journal(buffer *bytes.Buffer) (common.Hash, error) {
 		return common.Hash{}, err
 	}
 
-	if s.parent != nil {
-		if err := rlp.Encode(buffer, s.parent.Root()); err != nil {
-			return common.Hash{}, err
-		}
-	} else {
-		if err := rlp.Encode(buffer, types.EmptyRootHash); err != nil {
-			return common.Hash{}, err
-		}
+	if s.parent == nil {
+		return common.Hash{}, errors.New("found nil parent in Journal")
+	}
+
+	if err := rlp.Encode(buffer, s.parent.Root()); err != nil {
+		return common.Hash{}, err
 	}
 
 	if err := rlp.Encode(buffer, s.blockRoot); err != nil {
@@ -556,7 +554,7 @@ func (s *diskLayer) writeHistory(number *big.Int, batch ethdb.Batch, nodeSet map
 			}
 		}
 	}
-	log.Info("shadow node history pruned, only keep plainState", "number", number, "count", len(nodeSet))
+	log.Debug("shadow node history pruned, only keep plainState", "number", number, "count", len(nodeSet))
 	return nil
 }
 

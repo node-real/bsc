@@ -52,6 +52,22 @@ func (err *MissingNodeError) Error() string {
 	return fmt.Sprintf("missing trie node %x (owner %x) (path %x) %v", err.NodeHash, err.Owner, err.Path, err.err)
 }
 
+type ReviveNotExpiredError struct {
+	Path  []byte // hex-encoded path to the expired node
+	Epoch types.StateEpoch
+}
+
+func NewReviveNotExpiredErr(path []byte, epoch types.StateEpoch) error {
+	return &ReviveNotExpiredError{
+		Path:  path,
+		Epoch: epoch,
+	}
+}
+
+func (e *ReviveNotExpiredError) Error() string {
+	return fmt.Sprintf("revive not expired kv, path: %v, epoch: %v", e.Path, e.Epoch)
+}
+
 type ExpiredNodeError struct {
 	Path  []byte // hex-encoded path to the expired node
 	Epoch types.StateEpoch

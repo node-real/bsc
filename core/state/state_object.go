@@ -232,6 +232,7 @@ func (s *stateObject) setOriginStorage(key common.Hash, value common.Hash) {
 
 // GetCommittedState retrieves a value from the committed account storage trie.
 func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
+	getCommittedStorageMeter.Mark(1)
 	// If we have a pending write or clean cached, return that
 	if value, pending := s.pendingStorage[key]; pending {
 		return value
@@ -268,6 +269,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		value common.Hash
 	)
 	if s.db.snap != nil {
+		getCommittedStorageSnapMeter.Mark(1)
 		start := time.Now()
 		// handle state expiry situation
 		if s.db.EnableExpire() {
@@ -299,6 +301,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	if s.needLoadFromTrie(err, sv) {
+		getCommittedStorageTrieMeter.Mark(1)
 		start := time.Now()
 		tr, err := s.getTrie()
 		if err != nil {
@@ -789,7 +792,7 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 		return nil, err
 	}
 
-	log.Info("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
+	log.Debug("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
 	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalHash, s.address, tr, prefixKey, key)
 
 	if err != nil {
@@ -803,6 +806,7 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 		s.pendingReviveState[k] = common.BytesToHash(v)
 	}
 
+	getCommittedStorageRemoteMeter.Mark(1)
 	val := s.pendingReviveState[string(crypto.Keccak256(key[:]))]
 	return val.Bytes(), nil
 }
