@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core"
 	"os"
 	"path/filepath"
 	"time"
@@ -29,7 +30,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/state/pruner"
@@ -61,6 +61,8 @@ var (
 				Flags: flags.Merge([]cli.Flag{
 					utils.BloomFilterSizeFlag,
 					utils.TriesInMemoryFlag,
+					utils.StateExpiryEnableFlag,
+					configFileFlag,
 				}, utils.NetworkFlags, utils.DatabasePathFlags),
 				Description: `
 geth snapshot prune-state <state-root>
@@ -411,18 +413,25 @@ func pruneBlock(ctx *cli.Context) error {
 // Deprecation: this command should be deprecated once the hash-based
 // scheme is deprecated.
 func pruneState(ctx *cli.Context) error {
-	stack, _ := makeConfigNode(ctx)
+	stack, cfg := makeConfigNode(ctx)
 	defer stack.Close()
 
 	chaindb := utils.MakeChainDatabase(ctx, stack, false, false)
 	defer chaindb.Close()
 
+	chainConfig, _, err := core.LoadChainConfig(chaindb, cfg.Eth.Genesis)
+	if err != nil {
+		return err
+	}
+
 	if rawdb.ReadStateScheme(chaindb) != rawdb.HashScheme {
 		log.Crit("Offline pruning is not required for path scheme")
 	}
 	prunerconfig := pruner.Config{
-		Datadir:   stack.ResolvePath(""),
-		BloomSize: ctx.Uint64(utils.BloomFilterSizeFlag.Name),
+		Datadir:           stack.ResolvePath(""),
+		BloomSize:         ctx.Uint64(utils.BloomFilterSizeFlag.Name),
+		EnableStateExpiry: cfg.Eth.StateExpiryEnable,
+		ChainConfig:       chainConfig,
 	}
 	pruner, err := pruner.NewPruner(chaindb, prunerconfig, ctx.Uint64(utils.TriesInMemoryFlag.Name))
 	if err != nil {

@@ -56,10 +56,13 @@ func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 		return nil, err
 	}
 
-	nubs := tr.ReviveTrie(key, proofCache.CacheNubs())
+	nubs, err := tr.ReviveTrie(key, proofCache.CacheNubs())
+	if err != nil {
+		return nil, err
+	}
 
 	// check if it could get from trie
-	if _, err := tr.GetStorage(addr, key); err != nil {
+	if _, err = tr.GetStorage(addr, key); err != nil {
 		return nil, err
 	}
 

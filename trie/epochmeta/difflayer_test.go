@@ -219,6 +219,11 @@ func TestEpochMetaDiffLayer_capDiffLayers(t *testing.T) {
 	// store
 	err = tree.Journal()
 	assert.NoError(t, err)
+
+	tree, err = NewEpochMetaSnapTree(diskdb)
+	assert.NoError(t, err)
+	assert.Equal(t, 129, len(tree.layers))
+	assert.Equal(t, 128, len(tree.children))
 }
 
 func makeHash(s string) common.Hash {
