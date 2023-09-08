@@ -124,16 +124,31 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.Sta
 	for len(key) > 0 && tn != nil {
 		switch n := tn.(type) {
 		case *shortNode:
-			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
-				// The trie doesn't contain the key.
-				tn = nil
-			} else {
+			if len(key) >= len(n.Key) && bytes.Equal(n.Key, key[:len(n.Key)]) {
 				tn = n.Val
 				prefix = append(prefix, n.Key...)
 				key = key[len(n.Key):]
+				if nodes != nil {
+					*nodes = append(*nodes, n)
+				}
+				continue
 			}
+
+			tn = nil
 			if nodes != nil {
 				*nodes = append(*nodes, n)
+			}
+			// if there is a extern node, must put the val
+			hn, isExternNode := n.Val.(hashNode)
+			if isExternNode && nodes != nil {
+				prefix = append(prefix, n.Key...)
+				nextBlob, err := t.reader.node(prefix, common.BytesToHash(hn))
+				if err != nil {
+					log.Error("Unhandled next trie error in traverseNodes", "err", err)
+					return nil, err
+				}
+				next := mustDecodeNodeUnsafe(hn, nextBlob)
+				*nodes = append(*nodes, next)
 			}
 		case *fullNode:
 			tn = n.Children[key[0]]
@@ -194,6 +209,11 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	_, err = t.traverseNodes(startNode, key, &nodes, 0, false)
 	if err != nil {
 		return err
+	}
+
+	if len(nodes) == 0 {
+		log.Error("found nothing....", "prefix", prefixKeyHex, "key", key)
+		return fmt.Errorf("cannot find target proof, prefix: %#x, suffix: %#x", prefixKeyHex, key)
 	}
 
 	hasher := newHasher(false)
