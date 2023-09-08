@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/metrics"
 	"math/big"
 	"strings"
 	"time"
@@ -64,6 +65,11 @@ func max(a, b int64) int64 {
 
 // PublicEthereumAPI provides an API to access Ethereum related information.
 // It offers only methods that operate on public data that is freely available to anyone.
+var (
+	getStorageProofTimer = metrics.NewRegisteredTimer("ethapi/getstorageproof/rt", nil)
+)
+
+// EthereumAPI provides an API to access Ethereum related information.
 type EthereumAPI struct {
 	b Backend
 }
@@ -759,7 +765,9 @@ func (s *BlockChainAPI) GetProof(ctx context.Context, address common.Address, st
 
 // GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
 // Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
-func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address common.Address, storageKeys []string, storagePrefixKeys []string, blockNrOrHash rpc.BlockNumberOrHash) ([]types.ReviveStorageProof, error) {
+func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot common.Hash, address common.Address, root common.Hash, storageKeys []string, storagePrefixKeys []string) ([]types.ReviveStorageProof, error) {
+	start := time.Now()
+	defer getStorageProofTimer.Update(time.Since(start))
 
 	if len(storageKeys) != len(storagePrefixKeys) {
 		return nil, errors.New("storageKeys and storagePrefixKeys must be same length")
@@ -770,7 +778,6 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address commo
 		keyLengths   = make([]int, len(storageKeys))
 		prefixKeys   = make([][]byte, len(storagePrefixKeys))
 		storageProof = make([]types.ReviveStorageProof, len(storageKeys))
-		storageTrie  state.Trie
 	)
 	// Deserialize all keys. This prevents state access on invalid input.
 	for i, hexKey := range storageKeys {
@@ -790,17 +797,9 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, address commo
 		}
 	}
 
-	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-	if state == nil || err != nil {
-		return nil, err
-	}
-	if storageTrie, err = state.StorageTrie(address); err != nil {
-		return nil, err
-	}
-
-	// Must have storage trie
-	if storageTrie == nil {
-		return nil, errors.New("storageTrie is nil")
+	storageTrie, err := s.b.StorageTrie(stateRoot, address, root)
+	if err != nil || storageTrie == nil {
+		return nil, fmt.Errorf("open StorageTrie err: %v", err)
 	}
 
 	// Create the proofs for the storageKeys.

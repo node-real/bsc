@@ -3057,3 +3057,8 @@ func (bc *BlockChain) SetTrieFlushInterval(interval time.Duration) {
 func (bc *BlockChain) GetTrieFlushInterval() time.Duration {
 	return time.Duration(bc.flushInterval.Load())
 }
+
+// StorageTrie just get Storage trie from db
+func (bc *BlockChain) StorageTrie(stateRoot common.Hash, addr common.Address, root common.Hash) (state.Trie, error) {
+	return bc.stateCache.OpenStorageTrie(stateRoot, addr, root)
+}
