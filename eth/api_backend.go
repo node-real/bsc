@@ -19,6 +19,7 @@ package eth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -102,7 +103,7 @@ func (b *EthAPIBackend) HeaderByNumberOrHash(ctx context.Context, blockNrOrHash 
 	if hash, ok := blockNrOrHash.Hash(); ok {
 		header := b.eth.blockchain.GetHeaderByHash(hash)
 		if header == nil {
-			return nil, errors.New("header for hash not found")
+			return nil, fmt.Errorf("header for hash not found, hash: %#x", hash)
 		}
 		if blockNrOrHash.RequireCanonical && b.eth.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
 			return nil, errors.New("hash is not currently canonical")
@@ -169,7 +170,7 @@ func (b *EthAPIBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash r
 	if hash, ok := blockNrOrHash.Hash(); ok {
 		header := b.eth.blockchain.GetHeaderByHash(hash)
 		if header == nil {
-			return nil, errors.New("header for hash not found")
+			return nil, fmt.Errorf("header for hash not found, hash: %#x", hash)
 		}
 		if blockNrOrHash.RequireCanonical && b.eth.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
 			return nil, errors.New("hash is not currently canonical")
@@ -218,7 +219,7 @@ func (b *EthAPIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockN
 			return nil, nil, err
 		}
 		if header == nil {
-			return nil, nil, errors.New("header for hash not found")
+			return nil, nil, fmt.Errorf("header for hash not found, hash: %#x", hash)
 		}
 		if blockNrOrHash.RequireCanonical && b.eth.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
 			return nil, nil, errors.New("hash is not currently canonical")
@@ -227,6 +228,10 @@ func (b *EthAPIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockN
 		return stateDb, header, err
 	}
 	return nil, nil, errors.New("invalid arguments; neither block nor hash specified")
+}
+
+func (b *EthAPIBackend) StorageTrie(stateRoot common.Hash, addr common.Address, root common.Hash) (state.Trie, error) {
+	return b.eth.BlockChain().StorageTrie(stateRoot, addr, root)
 }
 
 func (b *EthAPIBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
