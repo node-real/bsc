@@ -7,11 +7,17 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie"
+	"time"
+)
+
+var (
+	reviveStorageTrieTimer = metrics.NewRegisteredTimer("state/revivetrie/rt", nil)
 )
 
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
-func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Hash, addr common.Address, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
+func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
 	// if no prefix, query from revive trie, got the newest expired info
 	if len(prefixKey) == 0 {
 		_, err := tr.GetStorage(addr, key.Bytes())
@@ -19,7 +25,7 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Ha
 			prefixKey = enErr.Path
 		}
 	}
-	proofs, err := fullDB.GetStorageReviveProof(blockHash, addr, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
+	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
 	if err != nil {
 		return nil, err
 	}
@@ -34,6 +40,8 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, blockHash common.Ha
 
 // reviveStorageTrie revive trie's expired state from proof
 func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) (map[string][]byte, error) {
+	start := time.Now()
+	defer reviveStorageTrieTimer.Update(time.Since(start))
 	// Decode keys and proofs
 	key := common.FromHex(proof.Key)
 	if !bytes.Equal(targetKey[:], key) {
