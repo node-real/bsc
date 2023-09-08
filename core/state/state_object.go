@@ -790,7 +790,7 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 	}
 
 	log.Debug("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
-	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalHash, s.address, tr, prefixKey, key)
+	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, prefixKey, key)
 
 	if err != nil {
 		// Keys may not exist in the trie, so they can't be revived.
