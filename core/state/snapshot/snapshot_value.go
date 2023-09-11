@@ -94,7 +94,10 @@ func EncodeValueToRLPBytes(val SnapValue) ([]byte, error) {
 }
 
 func DecodeValueFromRLPBytes(b []byte) (SnapValue, error) {
-	if len(b) > 0 && b[0] > 0x7f {
+	if len(b) == 0 {
+		return &RawValue{}, nil
+	}
+	if b[0] > 0x7f {
 		var data RawValue
 		_, data, _, err := rlp.Split(b)
 		if err != nil {

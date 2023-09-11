@@ -1201,12 +1201,6 @@ func (bc *BlockChain) Stop() {
 		}
 	}
 
-	epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
-	if epochMetaSnapTree != nil {
-		if err := epochMetaSnapTree.Journal(); err != nil {
-			log.Error("Failed to journal epochMetaSnapTree", "err", err)
-		}
-	}
 	if bc.triedb.Scheme() == rawdb.PathScheme {
 		// Ensure that the in-memory trie nodes are journaled to disk properly.
 		if err := bc.triedb.Journal(bc.CurrentBlock().Root); err != nil {
@@ -1220,7 +1214,7 @@ func (bc *BlockChain) Stop() {
 		//  - HEAD-127: So we have a hard limit on the number of blocks reexecuted
 		if !bc.cacheConfig.TrieDirtyDisabled {
 			triedb := bc.triedb
-		var once sync.Once
+			var once sync.Once
 
 			for _, offset := range []uint64{0, 1, TriesInMemory - 1} {
 				if number := bc.CurrentBlock().Number.Uint64(); number > offset {
@@ -1231,9 +1225,9 @@ func (bc *BlockChain) Stop() {
 					} else {
 						rawdb.WriteSafePointBlockNumber(bc.db, recent.NumberU64())
 						once.Do(func() {
-						  rawdb.WriteHeadBlockHash(bc.db, recent.Hash())
+							rawdb.WriteHeadBlockHash(bc.db, recent.Hash())
 						})
-          }
+					}
 				}
 			}
 			if snapBase != (common.Hash{}) {
@@ -1243,14 +1237,8 @@ func (bc *BlockChain) Stop() {
 				} else {
 					rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
 				}
-			}
-
-			if snapBase != (common.Hash{}) {
-				log.Info("Writing snapshot state to disk", "root", snapBase)
-				if err := bc.triedb.Commit(snapBase, true); err != nil {
-					log.Error("Failed to commit recent state trie", "err", err)
-				} else {
-					rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
+				if err := triedb.CommitEpochMeta(snapBase); err != nil {
+					log.Error("Failed to commit recent epoch meta", "err", err)
 				}
 			}
 			for !bc.triegc.Empty() {
@@ -1261,9 +1249,17 @@ func (bc *BlockChain) Stop() {
 			}
 		}
 	}
-	// Close the trie database, release all the held resources as the last step.
-	if err := bc.triedb.Close(); err != nil {
-		log.Error("Failed to close trie database", "err", err)
+
+	epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
+	if epochMetaSnapTree != nil {
+		if err := epochMetaSnapTree.Journal(); err != nil {
+			log.Error("Failed to journal epochMetaSnapTree", "err", err)
+		}
+	}
+
+	// Flush the collected preimages to disk
+	if err := bc.stateCache.TrieDB().Close(); err != nil {
+		log.Error("Failed to close trie db", "err", err)
 	}
 	log.Info("Blockchain stopped")
 }
@@ -1648,7 +1644,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		triedb := bc.stateCache.TrieDB()
 		// If we're running an archive node, always flush
 		if bc.cacheConfig.TrieDirtyDisabled {
-			err := triedb.Commit(block.Root(), false)
+			err := triedb.CommitAll(block.Root(), false)
 			if err != nil {
 				return err
 			}
@@ -1692,7 +1688,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 								log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", flushInterval, "optimum", float64(chosen-bc.lastWrite)/float64(bc.triesInMemory))
 							}
 							// Flush an entire trie and restart the counters
-							triedb.Commit(header.Root, true)
+							triedb.CommitAll(header.Root, true)
 							rawdb.WriteSafePointBlockNumber(bc.db, chosen)
 							bc.lastWrite = chosen
 							bc.gcproc = 0
