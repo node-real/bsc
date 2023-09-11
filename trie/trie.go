@@ -1028,6 +1028,14 @@ func (t *Trie) resolveAndTrack(n hashNode, prefix []byte) (node, error) {
 	return mustDecodeNode(n, blob), nil
 }
 
+func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
+	blob, err := t.reader.node(prefix, common.BytesToHash(n))
+	if err != nil {
+		return nil, err
+	}
+	return mustDecodeNode(n, blob), nil
+}
+
 // resolveEpochMeta resolve full node's epoch map.
 func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) error {
 	if !t.enableExpiry {
