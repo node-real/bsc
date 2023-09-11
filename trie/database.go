@@ -221,6 +221,17 @@ func (db *Database) Commit(root common.Hash, report bool) error {
 	if err := db.backend.Commit(root, report); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (db *Database) CommitAll(root common.Hash, report bool) error {
+	if err := db.Commit(root, report); err != nil {
+		return err
+	}
+	return db.CommitEpochMeta(root)
+}
+
+func (db *Database) CommitEpochMeta(root common.Hash) error {
 	if db.snapTree != nil {
 		if err := db.snapTree.Cap(root); err != nil {
 			return err
