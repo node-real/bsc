@@ -109,9 +109,9 @@ func inspectFreezers(db ethdb.Database) ([]freezerInfo, error) {
 				return nil, err
 			}
 			infos = append(infos, info)
-
-		default:
-			return nil, fmt.Errorf("unknown freezer, supported ones: %v", freezers)
+			//TODO(0xbundler): bug?
+			//default:
+			//	return nil, fmt.Errorf("unknown freezer, supported ones: %v", freezers)
 		}
 	}
 	return infos, nil
