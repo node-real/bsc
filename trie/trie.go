@@ -1469,6 +1469,8 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		return t.findExpiredSubTree(resolve, path, epoch, pruner)
 	case valueNode:
 		return nil
+	case nil:
+		return nil
 	default:
 		panic(fmt.Sprintf("invalid node type: %T", n))
 	}
@@ -1497,8 +1499,9 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		}
 		return nil
 	case *fullNode:
-		for i, child := range n.Children {
-			err := t.recursePruneExpiredNode(child, append(path, byte(i)), n.EpochMap[i], pruneItemCh)
+		// recurse child, and except valueNode
+		for i := 0; i < BranchNodeLength-1; i++ {
+			err := t.recursePruneExpiredNode(n.Children[i], append(path, byte(i)), n.EpochMap[i], pruneItemCh)
 			if err != nil {
 				return err
 			}
@@ -1524,6 +1527,8 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		return t.recursePruneExpiredNode(resolve, path, epoch, pruneItemCh)
 	case valueNode:
 		// value node is not a single storage uint, so pass to prune.
+		return nil
+	case nil:
 		return nil
 	default:
 		panic(fmt.Sprintf("invalid node type: %T", n))

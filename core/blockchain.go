@@ -1145,13 +1145,6 @@ func (bc *BlockChain) Stop() {
 		}
 	}
 
-	epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
-	if epochMetaSnapTree != nil {
-		if err := epochMetaSnapTree.Journal(); err != nil {
-			log.Error("Failed to journal epochMetaSnapTree", "err", err)
-		}
-	}
-
 	// Ensure the state of a recent block is also stored to disk before exiting.
 	// We're writing three different states to catch different restart scenarios:
 	//  - HEAD:     So we don't need to reprocess any blocks in the general case
@@ -1179,6 +1172,9 @@ func (bc *BlockChain) Stop() {
 			} else {
 				rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
 			}
+			if err := triedb.CommitEpochMeta(snapBase); err != nil {
+				log.Error("Failed to commit recent epoch meta", "err", err)
+			}
 		}
 		for !bc.triegc.Empty() {
 			go triedb.Dereference(bc.triegc.PopItem())
@@ -1187,6 +1183,14 @@ func (bc *BlockChain) Stop() {
 			log.Error("Dangling trie nodes after full cleanup")
 		}
 	}
+
+	epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
+	if epochMetaSnapTree != nil {
+		if err := epochMetaSnapTree.Journal(); err != nil {
+			log.Error("Failed to journal epochMetaSnapTree", "err", err)
+		}
+	}
+
 	// Flush the collected preimages to disk
 	if err := bc.stateCache.TrieDB().Close(); err != nil {
 		log.Error("Failed to close trie db", "err", err)
@@ -1568,7 +1572,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		triedb := bc.stateCache.TrieDB()
 		// If we're running an archive node, always flush
 		if bc.cacheConfig.TrieDirtyDisabled {
-			err := triedb.Commit(block.Root(), false)
+			err := triedb.CommitAll(block.Root(), false)
 			if err != nil {
 				return err
 			}
@@ -1612,7 +1616,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 								log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", flushInterval, "optimum", float64(chosen-bc.lastWrite)/float64(bc.triesInMemory))
 							}
 							// Flush an entire trie and restart the counters
-							triedb.Commit(header.Root, true)
+							triedb.CommitAll(header.Root, true)
 							rawdb.WriteSafePointBlockNumber(bc.db, chosen)
 							bc.lastWrite = chosen
 							bc.gcproc = 0

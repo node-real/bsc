@@ -172,7 +172,7 @@ func (ga *GenesisAlloc) flush(db ethdb.Database, triedb *trie.Database, blockhas
 	}
 	// Commit newly generated states into disk if it's not empty.
 	if root != types.EmptyRootHash {
-		if err := triedb.Commit(root, true); err != nil {
+		if err := triedb.CommitAll(root, true); err != nil {
 			return err
 		}
 	}

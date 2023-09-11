@@ -369,7 +369,7 @@ func (dl *diskLayer) generateRange(ctx *generatorContext, trieId *trie.ID, prefi
 			// TODO(Nathan): why block is zero?
 			block := uint64(0)
 			tdb.Update(root, types.EmptyRootHash, block, trienode.NewWithNodeSet(nodes), nil)
-			tdb.Commit(root, false)
+			tdb.CommitAll(root, false)
 		}
 		resolver = func(owner common.Hash, path []byte, hash common.Hash) []byte {
 			return rawdb.ReadTrieNode(mdb, owner, path, hash, tdb.Scheme())
