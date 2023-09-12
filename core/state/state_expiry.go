@@ -40,8 +40,10 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Ha
 
 // reviveStorageTrie revive trie's expired state from proof
 func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) (map[string][]byte, error) {
-	start := time.Now()
-	defer reviveStorageTrieTimer.Update(time.Since(start))
+	defer func(start time.Time) {
+		reviveStorageTrieTimer.Update(time.Since(start))
+	}(time.Now())
+
 	// Decode keys and proofs
 	key := common.FromHex(proof.Key)
 	if !bytes.Equal(targetKey[:], key) {

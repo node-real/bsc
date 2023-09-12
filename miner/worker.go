@@ -19,6 +19,7 @@ package miner
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/metrics"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -35,7 +36,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/trie"
 	lru "github.com/hashicorp/golang-lru"
@@ -1182,7 +1182,6 @@ func (w *worker) commit(env *environment, interval func(), update bool, start ti
 		// Create a local environment copy, avoid the data race with snapshot state.
 		// https://github.com/ethereum/go-ethereum/issues/24299
 		env := env.copy()
-
 		// If we're post merge, just ignore
 		if !w.isTTDReached(block.Header()) {
 			select {

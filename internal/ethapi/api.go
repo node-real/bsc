@@ -766,8 +766,9 @@ func (s *BlockChainAPI) GetProof(ctx context.Context, address common.Address, st
 // GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
 // Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
 func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot common.Hash, address common.Address, root common.Hash, storageKeys []string, storagePrefixKeys []string) ([]types.ReviveStorageProof, error) {
-	start := time.Now()
-	defer getStorageProofTimer.Update(time.Since(start))
+	defer func(start time.Time) {
+		getStorageProofTimer.Update(time.Since(start))
+	}(time.Now())
 
 	if len(storageKeys) != len(storagePrefixKeys) {
 		return nil, errors.New("storageKeys and storagePrefixKeys must be same length")
