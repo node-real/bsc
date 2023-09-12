@@ -8,8 +8,7 @@ import (
 )
 
 const (
-	//DefaultStateEpochPeriod = uint64(7_008_000)
-	DefaultStateEpochPeriod = uint64(30)
+	DefaultStateEpochPeriod = uint64(7_008_000)
 	StateEpoch0             = StateEpoch(0)
 	StateEpoch1             = StateEpoch(1)
 	StateEpochKeepLiveNum   = StateEpoch(2)
@@ -31,10 +30,10 @@ func GetStateEpoch(config *params.ChainConfig, blockNumber *big.Int) StateEpoch 
 	epoch1Block := epochPeriod
 	epoch2Block := new(big.Int).Add(epoch1Block, epochPeriod)
 
-	if config.Clique != nil && config.Clique.StateEpochPeriod != 0 {
-		epochPeriod = new(big.Int).SetUint64(config.Clique.StateEpochPeriod)
-		epoch1Block = new(big.Int).SetUint64(config.Clique.StateEpoch1Block)
-		epoch2Block = new(big.Int).SetUint64(config.Clique.StateEpoch2Block)
+	if config.Parlia != nil && config.Parlia.StateEpochPeriod != 0 {
+		epochPeriod = new(big.Int).SetUint64(config.Parlia.StateEpochPeriod)
+		epoch1Block = new(big.Int).SetUint64(config.Parlia.StateEpoch1Block)
+		epoch2Block = new(big.Int).SetUint64(config.Parlia.StateEpoch2Block)
 	}
 	if isBlockReached(blockNumber, epoch2Block) {
 		ret := new(big.Int).Sub(blockNumber, epoch2Block)
