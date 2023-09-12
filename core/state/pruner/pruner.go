@@ -245,6 +245,7 @@ func pruneAll(maindb ethdb.Database, g *core.Genesis) error {
 }
 
 func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, stateBloom *stateBloom, bloomPath string, middleStateRoots map[common.Hash]struct{}, start time.Time) error {
+	log.Info("Start Prune state data", "root", root)
 	// Delete all stale trie nodes in the disk. With the help of state bloom
 	// the trie nodes(and codes) belong to the active state will be filtered
 	// out. A very small part of stale tries will also be filtered because of
@@ -694,6 +695,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 		// recap epoch meta snap, save journal
 		snap := trieDB.EpochMetaSnapTree()
 		if snap != nil {
+			log.Info("epoch meta snap handle", "root", root)
 			if err := snap.Cap(root); err != nil {
 				log.Error("asyncPruneExpired, SnapTree Cap err", "err", err)
 				return err
