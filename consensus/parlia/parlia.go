@@ -1959,7 +1959,7 @@ func applyMessage(
 		msg.Value(),
 	)
 	if err != nil {
-		log.Error("apply message failed", "msg", string(ret), "err", err)
+		log.Error("apply message failed", "contract", msg.To(), "caller", msg.From(), "data", msg.Data(), "msg", string(ret), "err", err, "dberror", state.Error())
 	}
 	return msg.Gas() - returnGas, err
 }
