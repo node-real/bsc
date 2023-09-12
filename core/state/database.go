@@ -19,6 +19,7 @@ package state
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -202,6 +203,7 @@ func NewDatabaseWithNodeDB(db ethdb.Database, triedb *trie.Database) Database {
 	}
 }
 
+// TODO(0xbundler): may TrieCacheSize not support in PBSS
 func NewDatabaseWithConfigAndCache(db ethdb.Database, config *trie.Config) Database {
 	atc, _ := exlru.New(accountTrieCacheSize)
 	stc, _ := exlru.New(storageTrieCacheSize)
@@ -278,6 +280,7 @@ func (db *cachingDB) OpenStorageTrie(stateRoot common.Hash, address common.Addre
 			triesPairs := tries.([3]*triePair)
 			for _, triePair := range triesPairs {
 				if triePair != nil && triePair.root == root {
+					log.Info("OpenStorageTrie hit storageTrieCache", "addr", address, "root", root)
 					return triePair.trie.(*trie.SecureTrie).Copy(), nil
 				}
 			}

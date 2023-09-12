@@ -18,6 +18,7 @@ package state
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/log"
@@ -276,7 +277,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			var dbError error
 			sv, err, dbError = s.getExpirySnapStorage(key)
 			if dbError != nil {
-				s.db.setError(dbError)
+				s.db.setError(fmt.Errorf("state expiry getExpirySnapStorage, contract: %v, key: %v, err: %v", s.address, key, dbError))
 				return common.Hash{}
 			}
 			// if query success, just set val, otherwise request from trie
@@ -305,7 +306,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		start := time.Now()
 		tr, err := s.getTrie()
 		if err != nil {
-			s.db.setError(err)
+			s.db.setError(fmt.Errorf("state object getTrie err, contract: %v, err: %v", s.address, err))
 			return common.Hash{}
 		}
 		val, err := tr.GetStorage(s.address, key.Bytes())
@@ -323,7 +324,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			//}
 		}
 		if err != nil {
-			s.db.setError(err)
+			s.db.setError(fmt.Errorf("state object get storage err, contract: %v, key: %v, err: %v", s.address, key, err))
 			return common.Hash{}
 		}
 		value.SetBytes(val)
@@ -417,7 +418,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 		tr, err = s.getTrie()
 	}
 	if err != nil {
-		s.db.setError(err)
+		s.db.setError(fmt.Errorf("state object update trie getTrie err, contract: %v, err: %v", s.address, err))
 		return nil, err
 	}
 	// Insert all the pending updates into the trie
@@ -455,12 +456,12 @@ func (s *stateObject) updateTrie() (Trie, error) {
 		for key, value := range dirtyStorage {
 			if len(value) == 0 {
 				if err := tr.DeleteStorage(s.address, key[:]); err != nil {
-					s.db.setError(err)
+					s.db.setError(fmt.Errorf("state object update trie DeleteStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
 				s.db.StorageDeleted += 1
 			} else {
 				if err := tr.UpdateStorage(s.address, key[:], value); err != nil {
-					s.db.setError(err)
+					s.db.setError(fmt.Errorf("state object update trie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
 				s.db.StorageUpdated += 1
 			}
@@ -792,7 +793,7 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 		return nil, err
 	}
 
-	log.Debug("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
+	log.Info("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
 	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, prefixKey, key)
 
 	if err != nil {
@@ -807,7 +808,10 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash) 
 	}
 
 	getCommittedStorageRemoteMeter.Mark(1)
-	val := s.pendingReviveState[string(crypto.Keccak256(key[:]))]
+	val, ok := s.pendingReviveState[string(crypto.Keccak256(key[:]))]
+	if !ok {
+		return nil, errors.New("cannot find revived state")
+	}
 	return val.Bytes(), nil
 }
 
