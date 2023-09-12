@@ -59,9 +59,11 @@ func NewFullStateRPCServer(endpoint string) (FullStateDB, error) {
 }
 
 func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, account common.Address, root common.Hash, prefixKeys, keys []string) ([]types.ReviveStorageProof, error) {
-	start := time.Now()
-	defer getStorageProofTimer.Update(time.Since(start))
-	getProofMeter.Mark(1)
+	defer func(start time.Time) {
+		getStorageProofTimer.Update(time.Since(start))
+	}(time.Now())
+
+	getProofMeter.Mark(int64(len(keys)))
 	// find from lru cache, now it cache key proof
 	uncahcedPrefixKeys := make([]string, 0, len(prefixKeys))
 	uncahcedKeys := make([]string, 0, len(keys))
