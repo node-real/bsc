@@ -414,9 +414,6 @@ func generateTrieRoot(db ethdb.KeyValueWriter, scheme string, it Iterator, accou
 				if err != nil {
 					return stop(err)
 				}
-				if val.GetEpoch() == 0 {
-					log.Info("found epoch0")
-				}
 				enc, _ = rlp.EncodeToBytes(val.GetVal())
 			}
 			leaf = trieKV{it.Hash(), enc}
