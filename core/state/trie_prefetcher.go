@@ -136,6 +136,7 @@ func (p *triePrefetcher) mainLoop() {
 				if p.enableStateExpiry {
 					fetcher.initStateExpiryFeature(p.epoch, p.blockHash, p.fullStateDB)
 				}
+				fetcher.start()
 				p.fetchersMutex.Lock()
 				p.fetchers[id] = fetcher
 				p.fetchersMutex.Unlock()
@@ -473,6 +474,7 @@ func (sf *subfetcher) scheduleParallel(keys [][]byte) {
 		if sf.enableStateExpiry {
 			child.initStateExpiryFeature(sf.epoch, sf.blockHash, sf.fullStateDB)
 		}
+		child.start()
 		sf.paraChildren = append(sf.paraChildren, child)
 		endIndex := (i + 1) * parallelTriePrefetchCapacity
 		if endIndex >= keysLeftSize {
