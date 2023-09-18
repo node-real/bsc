@@ -96,6 +96,21 @@ func (t *EmptyTrie) ReviveTrie(key []byte, proof []*MPTProofNub) []*MPTProofNub 
 func (t *EmptyTrie) SetEpoch(epoch types.StateEpoch) {
 }
 
+func (t *EmptyTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
+	return nil
+}
+
+func (t *EmptyTrie) GetStorageAndUpdateEpoch(addr common.Address, key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (t *EmptyTrie) SetEpoch(epoch types.StateEpoch) {
+}
+
+func (t *EmptyTrie) ReviveTrie(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+	return nil, nil
+}
+
 // Copy returns a copy of SecureTrie.
 func (t *EmptyTrie) Copy() *EmptyTrie {
 	cpy := *t
