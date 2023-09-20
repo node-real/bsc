@@ -548,6 +548,9 @@ func (sf *subfetcher) loop() {
 				} else {
 					// address is useless
 					sf.trie, err = sf.db.OpenStorageTrie(sf.state, sf.addr, sf.root)
+					if err == nil && sf.enableStateExpiry {
+						trie.SetEpoch(sf.epoch)
+					}
 				}
 				if err != nil {
 					continue
