@@ -1388,7 +1388,7 @@ func (t *Trie) renewNode(epoch types.StateEpoch, childDirty bool, updateEpoch bo
 	}
 
 	// when no epoch update, same as before
-	if epoch == t.getRootEpoch() {
+	if epoch == t.currentEpoch {
 		return childDirty
 	}
 
