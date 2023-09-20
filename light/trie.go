@@ -228,6 +228,10 @@ func (t *odrTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWrite
 	return errors.New("not implemented, needs client/server interface split")
 }
 
+func (t *odrTrie) Epoch() types.StateEpoch {
+	return types.StateEpoch0
+}
+
 // do tries and retries to execute a function until it returns with no error or
 // an error type other than MissingNodeError
 func (t *odrTrie) do(key []byte, fn func() error) error {

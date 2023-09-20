@@ -130,7 +130,7 @@ func (set *NodeSet) AddAccountMeta(meta types.StateMeta) error {
 }
 
 // Merge adds a set of nodes into the set.
-func (set *NodeSet) Merge(owner common.Hash, nodes map[string]*Node) error {
+func (set *NodeSet) Merge(owner common.Hash, nodes map[string]*Node, metas map[string][]byte) error {
 	if set.Owner != owner {
 		return fmt.Errorf("nodesets belong to different owner are not mergeable %x-%x", set.Owner, owner)
 	}
@@ -145,6 +145,9 @@ func (set *NodeSet) Merge(owner common.Hash, nodes map[string]*Node) error {
 			}
 		}
 		set.AddNode([]byte(path), node)
+	}
+	for path, meta := range metas {
+		set.EpochMetas[path] = meta
 	}
 	return nil
 }
@@ -213,7 +216,7 @@ func NewWithNodeSet(set *NodeSet) *MergedNodeSet {
 func (set *MergedNodeSet) Merge(other *NodeSet) error {
 	subset, present := set.Sets[other.Owner]
 	if present {
-		return subset.Merge(other.Owner, other.Nodes)
+		return subset.Merge(other.Owner, other.Nodes, other.EpochMetas)
 	}
 	set.Sets[other.Owner] = other
 	return nil

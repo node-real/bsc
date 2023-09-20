@@ -166,6 +166,9 @@ type Trie interface {
 
 	// SetEpoch set current epoch in trie, it must set in initial period, or it will get error behavior.
 	SetEpoch(types.StateEpoch)
+
+	// Epoch get current epoch in trie
+	Epoch() types.StateEpoch
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for
