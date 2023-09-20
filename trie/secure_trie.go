@@ -258,6 +258,10 @@ func (t *StateTrie) SetEpoch(epoch types.StateEpoch) {
 	t.trie.SetEpoch(epoch)
 }
 
+func (t *StateTrie) Epoch() types.StateEpoch {
+	return t.trie.currentEpoch
+}
+
 // Copy returns a copy of StateTrie.
 func (t *StateTrie) Copy() *StateTrie {
 	return &StateTrie{

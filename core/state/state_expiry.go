@@ -18,15 +18,6 @@ var (
 
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
 func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
-	// if no prefix, query from revive trie, got the newest expired info
-	if len(prefixKey) == 0 {
-		_, err := tr.GetStorage(addr, key.Bytes())
-		enErr, ok := err.(*trie.ExpiredNodeError)
-		if !ok {
-			return nil, fmt.Errorf("cannot find expired state from trie")
-		}
-		prefixKey = enErr.Path
-	}
 	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
 	if err != nil {
 		return nil, err

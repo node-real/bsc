@@ -26,6 +26,10 @@ import (
 
 type EmptyTrie struct{}
 
+func (t *EmptyTrie) Epoch() types.StateEpoch {
+	return types.StateEpoch0
+}
+
 // NewSecure creates a dummy trie
 func NewEmptyTrie() *EmptyTrie {
 	return &EmptyTrie{}
