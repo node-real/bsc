@@ -5,11 +5,13 @@ on:
     branches: 
       - master
       - develop
+      - state_expiry_mvp0.1_dev
 
   pull_request:
     branches: 
       - master
       - develop
+      - state_expiry_mvp0.1_dev
 
 jobs:
   golang-lint:

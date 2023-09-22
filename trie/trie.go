@@ -55,7 +55,7 @@ type Trie struct {
 	unhashed int
 
 	// reader is the handler trie can retrieve nodes from.
-	reader *trieReader // TODO (asyukii): create a reader for state expiry metadata
+	reader *trieReader
 
 	// tracer is the tool to track the trie changes.
 	// It will be reset after each commit operation.
@@ -211,6 +211,7 @@ func (t *Trie) GetAndUpdateEpoch(key []byte) (value []byte, err error) {
 
 	if err == nil && didResolve {
 		t.root = newroot
+		t.rootEpoch = t.currentEpoch
 	}
 	return value, err
 }
@@ -324,8 +325,8 @@ func (t *Trie) updateChildNodeEpoch(origNode node, key []byte, pos int, epoch ty
 			n = n.copy()
 			n.Val = newnode
 			n.setEpoch(t.currentEpoch)
+			n.flags = t.newFlag()
 		}
-
 		return n, true, err
 	case *fullNode:
 		newnode, updateEpoch, err = t.updateChildNodeEpoch(n.Children[key[pos]], key, pos+1, epoch)
@@ -334,6 +335,7 @@ func (t *Trie) updateChildNodeEpoch(origNode node, key []byte, pos int, epoch ty
 			n.Children[key[pos]] = newnode
 			n.setEpoch(t.currentEpoch)
 			n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
+			n.flags = t.newFlag()
 		}
 		return n, true, err
 	case hashNode:
@@ -627,12 +629,14 @@ func (t *Trie) insertWithEpoch(n node, prefix, key []byte, value node, epoch typ
 
 		// Replace this shortNode with the branch if it occurs at index 0.
 		if matchlen == 0 {
+			t.tracer.onExpandToBranchNode(prefix)
 			return true, branch, nil
 		}
 		// New branch node is created as a child of the original short node.
 		// Track the newly inserted node in the tracer. The node identifier
 		// passed is the path from the root node.
 		t.tracer.onInsert(append(prefix, key[:matchlen]...))
+		t.tracer.onExpandToBranchNode(append(prefix, key[:matchlen]...))
 
 		// Replace it with a short node leading up to the branch.
 		return true, &shortNode{Key: key[:matchlen], Val: branch, flags: t.newFlag(), epoch: t.currentEpoch}, nil
@@ -908,6 +912,8 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 		n = n.copy()
 		n.flags = t.newFlag()
 		n.Children[key[0]] = nn
+		n.setEpoch(t.currentEpoch)
+		n.UpdateChildEpoch(int(key[0]), t.currentEpoch)
 
 		// Because n is a full node, it must've contained at least two children
 		// before the delete operation. If the new child value is non-nil, n still
@@ -990,7 +996,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 		}
 
 		dirty, nn, err := t.deleteWithEpoch(rn, prefix, key, epoch)
-		if !dirty || err != nil {
+		if !t.renewNode(epoch, dirty, true) || err != nil {
 			return false, rn, err
 		}
 		return true, nn, nil
@@ -1229,8 +1235,15 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 			if err != nil {
 				return nil, false, fmt.Errorf("update child node epoch while reviving failed, err: %v", err)
 			}
+			n1 = n1.copy()
 			n1.Val = newnode
-			return n1, true, nil
+			n1.flags = t.newFlag()
+			tryUpdateNodeEpoch(nub.n1, t.currentEpoch)
+			renew, _, err := t.updateChildNodeEpoch(nub.n1, key, pos, t.currentEpoch)
+			if err != nil {
+				return nil, false, fmt.Errorf("update child node epoch while reviving failed, err: %v", err)
+			}
+			return renew, true, nil
 		}
 
 		tryUpdateNodeEpoch(nub.n1, t.currentEpoch)
@@ -1256,6 +1269,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 			n = n.copy()
 			n.Val = newNode
 			n.setEpoch(t.currentEpoch)
+			n.flags = t.newFlag()
 		}
 		return n, didRevive, err
 	case *fullNode:
@@ -1267,6 +1281,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 			n.Children[childIndex] = newNode
 			n.setEpoch(t.currentEpoch)
 			n.UpdateChildEpoch(childIndex, t.currentEpoch)
+			n.flags = t.newFlag()
 		}
 
 		if e, ok := err.(*ExpiredNodeError); ok {
@@ -1387,13 +1402,13 @@ func (t *Trie) renewNode(epoch types.StateEpoch, childDirty bool, updateEpoch bo
 		return childDirty
 	}
 
-	// when no epoch update, same as before
-	if epoch == t.currentEpoch {
-		return childDirty
+	// node need update epoch, just renew
+	if t.currentEpoch > epoch {
+		return true
 	}
 
-	// node need update epoch, just renew
-	return true
+	// when no epoch update, same as before
+	return childDirty
 }
 
 func (t *Trie) epochExpired(n node, epoch types.StateEpoch) bool {
