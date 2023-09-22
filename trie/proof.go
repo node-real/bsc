@@ -18,6 +18,7 @@ package trie
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -904,6 +905,23 @@ func (m *MPTProofNub) GetValue() []byte {
 	}
 
 	return nil
+}
+
+func (m *MPTProofNub) String() string {
+	buf := bytes.NewBuffer(nil)
+	buf.WriteString("n1: ")
+	buf.WriteString(hex.EncodeToString(m.n1PrefixKey))
+	buf.WriteString(", n1proof: ")
+	if m.n1 != nil {
+		buf.WriteString(m.n1.fstring(""))
+	}
+	buf.WriteString(", n2: ")
+	buf.WriteString(hex.EncodeToString(m.n2PrefixKey))
+	buf.WriteString(", n2proof: ")
+	if m.n2 != nil {
+		buf.WriteString(m.n2.fstring(""))
+	}
+	return buf.String()
 }
 
 func getNubValue(origin node, prefixKey []byte) []byte {
