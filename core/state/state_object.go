@@ -469,7 +469,6 @@ func (s *stateObject) updateTrie() (Trie, error) {
 					s.db.setError(fmt.Errorf("state object update trie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
 				s.db.StorageUpdated += 1
-				log.Debug("updateTrie UpdateStorage", "contract", s.address, "key", key, "epoch", s.db.epoch, "value", value, "tr", tr.Epoch())
 			}
 			// Cache the items for preloading
 			usedStorage = append(usedStorage, common.CopyBytes(key[:]))
@@ -505,7 +504,6 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				snapshotVal, _ = rlp.EncodeToBytes(value)
 			}
 			storage[khash] = snapshotVal // snapshotVal will be nil if it's deleted
-			log.Debug("updateTrie snapshot", "contract", s.address, "key", key, "epoch", s.db.epoch, "value", snapshotVal)
 
 			// Track the original value of slot only if it's mutated first time
 			prev := s.originStorage[key]
@@ -807,7 +805,6 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash, 
 		prefixKey = enErr.Path
 	}
 
-	log.Info("fetchExpiredStorageFromRemote in stateDB", "addr", s.address, "prefixKey", prefixKey, "key", key, "tr", fmt.Sprintf("%p", tr))
 	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, prefixKey, key)
 
 	if err != nil {
@@ -847,11 +844,16 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) (snapshot.SnapValue,
 		return val, nil, nil
 	}
 
+	// TODO(0xbundler): if found value not been pruned, just return
+	//if len(val.GetVal()) > 0 {
+	//	return val, nil, nil
+	//}
+
 	// handle from remoteDB, if got err just setError, just return to revert in consensus version.
 	valRaw, err := s.fetchExpiredFromRemote(nil, key, true)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return snapshot.NewValueWithEpoch(s.db.epoch, valRaw), nil, nil
+	return snapshot.NewValueWithEpoch(val.GetEpoch(), valRaw), nil, nil
 }

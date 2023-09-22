@@ -1122,7 +1122,7 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 			err = p.slash(spoiledVal, state, header, cx, txs, receipts, systemTxs, usedGas, false)
 			if err != nil {
 				// it is possible that slash validator failed because of the slash channel is disabled.
-				log.Error("slash validator failed", "block hash", header.Hash(), "address", spoiledVal)
+				log.Error("slash validator failed", "block hash", header.Hash(), "address", spoiledVal, "err", err)
 			}
 		}
 	}
@@ -1183,7 +1183,7 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 			err = p.slash(spoiledVal, state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
 			if err != nil {
 				// it is possible that slash validator failed because of the slash channel is disabled.
-				log.Error("slash validator failed", "block hash", header.Hash(), "address", spoiledVal)
+				log.Error("slash validator failed", "block hash", header.Hash(), "address", spoiledVal, "err", err)
 			}
 		}
 	}
@@ -1692,13 +1692,13 @@ func (p *Parlia) applyTransaction(
 		}
 		actualTx := (*receivedTxs)[0]
 		if !bytes.Equal(p.signer.Hash(actualTx).Bytes(), expectedHash.Bytes()) {
-			return fmt.Errorf("expected tx hash %v, get %v, nonce %d, to %s, value %s, gas %d, gasPrice %s, data %s", expectedHash.String(), actualTx.Hash().String(),
-				expectedTx.Nonce(),
-				expectedTx.To().String(),
-				expectedTx.Value().String(),
-				expectedTx.Gas(),
-				expectedTx.GasPrice().String(),
-				hex.EncodeToString(expectedTx.Data()),
+			return fmt.Errorf("expected tx hash %v, get %v, nonce %d:%d, to %s:%s, value %s:%s, gas %d:%d, gasPrice %s:%s, data %s:%s", expectedHash.String(), actualTx.Hash().String(),
+				expectedTx.Nonce(), actualTx.Nonce(),
+				expectedTx.To().String(), actualTx.To().String(),
+				expectedTx.Value().String(), actualTx.Value().String(),
+				expectedTx.Gas(), actualTx.Gas(),
+				expectedTx.GasPrice().String(), actualTx.GasPrice().String(),
+				hex.EncodeToString(expectedTx.Data()), hex.EncodeToString(actualTx.Data()),
 			)
 		}
 		expectedTx = actualTx
