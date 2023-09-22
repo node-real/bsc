@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/trie/triestate"
 )
 
 // ErrNotRequested is returned by the trie sync when it's requested to process a
@@ -97,9 +98,9 @@ type nodeRequest struct {
 	path []byte      // Merkle path leading to this node for prioritization
 	data []byte      // Data content of the node, cached until all subtrees complete
 
-	parent   *nodeRequest // Parent state node referencing this entry
-	deps     int          // Number of dependencies before allowed to commit this node
-	callback LeafCallback // Callback to invoke if a leaf node it reached on this branch
+	parent   *nodeRequest           // Parent state node referencing this entry
+	deps     int                    // Number of dependencies before allowed to commit this node
+	callback triestate.LeafCallback // Callback to invoke if a leaf node it reached on this branch
 }
 
 // codeRequest represents a scheduled or already in-flight bytecode retrieval request.
@@ -166,7 +167,7 @@ type Sync struct {
 }
 
 // NewSync creates a new trie data download scheduler.
-func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallback, scheme string) *Sync {
+func NewSync(root common.Hash, database ethdb.KeyValueReader, callback triestate.LeafCallback, scheme string) *Sync {
 	ts := &Sync{
 		scheme:   scheme,
 		database: database,
@@ -183,7 +184,7 @@ func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallb
 // AddSubTrie registers a new trie to the sync code, rooted at the designated
 // parent for completion tracking. The given path is a unique node path in
 // hex format and contain all the parent path if it's layered trie node.
-func (s *Sync) AddSubTrie(root common.Hash, path []byte, parent common.Hash, parentPath []byte, callback LeafCallback) {
+func (s *Sync) AddSubTrie(root common.Hash, path []byte, parent common.Hash, parentPath []byte, callback triestate.LeafCallback) {
 	// Short circuit if the trie is empty or already known
 	if root == types.EmptyRootHash {
 		return

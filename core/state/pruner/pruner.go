@@ -105,15 +105,17 @@ func NewPruner(db ethdb.Database, config Config, triesInMemory uint64) (*Pruner,
 	if headBlock == nil {
 		return nil, errors.New("failed to load head block")
 	}
-
+	// Offline pruning is only supported in legacy hash based scheme.
+	triedb := trie.NewDatabase(db, trie.HashDefaults)
 	log.Info("ChainConfig", "headBlock", headBlock.NumberU64(), "config", config.ChainConfig)
+
 	snapconfig := snapshot.Config{
 		CacheSize:  256,
 		Recovery:   false,
 		NoBuild:    true,
 		AsyncBuild: false,
 	}
-	snaptree, err := snapshot.New(snapconfig, db, trie.NewDatabase(db), headBlock.Root(), int(triesInMemory), false)
+	snaptree, err := snapshot.New(snapconfig, db, triedb, headBlock.Root(), int(triesInMemory), false)
 	if err != nil {
 		return nil, err // The relevant snapshot(s) might not exist
 	}
@@ -669,7 +671,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 			rets                 = make([]error, 3)
 			expiryWG             sync.WaitGroup
 		)
-		trieDB := trie.NewDatabaseWithConfig(p.db, &trie.Config{
+		trieDB := trie.NewDatabase(p.db, &trie.Config{
 			EnableStateExpiry: true,
 			PathDB:            nil, // TODO(0xbundler): support later
 		})
@@ -828,7 +830,9 @@ func RecoverPruning(datadir string, db ethdb.Database, triesInMemory uint64) err
 		NoBuild:    true,
 		AsyncBuild: false,
 	}
-	snaptree, err := snapshot.New(snapconfig, db, trie.NewDatabase(db), headBlock.Root(), int(triesInMemory), false)
+	// Offline pruning is only supported in legacy hash based scheme.
+	triedb := trie.NewDatabase(db, trie.HashDefaults)
+	snaptree, err := snapshot.New(snapconfig, db, triedb, headBlock.Root(), int(triesInMemory), false)
 	if err != nil {
 		return err // The relevant snapshot(s) might not exist
 	}
@@ -870,7 +874,7 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 	if genesis == nil {
 		return errors.New("missing genesis block")
 	}
-	t, err := trie.NewStateTrie(trie.StateTrieID(genesis.Root()), trie.NewDatabase(db))
+	t, err := trie.NewStateTrie(trie.StateTrieID(genesis.Root()), trie.NewDatabase(db, trie.HashDefaults))
 	if err != nil {
 		return err
 	}
@@ -894,7 +898,7 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 			}
 			if acc.Root != types.EmptyRootHash {
 				id := trie.StorageTrieID(genesis.Root(), common.BytesToHash(accIter.LeafKey()), acc.Root)
-				storageTrie, err := trie.NewStateTrie(id, trie.NewDatabase(db))
+				storageTrie, err := trie.NewStateTrie(id, trie.NewDatabase(db, trie.HashDefaults))
 				if err != nil {
 					return err
 				}

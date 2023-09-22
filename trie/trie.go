@@ -21,11 +21,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie/trienode"
+	"github.com/ethereum/go-ethereum/trie/triestate"
 )
 
 var (
@@ -1076,10 +1079,10 @@ func (t *Trie) Hash() common.Hash {
 // The returned nodeset can be nil if the trie is clean (nothing to commit).
 // Once the trie is committed, it's not usable anymore. A new trie must
 // be created with new root and updated trie database for following usage
-func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) {
+func (t *Trie) Commit(onleaf triestate.LeafCallback) (common.Hash, *trienode.NodeSet, error) {
 	defer t.tracer.reset()
 	defer func() {
-		t.committed = true
+		t.committed = false
 	}()
 	// Trie is empty and can be classified into two types of situations:
 	// (a) The trie was empty and no update happens => return nil
@@ -1116,16 +1119,43 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 	for _, path := range t.tracer.deletedNodes() {
 		nodes.AddNode([]byte(path), trienode.NewDeleted())
 	}
+
 	for _, path := range t.tracer.deletedBranchNodes() {
 		nodes.AddBranchNodeEpochMeta([]byte(path), nil)
 	}
+
 	// store state expiry account meta
 	if t.enableExpiry {
 		if err := nodes.AddAccountMeta(types.NewMetaNoConsensus(t.rootEpoch)); err != nil {
 			return common.Hash{}, nil, err
 		}
 	}
-	t.root = newCommitter(nodes, t.tracer, collectLeaf, t.enableExpiry).Commit(t.root)
+
+	h := newCommitter(nodes, t.tracer, t.enableExpiry)
+	defer returnCommitterToPool(h)
+
+	var wg sync.WaitGroup
+	if onleaf != nil {
+		h.onleaf = onleaf
+		h.leafCh = make(chan *leafInfo, leafChanSize)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.commitLoop()
+		}()
+	}
+
+	newRoot := h.Commit(t.root)
+	if onleaf != nil {
+		// The leafch is created in newCommitter if there was an onleaf callback
+		// provided. The commitLoop only _reads_ from it, and the commit
+		// operation was the sole writer. Therefore, it's safe to close this
+		// channel here.
+		close(h.leafCh)
+		wg.Wait()
+	}
+
+	t.root = newRoot
 	return rootHash, nodes, nil
 }
 

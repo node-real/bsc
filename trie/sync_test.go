@@ -56,7 +56,7 @@ func makeTestTrie(scheme string) (ethdb.Database, *Database, *StateTrie, map[str
 			trie.MustUpdate(key, val)
 		}
 	}
-	root, nodes, _ := trie.Commit(false)
+	root, nodes, _ := trie.Commit(nil)
 	if err := triedb.Update(root, types.EmptyRootHash, 0, trienode.NewWithNodeSet(nodes), nil); err != nil {
 		panic(fmt.Errorf("failed to commit db %v", err))
 	}
@@ -109,8 +109,8 @@ type trieElement struct {
 
 // Tests that an empty trie is not scheduled for syncing.
 func TestEmptySync(t *testing.T) {
-	dbA := NewDatabase(rawdb.NewMemoryDatabase())
-	dbB := NewDatabase(rawdb.NewMemoryDatabase())
+	dbA := newTestDatabase(rawdb.NewMemoryDatabase(), rawdb.HashScheme)
+	dbB := newTestDatabase(rawdb.NewMemoryDatabase(), rawdb.HashScheme)
 	dbC := newTestDatabase(rawdb.NewMemoryDatabase(), rawdb.PathScheme)
 	dbD := newTestDatabase(rawdb.NewMemoryDatabase(), rawdb.PathScheme)
 
@@ -737,7 +737,7 @@ func testSyncMovingTarget(t *testing.T, scheme string) {
 		srcTrie.MustUpdate(key, val)
 		diff[string(key)] = val
 	}
-	root, nodes, _ := srcTrie.Commit(false)
+	root, nodes, _ := srcTrie.Commit(nil)
 	if err := srcDb.Update(root, preRoot, 0, trienode.NewWithNodeSet(nodes), nil); err != nil {
 		panic(err)
 	}
@@ -762,7 +762,7 @@ func testSyncMovingTarget(t *testing.T, scheme string) {
 		srcTrie.MustUpdate([]byte(k), val)
 		reverted[k] = val
 	}
-	root, nodes, _ = srcTrie.Commit(false)
+	root, nodes, _ = srcTrie.Commit(nil)
 	if err := srcDb.Update(root, preRoot, 0, trienode.NewWithNodeSet(nodes), nil); err != nil {
 		panic(err)
 	}
