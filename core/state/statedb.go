@@ -1731,7 +1731,6 @@ func (s *StateDB) Commit(block uint64, failPostCommitFunc func(), postCommitFunc
 	if s.pipeCommit {
 		go commmitTrie()
 	} else {
-		commitFuncs = append(commitFuncs, commmitTrie)
 		defer s.StopPrefetcher()
 	}
 	commitRes := make(chan error, len(commitFuncs))
