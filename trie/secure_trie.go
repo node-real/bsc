@@ -320,7 +320,12 @@ func (t *StateTrie) getSecKeyCache() map[string][]byte {
 	return t.secKeyCache
 }
 
-func (t *StateTrie) ReviveTrie(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+func (t *StateTrie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
 	key = t.hashKey(key)
-	return t.trie.ReviveTrie(key, proof)
+	return t.trie.TryRevive(key, proof)
+}
+
+func (t *StateTrie) TryLocalRevive(_ common.Address, key []byte) ([]byte, error) {
+	key = t.hashKey(key)
+	return t.trie.TryLocalRevive(key)
 }

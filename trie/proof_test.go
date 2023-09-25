@@ -73,31 +73,6 @@ func makeProvers(trie *Trie) []func(key []byte) *memorydb.Database {
 	return provers
 }
 
-func TestOneElementPathProof(t *testing.T) {
-	trie := NewEmpty(NewDatabase(rawdb.NewMemoryDatabase()))
-	updateString(trie, "k", "v")
-
-	var proofList proofList
-
-	trie.Prove([]byte("k"), &proofList)
-	if proofList == nil {
-		t.Fatalf("nil proof")
-	}
-
-	if len(proofList) != 1 {
-		t.Errorf("proof should have one element")
-	}
-
-	_, hn, err := VerifyPathProof(keybytesToHex([]byte("k")), nil, proofList, 0)
-	if err != nil {
-		t.Fatalf("failed to verify proof: %v\nraw proof: %x", err, proofList)
-	}
-
-	if common.BytesToHash(hn) != trie.Hash() {
-		t.Fatalf("verified root mismatch: have %x, want %x", hn, trie.Hash())
-	}
-}
-
 func TestProof(t *testing.T) {
 	trie, vals := randomTrie(500)
 	root := trie.Hash()

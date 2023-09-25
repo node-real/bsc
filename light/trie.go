@@ -115,10 +115,6 @@ type odrTrie struct {
 	trie *trie.Trie
 }
 
-func (t *odrTrie) ReviveTrie(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error) {
-	panic("not implemented")
-}
-
 func (t *odrTrie) GetStorage(_ common.Address, key []byte) ([]byte, error) {
 	key = crypto.Keccak256(key)
 	var enc []byte
@@ -224,10 +220,6 @@ func (t *odrTrie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 	return errors.New("not implemented, needs client/server interface split")
 }
 
-func (t *odrTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
-	return errors.New("not implemented, needs client/server interface split")
-}
-
 func (t *odrTrie) Epoch() types.StateEpoch {
 	return types.StateEpoch0
 }
@@ -259,8 +251,20 @@ func (t *odrTrie) do(key []byte, fn func() error) error {
 	}
 }
 
-func (db *odrTrie) NoTries() bool {
+func (t *odrTrie) NoTries() bool {
 	return false
+}
+
+func (t *odrTrie) ProveByPath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
+	return errors.New("not implemented, needs client/server interface split")
+}
+
+func (t *odrTrie) TryRevive(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error) {
+	return nil, errors.New("not implemented, needs client/server interface split")
+}
+
+func (t *odrTrie) TryLocalRevive(addr common.Address, key []byte) ([]byte, error) {
+	return nil, errors.New("not implemented, needs client/server interface split")
 }
 
 type nodeIterator struct {

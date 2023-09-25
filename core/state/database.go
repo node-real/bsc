@@ -158,17 +158,20 @@ type Trie interface {
 	// with the node that proves the absence of the key.
 	Prove(key []byte, proofDb ethdb.KeyValueWriter) error
 
-	// ProvePath generate proof state in trie.
-	ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error
+	// ProveByPath generate proof state in trie.
+	ProveByPath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error
 
-	// ReviveTrie revive expired state from proof.
-	ReviveTrie(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error)
+	// TryRevive revive expired state from proof.
+	TryRevive(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error)
 
 	// SetEpoch set current epoch in trie, it must set in initial period, or it will get error behavior.
 	SetEpoch(types.StateEpoch)
 
 	// Epoch get current epoch in trie
 	Epoch() types.StateEpoch
+
+	// TryLocalRevive it revive using local non-pruned states
+	TryLocalRevive(addr common.Address, key []byte) ([]byte, error)
 }
 
 // NewDatabase creates a backing store for state. The returned database is safe for
