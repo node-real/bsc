@@ -379,7 +379,7 @@ func inspectTrie(ctx *cli.Context) error {
 			log.Error("Empty root hash")
 		}
 		fmt.Printf("ReadBlockHeader, root: %v, blocknum: %v\n", blockRoot, blockNumber)
-		trieDB := trie.NewDatabase(db)
+		trieDB := trie.NewDatabase(db, nil)
 		theTrie, err := trie.New(trie.TrieID(blockRoot), trieDB)
 		if err != nil {
 			fmt.Printf("fail to new trie tree, err: %v, rootHash: %v\n", err, blockRoot.String())

@@ -1227,49 +1227,50 @@ func (bc *BlockChain) Stop() {
 		if !bc.cacheConfig.TrieDirtyDisabled {
 			triedb := bc.triedb
 
-		for _, offset := range []uint64{0, 1, bc.triesInMemory - 1} {
-			if number := bc.CurrentBlock().Number.Uint64(); number > offset {
-				recent := bc.GetBlockByNumber(number - offset)
+			for _, offset := range []uint64{0, 1, bc.triesInMemory - 1} {
+				if number := bc.CurrentBlock().Number.Uint64(); number > offset {
+					recent := bc.GetBlockByNumber(number - offset)
 
-				log.Info("Writing cached state to disk", "block", recent.Number(), "hash", recent.Hash(), "root", recent.Root())
-				if err := triedb.Commit(recent.Root(), true); err != nil {
-					log.Error("Failed to commit recent state trie", "err", err)
-				} else {
-					rawdb.WriteSafePointBlockNumber(bc.db, recent.NumberU64())
+					log.Info("Writing cached state to disk", "block", recent.Number(), "hash", recent.Hash(), "root", recent.Root())
+					if err := triedb.Commit(recent.Root(), true); err != nil {
+						log.Error("Failed to commit recent state trie", "err", err)
+					} else {
+						rawdb.WriteSafePointBlockNumber(bc.db, recent.NumberU64())
+					}
 				}
 			}
-		}
-		if snapBase != (common.Hash{}) {
-			log.Info("Writing snapshot state to disk", "root", snapBase)
-			if err := triedb.Commit(snapBase, true); err != nil {
-				log.Error("Failed to commit recent state trie", "err", err)
-			} else {
-				rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
+			if snapBase != (common.Hash{}) {
+				log.Info("Writing snapshot state to disk", "root", snapBase)
+				if err := triedb.Commit(snapBase, true); err != nil {
+					log.Error("Failed to commit recent state trie", "err", err)
+				} else {
+					rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
+				}
+				if err := triedb.CommitEpochMeta(snapBase); err != nil {
+					log.Error("Failed to commit recent epoch meta", "err", err)
+				}
 			}
-			if err := triedb.CommitEpochMeta(snapBase); err != nil {
-				log.Error("Failed to commit recent epoch meta", "err", err)
+			for !bc.triegc.Empty() {
+				go triedb.Dereference(bc.triegc.PopItem())
+			}
+			if size, _ := triedb.Size(); size != 0 {
+				log.Error("Dangling trie nodes after full cleanup")
 			}
 		}
-		for !bc.triegc.Empty() {
-			go triedb.Dereference(bc.triegc.PopItem())
-		}
-		if size, _ := triedb.Size(); size != 0 {
-			log.Error("Dangling trie nodes after full cleanup")
-		}
-	}
 
-	epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
-	if epochMetaSnapTree != nil {
-		if err := epochMetaSnapTree.Journal(); err != nil {
-			log.Error("Failed to journal epochMetaSnapTree", "err", err)
+		epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
+		if epochMetaSnapTree != nil {
+			if err := epochMetaSnapTree.Journal(); err != nil {
+				log.Error("Failed to journal epochMetaSnapTree", "err", err)
+			}
 		}
-	}
 
-	// Flush the collected preimages to disk
-	if err := bc.stateCache.TrieDB().Close(); err != nil {
-		log.Error("Failed to close trie db", "err", err)
+		// Flush the collected preimages to disk
+		if err := bc.stateCache.TrieDB().Close(); err != nil {
+			log.Error("Failed to close trie db", "err", err)
+		}
+		log.Info("Blockchain stopped")
 	}
-	log.Info("Blockchain stopped")
 }
 
 // StopInsert interrupts all insertion methods, causing them to return
