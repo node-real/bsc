@@ -14,12 +14,34 @@ import (
 
 var (
 	reviveStorageTrieTimer = metrics.NewRegisteredTimer("state/revivetrie/rt", nil)
+	EnableLocalRevive      = false // indicate if using local revive
 )
 
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
 func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
 	log.Debug("fetching expired storage from remoteDB", "addr", addr, "prefix", prefixKey, "key", key)
+	if EnableLocalRevive {
+		// if there need revive expired state, try to revive locally, when the node is not being pruned, just renew the epoch
+		val, err := tr.TryLocalRevive(addr, key.Bytes())
+		log.Debug("fetchExpiredStorageFromRemote TryLocalRevive", "addr", addr, "key", key, "val", val, "err", err)
+		if _, ok := err.(*trie.MissingNodeError); !ok {
+			return nil, err
+		}
+		switch err.(type) {
+		case *trie.MissingNodeError:
+			// cannot revive locally, request from remote
+		case nil:
+			ret := make(map[string][]byte, 1)
+			ret[key.String()] = val
+			return ret, nil
+		default:
+			return nil, err
+		}
+	}
+
+	// cannot revive locally, fetch remote proof
 	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
+	log.Debug("fetchExpiredStorageFromRemote GetStorageReviveProof", "addr", addr, "key", key, "proofs", len(proofs), "err", err)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +82,7 @@ func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 		return nil, err
 	}
 
-	nubs, err := tr.ReviveTrie(key, proofCache.CacheNubs())
+	nubs, err := tr.TryRevive(key, proofCache.CacheNubs())
 	if err != nil {
 		return nil, err
 	}

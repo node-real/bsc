@@ -89,14 +89,18 @@ func (t *EmptyTrie) GetStorageAndUpdateEpoch(addr common.Address, key []byte) ([
 	return nil, nil
 }
 
-func (t *EmptyTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
-	return nil
-}
-
 func (t *EmptyTrie) SetEpoch(epoch types.StateEpoch) {
 }
 
-func (t *EmptyTrie) ReviveTrie(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+func (t *EmptyTrie) ProveByPath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
+	return nil
+}
+
+func (t *EmptyTrie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+	return nil, nil
+}
+
+func (t *EmptyTrie) TryLocalRevive(addr common.Address, key []byte) ([]byte, error) {
 	return nil, nil
 }
 
