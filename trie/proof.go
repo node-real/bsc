@@ -181,7 +181,7 @@ func (t *Trie) traverseNodes(tn node, prefixKey, suffixKey []byte, nodes *[]node
 	return tn, nil
 }
 
-func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueWriter) error {
+func (t *Trie) ProveByPath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueWriter) error {
 
 	if t.committed {
 		return ErrCommitted
@@ -233,135 +233,8 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	return nil
 }
 
-// VerifyPathProof reconstructs the trie from the given proof and verifies the root hash.
-func VerifyPathProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte, epoch types.StateEpoch) (node, hashNode, error) {
-
-	if len(proofList) == 0 {
-		return nil, nil, fmt.Errorf("proof list is empty")
-	}
-
-	n, err := ConstructTrieFromProof(keyHex, prefixKeyHex, proofList, epoch)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// hash the root node
-	hasher := newHasher(false)
-	defer returnHasherToPool(hasher)
-	hn, cn := hasher.hash(n, true)
-	if hash, ok := hn.(hashNode); ok {
-		return cn, hash, nil
-	}
-
-	return nil, nil, fmt.Errorf("path proof verification failed")
-}
-
-// ConstructTrieFromProof constructs a trie from the given proof. It returns the root node of the trie.
-func ConstructTrieFromProof(keyHex []byte, prefixKeyHex []byte, proofList [][]byte, epoch types.StateEpoch) (node, error) {
-	if len(proofList) == 0 {
-		return nil, nil
-	}
-	h := newHasher(false)
-	defer returnHasherToPool(h)
-	keyHex = keyHex[len(prefixKeyHex):]
-
-	root, err := decodeNode(nil, proofList[0])
-	if err != nil {
-		return nil, fmt.Errorf("decode proof root %#x, err: %v", proofList[0], err)
-	}
-	// update epoch
-	switch n := root.(type) {
-	case *shortNode:
-		n.setEpoch(epoch)
-	case *fullNode:
-		n.setEpoch(epoch)
-	}
-
-	parentNode := root
-	for i := 1; i < len(proofList); i++ {
-		n, err := decodeNode(nil, proofList[i])
-		if err != nil {
-			return nil, fmt.Errorf("decode proof item %#x, err: %v", proofList[i], err)
-		}
-
-		// verify proof continuous
-		keyrest, child := get(parentNode, keyHex, false)
-		switch cld := child.(type) {
-		case nil:
-			return nil, NewKeyDoesNotExistError(keyHex)
-		case hashNode:
-			hashed, _ := h.hash(n, false)
-			if !bytes.Equal(cld, hashed.(hashNode)) {
-				return nil, fmt.Errorf("the child node of shortNode is not a hashNode or doesn't match the hash in the proof")
-			}
-		default:
-			// proof's child cannot contain valueNode/shortNode/fullNode
-			return nil, fmt.Errorf("worng proof, got unexpect node, fstr: %v", child.fstring(""))
-		}
-
-		// update epoch
-		switch n := n.(type) {
-		case *shortNode:
-			n.setEpoch(epoch)
-		case *fullNode:
-			n.setEpoch(epoch)
-		}
-
-		// Link the parent and child.
-		switch sn := parentNode.(type) {
-		case *shortNode:
-			sn.Val = n
-		case *fullNode:
-			sn.Children[keyHex[0]] = n
-			sn.UpdateChildEpoch(int(keyHex[0]), epoch)
-		}
-
-		// reset
-		parentNode = n
-		keyHex = keyrest
-	}
-
-	return root, nil
-}
-
-// updateEpochInChildNodes traverse down a node and update the epoch of the child nodes
-func updateEpochInChildNodes(tn *node, key []byte, epoch types.StateEpoch) error {
-
-	node := *tn
-	startNode := node
-
-	for len(key) > 0 && node != nil {
-		switch n := node.(type) {
-		case *shortNode:
-			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
-				// The trie doesn't contain the key.
-				node = nil
-			} else {
-				node = n.Val
-				key = key[len(n.Key):]
-			}
-			n.setEpoch(epoch)
-		case *fullNode:
-			node = n.Children[key[0]]
-			n.UpdateChildEpoch(int(key[0]), epoch)
-			n.setEpoch(epoch)
-
-			key = key[1:]
-		case nil, hashNode, valueNode:
-			*tn = startNode
-			return nil
-		default:
-			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
-		}
-	}
-
-	*tn = startNode
-
-	return nil
-}
-
-func (t *StateTrie) ProvePath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
-	return t.trie.ProvePath(key, path, proofDb)
+func (t *StateTrie) ProveByPath(key []byte, path []byte, proofDb ethdb.KeyValueWriter) error {
+	return t.trie.ProveByPath(key, path, proofDb)
 }
 
 // VerifyProof checks merkle proofs. The given proof must contain the value for

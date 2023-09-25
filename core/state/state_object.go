@@ -18,6 +18,7 @@ package state
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math/big"
@@ -82,10 +83,11 @@ type stateObject struct {
 	dirtyStorage        Storage   // Storage entries that have been modified in the current transaction execution, reset for every transaction
 
 	// for state expiry feature
-	pendingReviveTrie    Trie                             // pendingReviveTrie it contains pending revive trie nodes, could update & commit later
-	pendingReviveState   map[string]common.Hash           // pendingReviveState for block, when R&W, access revive state first, saved in hash key
-	pendingAccessedState map[common.Hash]int              // pendingAccessedState record which state is accessed(only read now, update/delete/insert will auto update epoch), it will update epoch index late
-	originStorageEpoch   map[common.Hash]types.StateEpoch // originStorageEpoch record origin state epoch, prevent frequency epoch update
+	pendingReviveTrie        Trie                             // pendingReviveTrie it contains pending revive trie nodes, could update & commit later
+	pendingReviveState       map[string]common.Hash           // pendingReviveState for block, when R&W, access revive state first, saved in hash key
+	pendingAccessedState     map[common.Hash]int              // pendingAccessedState record which state is accessed(only read now, update/delete/insert will auto update epoch), it will update epoch index late
+	originStorageEpoch       map[common.Hash]types.StateEpoch // originStorageEpoch record origin state epoch, prevent frequency epoch update
+	pendingFutureReviveState map[common.Hash]int              // pendingFutureReviveState record empty state in snapshot. it should preftech first, and allow check in updateTrie
 
 	// Cache flags.
 	dirtyCode bool // true if the code was updated
@@ -121,18 +123,19 @@ func newObject(db *StateDB, address common.Address, acct *types.StateAccount) *s
 	}
 
 	return &stateObject{
-		db:                   db,
-		address:              address,
-		addrHash:             crypto.Keccak256Hash(address[:]),
-		origin:               origin,
-		data:                 *acct,
-		sharedOriginStorage:  storageMap,
-		originStorage:        make(Storage),
-		pendingStorage:       make(Storage),
-		dirtyStorage:         make(Storage),
-		pendingReviveState:   make(map[string]common.Hash),
-		pendingAccessedState: make(map[common.Hash]int),
-		originStorageEpoch:   make(map[common.Hash]types.StateEpoch),
+		db:                       db,
+		address:                  address,
+		addrHash:                 crypto.Keccak256Hash(address[:]),
+		origin:                   origin,
+		data:                     *acct,
+		sharedOriginStorage:      storageMap,
+		originStorage:            make(Storage),
+		pendingStorage:           make(Storage),
+		dirtyStorage:             make(Storage),
+		pendingReviveState:       make(map[string]common.Hash),
+		pendingAccessedState:     make(map[common.Hash]int),
+		pendingFutureReviveState: make(map[common.Hash]int),
+		originStorageEpoch:       make(map[common.Hash]types.StateEpoch),
 	}
 }
 
@@ -264,7 +267,6 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	// If no live objects are available, attempt to use snapshots
 	var (
 		enc   []byte
-		sv    snapshot.SnapValue
 		err   error
 		value common.Hash
 	)
@@ -274,15 +276,13 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			var dbError error
-			sv, err, dbError = s.getExpirySnapStorage(key)
+			enc, err, dbError = s.getExpirySnapStorage(key)
 			if dbError != nil {
 				s.db.setError(fmt.Errorf("state expiry getExpirySnapStorage, contract: %v, key: %v, err: %v", s.address, key, dbError))
 				return common.Hash{}
 			}
-			// if query success, just set val, otherwise request from trie
-			if err == nil && sv != nil {
-				value.SetBytes(sv.GetVal())
-				s.originStorageEpoch[key] = sv.GetEpoch()
+			if len(enc) > 0 {
+				value.SetBytes(enc)
 			}
 		} else {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
@@ -300,7 +300,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	}
 
 	// If the snapshot is unavailable or reading from it fails, load from the database.
-	if s.needLoadFromTrie(err, sv) {
+	if s.db.snap == nil || err != nil {
 		getCommittedStorageTrieMeter.Mark(1)
 		start := time.Now()
 		var tr Trie
@@ -383,6 +383,17 @@ func (s *stateObject) finalise(prefetch bool) {
 			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
 		}
 	}
+
+	// try prefetch future revive states
+	for key := range s.pendingFutureReviveState {
+		if val, ok := s.dirtyStorage[key]; ok {
+			if val != s.originStorage[key] {
+				continue
+			}
+		}
+		slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
+	}
+
 	if s.db.prefetcher != nil && prefetch && len(slotsToPrefetch) > 0 && s.data.Root != types.EmptyRootHash {
 		s.db.prefetcher.prefetch(s.addrHash, s.data.Root, s.address, slotsToPrefetch)
 	}
@@ -417,6 +428,8 @@ func (s *stateObject) updateTrie() (Trie, error) {
 		err     error
 	)
 	if s.db.EnableExpire() {
+		// if EnableExpire, just use PendingReviveTrie, but prefetcher.trie is useful too, it warms up the db cache.
+		// and when no state expired or pruned, it will directly use prefetcher.trie too.
 		tr, err = s.getPendingReviveTrie()
 	} else {
 		tr, err = s.getTrie()
@@ -458,6 +471,23 @@ func (s *stateObject) updateTrie() (Trie, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		if s.db.EnableExpire() {
+			// revive state first, to figure out if there have conflict expiry path or local revive
+			for key := range s.pendingFutureReviveState {
+				_, err = tr.GetStorage(s.address, key.Bytes())
+				if err == nil {
+					continue
+				}
+				enErr, ok := err.(*trie.ExpiredNodeError)
+				if !ok {
+					s.db.setError(fmt.Errorf("state object pendingFutureReviveState err, contract: %v, key: %v, err: %v", s.address, key, err))
+					continue
+				}
+				if _, err = fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, enErr.Path, key); err != nil {
+					s.db.setError(fmt.Errorf("state object pendingFutureReviveState fetchExpiredStorageFromRemote err, contract: %v, key: %v, err: %v", s.address, key, err))
+				}
+			}
+		}
 		for key, value := range dirtyStorage {
 			if len(value) == 0 {
 				if err := tr.DeleteStorage(s.address, key[:]); err != nil {
@@ -534,6 +564,9 @@ func (s *stateObject) updateTrie() (Trie, error) {
 		}
 		if len(s.pendingAccessedState) > 0 {
 			s.pendingAccessedState = make(map[common.Hash]int)
+		}
+		if len(s.pendingFutureReviveState) > 0 {
+			s.pendingFutureReviveState = make(map[common.Hash]int)
 		}
 		if len(s.originStorageEpoch) > 0 {
 			s.originStorageEpoch = make(map[common.Hash]types.StateEpoch)
@@ -679,6 +712,10 @@ func (s *stateObject) deepCopy(db *StateDB) *stateObject {
 		for k, v := range s.pendingAccessedState {
 			obj.pendingAccessedState[k] = v
 		}
+		obj.pendingFutureReviveState = make(map[common.Hash]int, len(s.pendingFutureReviveState))
+		for k, v := range s.pendingFutureReviveState {
+			obj.pendingFutureReviveState[k] = v
+		}
 		obj.originStorageEpoch = make(map[common.Hash]types.StateEpoch, len(s.originStorageEpoch))
 		for k, v := range s.originStorageEpoch {
 			obj.originStorageEpoch[k] = v
@@ -781,6 +818,16 @@ func (s *stateObject) accessState(key common.Hash) {
 	}
 }
 
+// futureReviveState record future revive state, it will load on prefetcher or updateTrie
+func (s *stateObject) futureReviveState(key common.Hash) {
+	if !s.db.EnableExpire() {
+		return
+	}
+
+	count := s.pendingFutureReviveState[key]
+	s.pendingFutureReviveState[key] = count + 1
+}
+
 // TODO(0xbundler): add hash key cache later
 func (s *stateObject) queryFromReviveState(reviveState map[string]common.Hash, key common.Hash) (common.Hash, bool) {
 	khash := crypto.HashData(s.db.hasher, key[:])
@@ -811,14 +858,10 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash, 
 	}
 
 	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, prefixKey, key)
-
 	if err != nil {
-		// Keys may not exist in the trie, so they can't be revived.
-		if _, ok := err.(*trie.KeyDoesNotExistError); ok {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("revive storage trie failed, err: %v", err)
+		return nil, err
 	}
+
 	for k, v := range kvs {
 		s.pendingReviveState[k] = common.BytesToHash(v)
 	}
@@ -828,7 +871,7 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash, 
 	return val.Bytes(), nil
 }
 
-func (s *stateObject) getExpirySnapStorage(key common.Hash) (snapshot.SnapValue, error, error) {
+func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, error) {
 	enc, err := s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
 	if err != nil {
 		return nil, err, nil
@@ -842,23 +885,28 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) (snapshot.SnapValue,
 	}
 
 	if val == nil {
+		// record access empty kv, try touch in updateTrie for duplication
+		s.futureReviveState(key)
 		return nil, nil, nil
 	}
 
+	s.originStorageEpoch[key] = val.GetEpoch()
 	if !types.EpochExpired(val.GetEpoch(), s.db.epoch) {
-		return val, nil, nil
+		return val.GetVal(), nil, nil
 	}
 
-	// TODO(0xbundler): if found value not been pruned, just return
-	//if len(val.GetVal()) > 0 {
-	//	return val, nil, nil
-	//}
+	// if found value not been pruned, just return, local revive later
+	if EnableLocalRevive && len(val.GetVal()) > 0 {
+		s.futureReviveState(key)
+		log.Debug("getExpirySnapStorage GetVal", "addr", s.address, "key", key, "val", hex.EncodeToString(val.GetVal()))
+		return val.GetVal(), nil, nil
+	}
 
-	// handle from remoteDB, if got err just setError, just return to revert in consensus version.
+	// handle from remoteDB, if got err just setError, or return to revert in consensus version.
 	valRaw, err := s.fetchExpiredFromRemote(nil, key, true)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return snapshot.NewValueWithEpoch(val.GetEpoch(), valRaw), nil, nil
+	return valRaw, nil, nil
 }
