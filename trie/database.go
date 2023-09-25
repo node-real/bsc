@@ -166,6 +166,13 @@ func NewDatabase(diskdb ethdb.Database, config *Config) *Database {
 		}
 		db.backend = hashdb.New(diskdb, config.HashDB, mptResolver{})
 	}
+	if config != nil && config.EnableStateExpiry {
+		snapTree, err := epochmeta.NewEpochMetaSnapTree(diskdb)
+		if err != nil {
+			panic(fmt.Sprintf("init SnapshotTree err: %v", err))
+		}
+		db.snapTree = snapTree
+	}
 	return db
 }
 

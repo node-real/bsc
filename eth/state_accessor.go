@@ -195,7 +195,7 @@ func (eth *Ethereum) hashState(ctx context.Context, block *types.Block, reexec u
 
 func (eth *Ethereum) pathState(block *types.Block) (*state.StateDB, func(), error) {
 	// Check if the requested state is available in the live chain.
-	statedb, err := eth.blockchain.StateAt(block.Root())
+	statedb, err := eth.blockchain.StateAt(block.Root(), block.Hash(), block.Number())
 	if err == nil {
 		return statedb, noopReleaser, nil
 	}

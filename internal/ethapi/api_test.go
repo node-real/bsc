@@ -370,6 +370,10 @@ func newTestBackend(t *testing.T, n int, gspec *core.Genesis, generator func(i i
 	return backend
 }
 
+func (b *testBackend) StorageTrie(stateRoot common.Hash, addr common.Address, root common.Hash) (state.Trie, error) {
+	panic("not implemented")
+}
+
 // nolint:unused
 func (b *testBackend) setPendingBlock(block *types.Block) {
 	b.pending = block
