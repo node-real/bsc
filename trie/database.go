@@ -159,7 +159,6 @@ func NewDatabase(diskdb ethdb.Database, config *Config) *Database {
 		}
 		db.backend = hashdb.New(diskdb, config.HashDB, mptResolver{})
 	}
-	log.Info("succeed to init trie db", "scheme", db.Scheme())
 	return db
 }
 
