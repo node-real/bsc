@@ -74,7 +74,7 @@ func makeProvers(trie *Trie) []func(key []byte) *memorydb.Database {
 }
 
 func TestOneElementPathProof(t *testing.T) {
-	trie := NewEmpty(NewDatabase(rawdb.NewMemoryDatabase()))
+	trie := NewEmpty(NewDatabase(rawdb.NewMemoryDatabase(), nil))
 	updateString(trie, "k", "v")
 
 	var proofList proofList
@@ -1108,7 +1108,7 @@ func nonRandomTrie(n int) (*Trie, map[string]*kv) {
 }
 
 func nonRandomTrieWithExpiry(n int) (*Trie, map[string]*kv) {
-	db := NewDatabase(rawdb.NewMemoryDatabase())
+	db := NewDatabase(rawdb.NewMemoryDatabase(), nil)
 	trie := NewEmpty(db)
 	trie.currentEpoch = 10
 	trie.rootEpoch = 10

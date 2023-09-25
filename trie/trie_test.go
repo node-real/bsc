@@ -1080,7 +1080,7 @@ func TestReviveCustom(t *testing.T) {
 }
 
 func createCustomTrie(data map[string]string, epoch types.StateEpoch) *Trie {
-	db := NewDatabase(rawdb.NewMemoryDatabase())
+	db := NewDatabase(rawdb.NewMemoryDatabase(), nil)
 	trie := NewEmpty(db)
 	trie.rootEpoch = epoch
 	trie.currentEpoch = epoch
