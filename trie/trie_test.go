@@ -1008,7 +1008,7 @@ func TestRevive(t *testing.T) {
 		for _, prefixKey := range prefixKeys {
 			// Generate proof
 			var proof proofList
-			err := trie.ProvePath(key, prefixKey, &proof)
+			err := trie.ProveByPath(key, prefixKey, &proof)
 			assert.NoError(t, err)
 
 			// Expire trie
@@ -1019,7 +1019,7 @@ func TestRevive(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Revive trie
-			_, err = trie.TryRevive(keybytesToHex(key), proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, proofCache.CacheNubs())
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			// Verifiy value exists after revive
@@ -1053,7 +1053,7 @@ func TestReviveCustom(t *testing.T) {
 		prefixKeys := getFullNodePrefixKeys(trie, key)
 		for _, prefixKey := range prefixKeys {
 			var proofList proofList
-			err := trie.ProvePath(key, prefixKey, &proofList)
+			err := trie.ProveByPath(key, prefixKey, &proofList)
 			assert.NoError(t, err)
 
 			trie.ExpireByPrefix(prefixKey)
@@ -1063,7 +1063,7 @@ func TestReviveCustom(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Revive trie
-			_, err = trie.TryRevive(keybytesToHex(key), proofCache.cacheNubs)
+			_, err = trie.TryRevive(key, proofCache.cacheNubs)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			res := trie.MustGet(key)
