@@ -671,7 +671,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 			rets                 = make([]error, 3)
 			expiryWG             sync.WaitGroup
 		)
-		trieDB := trie.NewDatabaseWithConfig(p.db, &trie.Config{
+		trieDB := trie.NewDatabase(p.db, &trie.Config{
 			EnableStateExpiry: true,
 			PathDB:            nil, // TODO(0xbundler): support later
 		})

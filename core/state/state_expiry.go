@@ -18,6 +18,7 @@ var (
 
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
 func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
+	log.Debug("fetching expired storage from remoteDB", "addr", addr, "prefix", prefixKey, "key", key)
 	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
 	if err != nil {
 		return nil, err
