@@ -1171,16 +1171,12 @@ func (t *Trie) Owner() common.Hash {
 	return t.owner
 }
 
-// ReviveTrie attempts to revive a trie from a list of MPTProofNubs.
+// TryRevive attempts to revive a trie from a list of MPTProofNubs.
 // ReviveTrie performs full or partial revive and returns a list of successful
 // nubs. ReviveTrie does not guarantee that a value will be revived completely,
 // if the proof is not fully valid.
-func (t *Trie) ReviveTrie(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
-	key = keybytesToHex(key)
-	return t.TryRevive(key, proof)
-}
-
 func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+	key = keybytesToHex(key)
 	successNubs := make([]*MPTProofNub, 0, len(proof))
 	reviveMeter.Mark(int64(len(proof)))
 	// Revive trie with each proof nub

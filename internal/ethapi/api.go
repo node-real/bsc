@@ -845,7 +845,7 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 
 		var proof proofList
 		prefixKey := prefixKeys[i]
-		if err := storageTrie.ProvePath(crypto.Keccak256(key.Bytes()), prefixKey, &proof); err != nil {
+		if err := storageTrie.ProveByPath(crypto.Keccak256(key.Bytes()), prefixKey, &proof); err != nil {
 			return nil, err
 		}
 		storageProof[i] = types.ReviveStorageProof{
