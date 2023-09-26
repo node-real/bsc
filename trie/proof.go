@@ -120,7 +120,6 @@ func (t *StateTrie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 // it.
 func (t *Trie) traverseNodes(tn node, prefixKey, suffixKey []byte, nodes *[]node, epoch types.StateEpoch, updateEpoch bool) (node, error) {
 	for len(suffixKey) > 0 && tn != nil {
-		log.Info("traverseNodes loop", "prefix", common.Bytes2Hex(prefixKey), "suffix", common.Bytes2Hex(suffixKey), "n", tn.fstring(""))
 		switch n := tn.(type) {
 		case *shortNode:
 			if len(suffixKey) >= len(n.Key) && bytes.Equal(n.Key, suffixKey[:len(n.Key)]) {

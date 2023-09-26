@@ -800,7 +800,12 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash, 
 
 	// if no prefix, query from revive trie, got the newest expired info
 	if resolvePath {
-		_, err := tr.GetStorage(s.address, key.Bytes())
+		val, err := tr.GetStorage(s.address, key.Bytes())
+		// TODO(asyukii): temporary fix snap expired, but trie not expire, may investigate more later.
+		if val != nil {
+			s.pendingReviveState[string(crypto.Keccak256(key[:]))] = common.BytesToHash(val)
+			return val, nil
+		}
 		enErr, ok := err.(*trie.ExpiredNodeError)
 		if !ok {
 			return nil, fmt.Errorf("cannot find expired state from trie, err: %v", err)
