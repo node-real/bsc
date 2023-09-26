@@ -1238,8 +1238,8 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 			n1 = n1.copy()
 			n1.Val = newnode
 			n1.flags = t.newFlag()
-			tryUpdateNodeEpoch(nub.n1, t.currentEpoch)
-			renew, _, err := t.updateChildNodeEpoch(nub.n1, key, pos, t.currentEpoch)
+			tryUpdateNodeEpoch(n1, t.currentEpoch)
+			renew, _, err := t.updateChildNodeEpoch(n1, key, pos, t.currentEpoch)
 			if err != nil {
 				return nil, false, fmt.Errorf("update child node epoch while reviving failed, err: %v", err)
 			}
