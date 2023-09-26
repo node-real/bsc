@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
@@ -63,34 +64,37 @@ func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, accoun
 		getStorageProofTimer.Update(time.Since(start))
 	}(time.Now())
 
+	var result types.ReviveResult
+
 	getProofMeter.Mark(int64(len(keys)))
 	// find from lru cache, now it cache key proof
-	uncahcedPrefixKeys := make([]string, 0, len(prefixKeys))
-	uncahcedKeys := make([]string, 0, len(keys))
+	uncachedPrefixKeys := make([]string, 0, len(prefixKeys))
+	uncachedKeys := make([]string, 0, len(keys))
 	ret := make([]types.ReviveStorageProof, 0, len(keys))
 	for i, key := range keys {
 		val, ok := f.cache.Get(proofCacheKey(account, root, prefixKeys[i], key))
 		log.Debug("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
 		if !ok {
-			uncahcedPrefixKeys = append(uncahcedPrefixKeys, prefixKeys[i])
-			uncahcedKeys = append(uncahcedKeys, keys[i])
+			uncachedPrefixKeys = append(uncachedPrefixKeys, prefixKeys[i])
+			uncachedKeys = append(uncachedKeys, keys[i])
 			continue
 		}
 		getProofHitCacheMeter.Mark(1)
 		ret = append(ret, val.(types.ReviveStorageProof))
 	}
-	if len(uncahcedKeys) == 0 {
+	if len(uncachedKeys) == 0 {
 		return ret, nil
 	}
 
 	// TODO(0xbundler): add timeout in flags?
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancelFunc()
-	proofs := make([]types.ReviveStorageProof, 0, len(uncahcedKeys))
-	err := f.client.CallContext(ctx, &proofs, "eth_getStorageReviveProof", stateRoot, account, root, uncahcedKeys, uncahcedPrefixKeys)
+	err := f.client.CallContext(ctx, &result, "eth_getStorageReviveProof", stateRoot, account, root, uncachedKeys, uncachedPrefixKeys)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get storage revive proof, err: %v, remote's block number: %v", err, result.BlockNum)
 	}
+
+	proofs := result.StorageProof
 
 	// add to cache
 	for _, proof := range proofs {
