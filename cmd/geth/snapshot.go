@@ -424,20 +424,39 @@ func pruneState(ctx *cli.Context) error {
 		return err
 	}
 
-	if rawdb.ReadStateScheme(chaindb) != rawdb.HashScheme {
-		log.Crit("Offline pruning is not required for path scheme")
+	cacheConfig := &core.CacheConfig{
+		TrieCleanLimit:      cfg.Eth.TrieCleanCache,
+		TrieCleanNoPrefetch: cfg.Eth.NoPrefetch,
+		TrieDirtyLimit:      cfg.Eth.TrieDirtyCache,
+		TrieDirtyDisabled:   cfg.Eth.NoPruning,
+		TrieTimeLimit:       cfg.Eth.TrieTimeout,
+		NoTries:             cfg.Eth.TriesVerifyMode != core.LocalVerify,
+		SnapshotLimit:       cfg.Eth.SnapshotCache,
+		TriesInMemory:       cfg.Eth.TriesInMemory,
+		Preimages:           cfg.Eth.Preimages,
+		StateHistory:        cfg.Eth.StateHistory,
+		StateScheme:         cfg.Eth.StateScheme,
+		EnableStateExpiry:   cfg.Eth.StateExpiryEnable,
+		RemoteEndPoint:      cfg.Eth.StateExpiryFullStateEndpoint,
 	}
 	prunerconfig := pruner.Config{
 		Datadir:           stack.ResolvePath(""),
 		BloomSize:         ctx.Uint64(utils.BloomFilterSizeFlag.Name),
 		EnableStateExpiry: cfg.Eth.StateExpiryEnable,
 		ChainConfig:       chainConfig,
+		CacheConfig:       cacheConfig,
 	}
 	pruner, err := pruner.NewPruner(chaindb, prunerconfig, ctx.Uint64(utils.TriesInMemoryFlag.Name))
 	if err != nil {
 		log.Error("Failed to open snapshot tree", "err", err)
 		return err
 	}
+
+	if cfg.Eth.StateScheme == rawdb.PathScheme {
+		// when using PathScheme, only prune expired state
+		return pruner.ExpiredPrune(common.Big0, common.Hash{})
+	}
+
 	if ctx.NArg() > 1 {
 		log.Error("Too many arguments given")
 		return errors.New("too many arguments")
