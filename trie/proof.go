@@ -118,17 +118,15 @@ func (t *StateTrie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 // If the trie contains the key, the returned node is the node that contains the
 // value for the key. If nodes is specified, the traversed nodes are appended to
 // it.
-func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.StateEpoch, updateEpoch bool) (node, error) {
-
-	var prefix []byte
-
-	for len(key) > 0 && tn != nil {
+func (t *Trie) traverseNodes(tn node, prefixKey, suffixKey []byte, nodes *[]node, epoch types.StateEpoch, updateEpoch bool) (node, error) {
+	for len(suffixKey) > 0 && tn != nil {
+		log.Info("traverseNodes loop", "prefix", common.Bytes2Hex(prefixKey), "suffix", common.Bytes2Hex(suffixKey), "n", tn.fstring(""))
 		switch n := tn.(type) {
 		case *shortNode:
-			if len(key) >= len(n.Key) && bytes.Equal(n.Key, key[:len(n.Key)]) {
+			if len(suffixKey) >= len(n.Key) && bytes.Equal(n.Key, suffixKey[:len(n.Key)]) {
 				tn = n.Val
-				prefix = append(prefix, n.Key...)
-				key = key[len(n.Key):]
+				prefixKey = append(prefixKey, n.Key...)
+				suffixKey = suffixKey[len(n.Key):]
 				if nodes != nil {
 					*nodes = append(*nodes, n)
 				}
@@ -142,8 +140,8 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.Sta
 			// if there is a extern node, must put the val
 			hn, isExternNode := n.Val.(hashNode)
 			if isExternNode && nodes != nil {
-				prefix = append(prefix, n.Key...)
-				nextBlob, err := t.reader.node(prefix, common.BytesToHash(hn))
+				prefixKey = append(prefixKey, n.Key...)
+				nextBlob, err := t.reader.node(prefixKey, common.BytesToHash(hn))
 				if err != nil {
 					log.Error("Unhandled next trie error in traverseNodes", "err", err)
 					return nil, err
@@ -152,9 +150,9 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.Sta
 				*nodes = append(*nodes, next)
 			}
 		case *fullNode:
-			tn = n.Children[key[0]]
-			prefix = append(prefix, key[0])
-			key = key[1:]
+			tn = n.Children[suffixKey[0]]
+			prefixKey = append(prefixKey, suffixKey[0])
+			suffixKey = suffixKey[1:]
 			if nodes != nil {
 				*nodes = append(*nodes, n)
 			}
@@ -164,7 +162,7 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.Sta
 			// loaded blob will be tracked, while it's not required here since
 			// all loaded nodes won't be linked to trie at all and track nodes
 			// may lead to out-of-memory issue.
-			blob, err := t.reader.node(prefix, common.BytesToHash(n))
+			blob, err := t.reader.node(prefixKey, common.BytesToHash(n))
 			if err != nil {
 				log.Error("Unhandled trie error in traverseNodes", "err", err)
 				return nil, err
@@ -173,7 +171,7 @@ func (t *Trie) traverseNodes(tn node, key []byte, nodes *[]node, epoch types.Sta
 			// clean cache or the database, they are all in their own
 			// copy and safe to use unsafe decoder.
 			tn = mustDecodeNodeUnsafe(n, blob)
-			if err = t.resolveEpochMeta(tn, epoch, prefix); err != nil {
+			if err = t.resolveEpochMeta(tn, epoch, prefixKey); err != nil {
 				return nil, err
 			}
 		default:
@@ -199,7 +197,7 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	// traverse down using the prefixKeyHex
 	var nodes []node
 	tn := t.root
-	startNode, err := t.traverseNodes(tn, prefixKeyHex, nil, 0, false) // obtain the node where the prefixKeyHex leads to
+	startNode, err := t.traverseNodes(tn, nil, prefixKeyHex, nil, 0, false) // obtain the node where the prefixKeyHex leads to
 	if err != nil {
 		return err
 	}
@@ -207,7 +205,7 @@ func (t *Trie) ProvePath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValue
 	key = key[len(prefixKeyHex):] // obtain the suffix key
 
 	// traverse through the suffix key
-	_, err = t.traverseNodes(startNode, key, &nodes, 0, false)
+	_, err = t.traverseNodes(startNode, prefixKeyHex, key, &nodes, 0, false)
 	if err != nil {
 		return err
 	}
