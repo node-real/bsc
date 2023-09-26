@@ -242,21 +242,23 @@ func testGetProof(t *testing.T, client *rpc.Client) {
 func testGetStorageReviveProof(t *testing.T, client *rpc.Client) {
 	ec := New(client)
 	result, err := ec.GetStorageReviveProof(context.Background(), testAddr, []string{testSlot.String()}, []string{""}, common.Hash{})
+	proofs := result.StorageProof
+
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// test storage
-	if len(result) != 1 {
-		t.Fatalf("invalid storage proof, want 1 proof, got %v proof(s)", len(result))
+	if len(proofs) != 1 {
+		t.Fatalf("invalid storage proof, want 1 proof, got %v proof(s)", len(proofs))
 	}
 
-	if result[0].Key != testSlot.String() {
-		t.Fatalf("invalid storage proof key, want: %q, got: %q", testSlot.String(), result[0].Key)
+	if proofs[0].Key != testSlot.String() {
+		t.Fatalf("invalid storage proof key, want: %q, got: %q", testSlot.String(), proofs[0].Key)
 	}
 
-	if result[0].PrefixKey != "" {
-		t.Fatalf("invalid storage proof prefix key, want: %q, got: %q", "", result[0].PrefixKey)
+	if proofs[0].PrefixKey != "" {
+		t.Fatalf("invalid storage proof prefix key, want: %q, got: %q", "", proofs[0].PrefixKey)
 	}
 }
 
