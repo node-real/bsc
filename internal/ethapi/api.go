@@ -50,6 +50,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/tyler-smith/go-bip39"
 )
 
@@ -765,7 +766,7 @@ func (s *BlockChainAPI) GetProof(ctx context.Context, address common.Address, st
 
 // GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
 // Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
-func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot common.Hash, address common.Address, root common.Hash, storageKeys []string, storagePrefixKeys []string) ([]types.ReviveStorageProof, error) {
+func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot common.Hash, address common.Address, root common.Hash, storageKeys []string, storagePrefixKeys []string) (*types.ReviveResult, error) {
 	defer func(start time.Time) {
 		getStorageProofTimer.Update(time.Since(start))
 	}(time.Now())
@@ -775,11 +776,41 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 	}
 
 	var (
+		blockNum     hexutil.Uint64
+		err          error
+		stateDb      *state.StateDB
+		header       *types.Header
+		storageTrie  state.Trie
 		keys         = make([]common.Hash, len(storageKeys))
 		keyLengths   = make([]int, len(storageKeys))
 		prefixKeys   = make([][]byte, len(storagePrefixKeys))
 		storageProof = make([]types.ReviveStorageProof, len(storageKeys))
 	)
+
+	openStorageTrie := func(stateDb *state.StateDB, header *types.Header, address common.Address) (state.Trie, error) {
+		id := trie.StorageTrieID(header.Root, crypto.Keccak256Hash(address.Bytes()), root)
+		tr, err := trie.NewStateTrie(id, stateDb.Database().TrieDB())
+		if err != nil {
+			return nil, err
+		}
+		return tr, nil
+	}
+
+	stateDb, header, _ = s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+	storageTrie, err = s.b.StorageTrie(stateRoot, address, root)
+
+	if (err != nil || storageTrie == nil) && stateDb != nil {
+		storageTrie, err = openStorageTrie(stateDb, header, address)
+		blockNum = hexutil.Uint64(header.Number.Uint64())
+	}
+
+	if err != nil || storageTrie == nil {
+		return &types.ReviveResult{
+			StorageProof: nil,
+			BlockNum:     blockNum,
+		}, err
+	}
+
 	// Deserialize all keys. This prevents state access on invalid input.
 	for i, hexKey := range storageKeys {
 		var err error
@@ -796,11 +827,6 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	storageTrie, err := s.b.StorageTrie(stateRoot, address, root)
-	if err != nil || storageTrie == nil {
-		return nil, fmt.Errorf("open StorageTrie err: %v", err)
 	}
 
 	// Create the proofs for the storageKeys.
@@ -828,7 +854,10 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 		}
 	}
 
-	return storageProof, nil
+	return &types.ReviveResult{
+		StorageProof: storageProof,
+		BlockNum:     blockNum,
+	}, nil
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally
