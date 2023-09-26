@@ -127,20 +127,21 @@ func (ec *Client) GetProof(ctx context.Context, account common.Address, keys []s
 
 // GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
 // Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
-func (ec *Client) GetStorageReviveProof(ctx context.Context, account common.Address, keys []string, prefixKeys []string, hash common.Hash) ([]types.ReviveStorageProof, error) {
+func (ec *Client) GetStorageReviveProof(ctx context.Context, account common.Address, keys []string, prefixKeys []string, hash common.Hash) (*types.ReviveResult, error) {
+	type reviveResult struct {
+		StorageProof []types.ReviveStorageProof `json:"storageProof"`
+		BlockNum     hexutil.Uint64             `json:"blockNum"`
+	}
+
 	var err error
-	storageResults := make([]types.ReviveStorageProof, 0, len(keys))
+	var res reviveResult
 
-	if len(keys) != len(prefixKeys) {
-		return nil, fmt.Errorf("keys and prefixKeys must be same length")
-	}
+	err = ec.c.CallContext(ctx, &res, "eth_getStorageReviveProof", account, keys, prefixKeys, hash)
 
-	if hash == (common.Hash{}) {
-		err = ec.c.CallContext(ctx, &storageResults, "eth_getStorageReviveProof", account, keys, prefixKeys, "latest")
-	} else {
-		err = ec.c.CallContext(ctx, &storageResults, "eth_getStorageReviveProof", account, keys, prefixKeys, hash)
-	}
-	return storageResults, err
+	return &types.ReviveResult{
+		StorageProof: res.StorageProof,
+		BlockNum:     res.BlockNum,
+	}, err
 }
 
 // CallContract executes a message call transaction, which is directly executed in the VM
