@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/params"
 	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,7 @@ type Config struct {
 	BloomSize         uint64 // The Megabytes of memory allocated to bloom-filter
 	EnableStateExpiry bool
 	ChainConfig       *params.ChainConfig
+	CacheConfig       *core.CacheConfig
 }
 
 // Pruner is an offline tool to prune the stale state with the
@@ -89,6 +91,7 @@ type Pruner struct {
 	stateBloom    *stateBloom
 	snaptree      *snapshot.Tree
 	triesInMemory uint64
+	flattenBlock  *types.Header
 }
 
 type BlockPruner struct {
@@ -128,6 +131,9 @@ func NewPruner(db ethdb.Database, config Config, triesInMemory uint64) (*Pruner,
 	if err != nil {
 		return nil, err
 	}
+
+	flattenBlockHash := rawdb.ReadCanonicalHash(db, headBlock.NumberU64()-triesInMemory)
+	flattenBlock := rawdb.ReadHeader(db, flattenBlockHash, headBlock.NumberU64()-triesInMemory)
 	return &Pruner{
 		config:        config,
 		chainHeader:   headBlock.Header(),
@@ -135,6 +141,7 @@ func NewPruner(db ethdb.Database, config Config, triesInMemory uint64) (*Pruner,
 		stateBloom:    stateBloom,
 		snaptree:      snaptree,
 		triesInMemory: triesInMemory,
+		flattenBlock:  flattenBlock,
 	}, nil
 }
 
@@ -662,53 +669,69 @@ func (p *Pruner) Prune(root common.Hash) error {
 		return err
 	}
 
-	// it must run later to prune, using bloom filter to prevent pruning in use trie node, cannot prune concurrently.
-	if p.config.EnableStateExpiry {
-		var (
-			pruneExpiredTrieCh   = make(chan *snapshot.ContractItem, 100000)
-			pruneExpiredInDiskCh = make(chan *trie.NodeInfo, 100000)
-			epoch                = types.GetStateEpoch(p.config.ChainConfig, p.chainHeader.Number)
-			rets                 = make([]error, 3)
-			expiryWG             sync.WaitGroup
-		)
-		trieDB := trie.NewDatabase(p.db, &trie.Config{
-			EnableStateExpiry: true,
-			PathDB:            nil, // TODO(0xbundler): support later
-		})
-		expiryWG.Add(2)
-		go func() {
-			defer expiryWG.Done()
-			rets[0] = asyncScanExpiredInTrie(trieDB, root, epoch, pruneExpiredTrieCh, pruneExpiredInDiskCh)
-		}()
-		go func() {
-			defer expiryWG.Done()
-			rets[1] = asyncPruneExpiredStorageInDisk(p.db, pruneExpiredInDiskCh, p.stateBloom)
-		}()
-		rets[2] = snapshot.TraverseContractTrie(p.snaptree, root, pruneExpiredTrieCh)
-
-		// wait task done
-		expiryWG.Wait()
-		for i, item := range rets {
-			if item != nil {
-				log.Error("prune expired state got error", "index", i, "err", item)
-			}
-		}
-
-		// recap epoch meta snap, save journal
-		snap := trieDB.EpochMetaSnapTree()
-		if snap != nil {
-			log.Info("epoch meta snap handle", "root", root)
-			if err := snap.Cap(root); err != nil {
-				log.Error("asyncPruneExpired, SnapTree Cap err", "err", err)
-				return err
-			}
-			if err := snap.Journal(); err != nil {
-				log.Error("asyncPruneExpired, SnapTree Journal err", "err", err)
-				return err
-			}
-		}
-		log.Info("Expired State pruning successful")
+	if err = p.ExpiredPrune(p.chainHeader.Number, root); err != nil {
+		return err
 	}
+
+	return nil
+}
+
+// ExpiredPrune it must run later to prune, using bloom filter in HBSS to prevent pruning in use trie node, cannot prune concurrently.
+// but in PBSS, it need not bloom filter
+func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
+	if !p.config.EnableStateExpiry {
+		log.Info("stop prune expired state, disable state expiry", "height", height, "root", root, "scheme", p.config.CacheConfig.StateScheme)
+		return nil
+	}
+
+	// if root is empty, using the deepest snap block to prune expired state
+	if root == (common.Hash{}) {
+		height = p.flattenBlock.Number
+		root = p.flattenBlock.Root
+	}
+	log.Info("start prune expired state", "height", height, "root", root, "scheme", p.config.CacheConfig.StateScheme)
+
+	var (
+		pruneExpiredTrieCh   = make(chan *snapshot.ContractItem, 100000)
+		pruneExpiredInDiskCh = make(chan *trie.NodeInfo, 100000)
+		epoch                = types.GetStateEpoch(p.config.ChainConfig, height)
+		rets                 = make([]error, 3)
+		tasksWG              sync.WaitGroup
+	)
+	trieDB := trie.NewDatabase(p.db, p.config.CacheConfig.TriedbConfig())
+	tasksWG.Add(2)
+	go func() {
+		defer tasksWG.Done()
+		rets[0] = asyncScanExpiredInTrie(trieDB, root, epoch, pruneExpiredTrieCh, pruneExpiredInDiskCh)
+	}()
+	go func() {
+		defer tasksWG.Done()
+		rets[1] = asyncPruneExpiredStorageInDisk(p.db, pruneExpiredInDiskCh, p.stateBloom, p.config.CacheConfig.StateScheme)
+	}()
+	rets[2] = snapshot.TraverseContractTrie(p.snaptree, root, pruneExpiredTrieCh)
+
+	// wait task done
+	tasksWG.Wait()
+	for i, item := range rets {
+		if item != nil {
+			log.Error("prune expired state got error", "index", i, "err", item)
+		}
+	}
+
+	// recap epoch meta snap, save journal
+	snap := trieDB.EpochMetaSnapTree()
+	if snap != nil {
+		log.Info("epoch meta snap handle", "root", root)
+		if err := snap.Cap(root); err != nil {
+			log.Error("asyncPruneExpired, SnapTree Cap err", "err", err)
+			return err
+		}
+		if err := snap.Journal(); err != nil {
+			log.Error("asyncPruneExpired, SnapTree Journal err", "err", err)
+			return err
+		}
+	}
+	log.Info("Expired State pruning successful")
 
 	return nil
 }
@@ -738,7 +761,7 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 	return nil
 }
 
-func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk chan *trie.NodeInfo, bloom *stateBloom) error {
+func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk chan *trie.NodeInfo, bloom *stateBloom, scheme string) error {
 	var (
 		trieCount      = 0
 		epochMetaCount = 0
@@ -758,9 +781,14 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 		// delete trie kv
 		trieCount++
 		trieSize += common.StorageSize(len(info.Key) + 32)
-		// hbss has shared kv, so using bloom to filter them out.
-		if !bloom.Contain(info.Hash.Bytes()) {
-			rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
+		switch scheme {
+		case rawdb.PathScheme:
+			rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.PathScheme)
+		case rawdb.HashScheme:
+			// hbss has shared kv, so using bloom to filter them out.
+			if !bloom.Contain(info.Hash.Bytes()) {
+				rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
+			}
 		}
 		// delete epoch meta
 		if info.IsBranch {
@@ -772,7 +800,7 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 		if info.IsLeaf {
 			snapCount++
 			snapSize += common.StorageSize(32)
-			if err := snapshot.ShrinkExpiredLeaf(batch, addr, info.Key, info.Epoch); err != nil {
+			if err := snapshot.ShrinkExpiredLeaf(batch, addr, info.Key, info.Epoch, scheme); err != nil {
 				log.Error("ShrinkExpiredLeaf err", "addr", addr, "key", info.Key, "err", err)
 			}
 		}
