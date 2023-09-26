@@ -165,8 +165,8 @@ type CacheConfig struct {
 	RemoteEndPoint    string
 }
 
-// triedbConfig derives the configures for trie database.
-func (c *CacheConfig) triedbConfig() *trie.Config {
+// TriedbConfig derives the configures for trie database.
+func (c *CacheConfig) TriedbConfig() *trie.Config {
 	config := &trie.Config{
 		Cache:             c.TrieCleanLimit,
 		Preimages:         c.Preimages,
@@ -324,7 +324,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	diffLayerChanCache, _ := exlru.New(diffLayerCacheLimit)
 
 	// Open trie database with provided config
-	triedb := trie.NewDatabase(db, cacheConfig.triedbConfig())
+	triedb := trie.NewDatabase(db, cacheConfig.TriedbConfig())
 
 	// Setup the genesis block, commit the provided genesis specification
 	// to database if the genesis block is not present yet, or load the
