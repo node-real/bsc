@@ -1023,7 +1023,8 @@ func TestRevive(t *testing.T) {
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			// Verifiy value exists after revive
-			v := trie.MustGet(key)
+			v, err := trie.Get(key)
+			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 			assert.Equal(t, val, v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
 
 			// Verify root hash
@@ -1066,7 +1067,8 @@ func TestReviveCustom(t *testing.T) {
 			_, err = trie.TryRevive(key, proofCache.cacheNubs)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
-			res := trie.MustGet(key)
+			res, err := trie.Get(key)
+			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 			assert.Equal(t, val, res, "value mismatch, got %x, exp %x, key %x, prefixKey %x", res, val, key, prefixKey)
 
 			// Verify root hash
@@ -1077,6 +1079,132 @@ func TestReviveCustom(t *testing.T) {
 			trie = createCustomTrie(data, 10)
 		}
 	}
+}
+
+// TestReviveBadProof tests that a trie cannot be revived from a bad proof
+func TestReviveBadProof(t *testing.T) {
+
+	dataA := map[string]string{
+		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
+		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
+	}
+
+	dataB := map[string]string{
+		"qwer": "A", "qwet": "B", "qwrt": "C", "qwry": "D",
+		"abcd": "E", "abce": "F", "abde": "G", "abdf": "H",
+	}
+
+	trieA := createCustomTrie(dataA, 0)
+	trieB := createCustomTrie(dataB, 0)
+
+	var proofB proofList
+
+	err := trieB.ProveByPath([]byte("abcd"), nil, &proofB)
+	assert.NoError(t, err)
+
+	// Expire trie A
+	trieA.ExpireByPrefix(nil)
+
+	// Construct MPTProofCache
+	proofCache := makeRawMPTProofCache(nil, proofB)
+
+	// VerifyProof
+	err = proofCache.VerifyProof()
+	assert.NoError(t, err)
+
+	// Revive trie
+	_, err = trieA.TryRevive([]byte("abcd"), proofCache.cacheNubs)
+	assert.Error(t, err)
+
+	// Verify value does exists after revive
+	val, err := trieA.Get([]byte("abcd"))
+	assert.NoError(t, err, "Get failed, key %x, val %x", []byte("abcd"), val)
+	assert.NotEqual(t, []byte("A"), val)
+}
+
+// TestReviveBadProofAfterUpdate tests that after reviving a path and
+// then update the value, old proof should be invalid
+func TestReviveBadProofAfterUpdate(t *testing.T) {
+	trie, vals := nonRandomTrieWithExpiry(100)
+
+	for _, kv := range vals {
+		key := kv.k
+		val := kv.v
+		prefixKeys := getFullNodePrefixKeys(trie, key)
+		for _, prefixKey := range prefixKeys {
+			// Generate proof
+			var proof proofList
+			err := trie.ProveByPath(key, prefixKey, &proof)
+			assert.NoError(t, err)
+
+			// Expire trie
+			trie.ExpireByPrefix(prefixKey)
+
+			proofCache := makeRawMPTProofCache(prefixKey, proof)
+			err = proofCache.VerifyProof()
+			assert.NoError(t, err)
+
+			// Revive trie
+			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+
+			// Verify value exists after revive
+			v, err := trie.Get(key)
+			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+			assert.Equal(t, val, v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
+
+			trie.Update(key, []byte("new value"))
+			v, err = trie.Get(key)
+			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+			assert.Equal(t, []byte("new value"), v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
+
+			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+
+			v, err = trie.Get(key)
+			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
+			assert.Equal(t, []byte("new value"), v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
+
+			// Reset trie
+			trie, _ = nonRandomTrieWithExpiry(100)
+		}
+	}
+}
+
+func TestPartialReviveFullProof(t *testing.T) {
+	data := map[string]string{
+		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
+		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
+	}
+
+	trie := createCustomTrie(data, 10)
+	key := []byte("abcd")
+	val := []byte("A")
+
+	// Get proof
+	var proof proofList
+	err := trie.ProveByPath(key, nil, &proof)
+	assert.NoError(t, err)
+
+	// Expire trie
+	err = trie.ExpireByPrefix([]byte{6, 1})
+	assert.NoError(t, err)
+
+	// Construct MPTProofCache
+	proofCache := makeRawMPTProofCache(nil, proof)
+
+	// Verify proof
+	err = proofCache.VerifyProof()
+	assert.NoError(t, err)
+
+	// Revive trie
+	_, err = trie.TryRevive(key, proofCache.cacheNubs)
+	assert.NoError(t, err)
+
+	// Validate trie
+	resVal, err := trie.Get(key)
+	assert.NoError(t, err)
+	assert.Equal(t, val, resVal)
 }
 
 func createCustomTrie(data map[string]string, epoch types.StateEpoch) *Trie {
