@@ -54,6 +54,77 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Ha
 	return reviveStorageTrie(addr, tr, proofs[0], key)
 }
 
+// batchFetchExpiredStorageFromRemote request expired state from remote full state node with a list of keys and prefixes.
+func batchFetchExpiredFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKeys [][]byte, keys []common.Hash) ([]map[string][]byte, error) {
+
+	ret := make([]map[string][]byte, len(keys))
+	prefixKeysStr := make([]string, len(prefixKeys))
+	keysStr := make([]string, len(keys))
+
+	if EnableLocalRevive {
+		var expiredKeys []common.Hash
+		var expiredPrefixKeys [][]byte
+		for i, key := range keys {
+			val, err := tr.TryLocalRevive(addr, key.Bytes())
+			log.Debug("fetchExpiredStorageFromRemote TryLocalRevive", "addr", addr, "key", key, "val", val, "err", err)
+			if _, ok := err.(*trie.MissingNodeError); !ok {
+				return nil, err
+			}
+			switch err.(type) {
+			case *trie.MissingNodeError:
+				expiredKeys = append(expiredKeys, key)
+				expiredPrefixKeys = append(expiredPrefixKeys, prefixKeys[i])
+			case nil:
+				kv := make(map[string][]byte, 1)
+				kv[key.String()] = val
+				ret = append(ret, kv)
+			default:
+				return nil, err
+			}
+		}
+
+		for i, prefix := range expiredPrefixKeys {
+			prefixKeysStr[i] = common.Bytes2Hex(prefix)
+		}
+		for i, key := range expiredKeys {
+			keysStr[i] = common.Bytes2Hex(key[:])
+		}
+
+	} else {
+		for i, prefix := range prefixKeys {
+			prefixKeysStr[i] = common.Bytes2Hex(prefix)
+		}
+
+		for i, key := range keys {
+			keysStr[i] = common.Bytes2Hex(key[:])
+		}
+	}
+
+	// cannot revive locally, fetch remote proof
+	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, prefixKeysStr, keysStr)
+	log.Debug("fetchExpiredStorageFromRemote GetStorageReviveProof", "addr", addr, "keys", keysStr, "prefixKeys", prefixKeysStr, "proofs", len(proofs), "err", err)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(proofs) == 0 {
+		log.Error("cannot find any revive proof from remoteDB", "addr", addr, "keys", keysStr, "prefixKeys", prefixKeysStr)
+		return nil, fmt.Errorf("cannot find any revive proof from remoteDB")
+	}
+
+	for i, proof := range proofs {
+		// kvs, err := reviveStorageTrie(addr, tr, proof, common.HexToHash(keysStr[i]))  // TODO(asyukii): this logically should work but it doesn't because of some reason, will need to investigate
+		kvs, err := reviveStorageTrie(addr, tr, proof, common.HexToHash(proof.Key))
+		if err != nil {
+			log.Error("reviveStorageTrie failed", "addr", addr, "key", keys[i], "err", err)
+			continue
+		}
+		ret = append(ret, kvs)
+	}
+
+	return ret, nil
+}
+
 // reviveStorageTrie revive trie's expired state from proof
 func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) (map[string][]byte, error) {
 	defer func(start time.Time) {
