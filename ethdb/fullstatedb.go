@@ -72,7 +72,7 @@ func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, accoun
 	uncachedKeys := make([]string, 0, len(keys))
 	ret := make([]types.ReviveStorageProof, 0, len(keys))
 	for i, key := range keys {
-		val, ok := f.cache.Get(proofCacheKey(account, root, prefixKeys[i], key))
+		val, ok := f.cache.Get(ProofCacheKey(account, root, prefixKeys[i], key))
 		log.Debug("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
 		if !ok {
 			uncachedPrefixKeys = append(uncachedPrefixKeys, prefixKeys[i])
@@ -98,14 +98,14 @@ func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, accoun
 
 	// add to cache
 	for _, proof := range proofs {
-		f.cache.Add(proofCacheKey(account, root, proof.PrefixKey, proof.Key), proof)
+		f.cache.Add(ProofCacheKey(account, root, proof.PrefixKey, proof.Key), proof)
 	}
 
 	ret = append(ret, proofs...)
 	return ret, err
 }
 
-func proofCacheKey(account common.Address, root common.Hash, prefix, key string) string {
+func ProofCacheKey(account common.Address, root common.Hash, prefix, key string) string {
 	buf := bytes.NewBuffer(make([]byte, 0, 67+len(prefix)+len(key)))
 	buf.Write(account[:])
 	buf.WriteByte('$')
