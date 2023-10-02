@@ -45,16 +45,21 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/tyler-smith/go-bip39"
 )
 
-const UnHealthyTimeout = 5 * time.Second
+const (
+	UnHealthyTimeout = 5 * time.Second
+	APICache         = 10000
+)
 
 // max is a helper function which returns the larger of the two given integers.
 func max(a, b int64) int64 {
@@ -624,12 +629,20 @@ func (s *PersonalAccountAPI) Unpair(ctx context.Context, url string, pin string)
 
 // BlockChainAPI provides an API to access Ethereum blockchain data.
 type BlockChainAPI struct {
-	b Backend
+	b     Backend
+	cache *lru.Cache
 }
 
 // NewBlockChainAPI creates a new Ethereum blockchain API.
 func NewBlockChainAPI(b Backend) *BlockChainAPI {
-	return &BlockChainAPI{b}
+	cache, err := lru.New(APICache)
+	if err != nil {
+		return nil
+	}
+	return &BlockChainAPI{
+		b:     b,
+		cache: cache,
+	}
 }
 
 // ChainId is the EIP-155 replay-protection chain id for the current Ethereum chain config.
@@ -845,6 +858,14 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 
 		var proof proofList
 		prefixKey := prefixKeys[i]
+
+		// Check if request has been cached
+		val, ok := s.cache.Get(ethdb.ProofCacheKey(address, root, storagePrefixKeys[i], storageKeys[i]))
+		if ok {
+			storageProof[i] = val.(types.ReviveStorageProof)
+			continue
+		}
+
 		if err := storageTrie.ProveByPath(crypto.Keccak256(key.Bytes()), prefixKey, &proof); err != nil {
 			return nil, err
 		}
@@ -853,6 +874,7 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 			PrefixKey: storagePrefixKeys[i],
 			Proof:     proof,
 		}
+		s.cache.Add(ethdb.ProofCacheKey(address, root, storagePrefixKeys[i], storageKeys[i]), storageProof[i])
 	}
 
 	return &types.ReviveResult{
