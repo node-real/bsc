@@ -37,6 +37,9 @@ import (
 // nodes of the longest existing prefix of the key (at least the root node), ending
 // with the node that proves the absence of the key.
 func (t *Trie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
+
+	var nodeEpoch types.StateEpoch
+
 	// Short circuit if the trie is already committed and not usable.
 	if t.committed {
 		return ErrCommitted
@@ -48,7 +51,14 @@ func (t *Trie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 		tn     = t.root
 	)
 	key = keybytesToHex(key)
+
+	if t.enableExpiry {
+		nodeEpoch = t.getRootEpoch()
+	}
 	for len(key) > 0 && tn != nil {
+		if t.enableExpiry && t.epochExpired(tn, nodeEpoch) {
+			return NewExpiredNodeError(prefix, nodeEpoch)
+		}
 		switch n := tn.(type) {
 		case *shortNode:
 			if len(key) < len(n.Key) || !bytes.Equal(n.Key, key[:len(n.Key)]) {
@@ -61,6 +71,9 @@ func (t *Trie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 			}
 			nodes = append(nodes, n)
 		case *fullNode:
+			if t.enableExpiry {
+				nodeEpoch = n.GetChildEpoch(int(key[0]))
+			}
 			tn = n.Children[key[0]]
 			prefix = append(prefix, key[0])
 			key = key[1:]
@@ -80,6 +93,12 @@ func (t *Trie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 			// clean cache or the database, they are all in their own
 			// copy and safe to use unsafe decoder.
 			tn = mustDecodeNodeUnsafe(n, blob)
+
+			if child, ok := tn.(*fullNode); t.enableExpiry && ok {
+				if err = t.resolveEpochMeta(child, nodeEpoch, prefix); err != nil {
+					return err
+				}
+			}
 		default:
 			panic(fmt.Sprintf("%T: invalid node: %v", tn, tn))
 		}
