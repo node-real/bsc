@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -408,6 +409,7 @@ type SyncPeer interface {
 //   - The peer remains connected, but does not deliver a response in time
 //   - The peer delivers a stale response after a previous timeout
 //   - The peer delivers a refusal to serve the requested state
+
 type Syncer struct {
 	db     ethdb.KeyValueStore // Database to store the trie nodes into (and dedup)
 	scheme string              // Node scheme used in node database
@@ -422,6 +424,9 @@ type Syncer struct {
 	peerJoin *event.Feed         // Event feed to react to peers joining
 	peerDrop *event.Feed         // Event feed to react to peers dropping
 	rates    *msgrate.Trackers   // Message throughput rates for peers
+
+	enableStateExpiry bool
+	epoch             types.StateEpoch
 
 	// Request tracking during syncing phase
 	statelessPeers map[string]struct{} // Peers that failed to deliver state data
@@ -509,6 +514,39 @@ func NewSyncer(db ethdb.KeyValueStore, scheme string) *Syncer {
 	}
 }
 
+func NewSyncerWithStateExpiry(db ethdb.KeyValueStore, scheme string, enableStateExpiry bool) *Syncer {
+	return &Syncer{
+		db:     db,
+		scheme: scheme,
+
+		peers:    make(map[string]SyncPeer),
+		peerJoin: new(event.Feed),
+		peerDrop: new(event.Feed),
+		rates:    msgrate.NewTrackers(log.New("proto", "snap")),
+		update:   make(chan struct{}, 1),
+
+		enableStateExpiry: enableStateExpiry,
+
+		accountIdlers:  make(map[string]struct{}),
+		storageIdlers:  make(map[string]struct{}),
+		bytecodeIdlers: make(map[string]struct{}),
+
+		accountReqs:  make(map[uint64]*accountRequest),
+		storageReqs:  make(map[uint64]*storageRequest),
+		bytecodeReqs: make(map[uint64]*bytecodeRequest),
+
+		trienodeHealIdlers: make(map[string]struct{}),
+		bytecodeHealIdlers: make(map[string]struct{}),
+
+		trienodeHealReqs:     make(map[uint64]*trienodeHealRequest),
+		bytecodeHealReqs:     make(map[uint64]*bytecodeHealRequest),
+		trienodeHealThrottle: maxTrienodeHealThrottle, // Tune downward instead of insta-filling with junk
+		stateWriter:          db.NewBatch(),
+
+		extProgress: new(SyncProgress),
+	}
+}
+
 // Register injects a new data source into the syncer's peerset.
 func (s *Syncer) Register(peer SyncPeer) error {
 	// Make sure the peer is not registered yet
@@ -572,10 +610,16 @@ func (s *Syncer) Unregister(id string) error {
 func (s *Syncer) Sync(root common.Hash, cancel chan struct{}) error {
 	// Move the trie root from any previous value, revert stateless markers for
 	// any peers and initialize the syncer if it was not yet run
+	var scheduler *trie.Sync
 	s.lock.Lock()
 	s.root = root
+	if s.enableStateExpiry {
+		scheduler = state.NewStateSyncWithExpiry(root, s.db, s.onHealState, s.scheme, s.epoch)
+	} else {
+		scheduler = state.NewStateSync(root, s.db, s.onHealState, s.scheme)
+	}
 	s.healer = &healTask{
-		scheduler: state.NewStateSync(root, s.db, s.onHealState, s.scheme),
+		scheduler: scheduler,
 		trieTasks: make(map[string]common.Hash),
 		codeTasks: make(map[common.Hash]struct{}),
 	}
@@ -715,6 +759,10 @@ func (s *Syncer) Sync(root common.Hash, cancel chan struct{}) error {
 		// Report stats if something meaningful happened
 		s.report(false)
 	}
+}
+
+func (s *Syncer) UpdateEpoch(epoch types.StateEpoch) {
+	s.epoch = epoch
 }
 
 // loadSyncStatus retrieves a previously aborted sync status from the database,
@@ -2008,14 +2056,24 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 							s.storageBytes += common.StorageSize(len(key) + len(value))
 						},
 					}
+					var genTrie *trie.StackTrie
+					if s.enableStateExpiry {
+						genTrie = trie.NewStackTrieWithStateExpiry(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
+							rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
+						}, func(owner common.Hash, path []byte, blob []byte) {
+							rawdb.WriteEpochMetaPlainState(batch, owner, string(path), blob)
+						}, account, s.epoch)
+					} else {
+						genTrie = trie.NewStackTrieWithOwner(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
+							rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
+						}, account)
+					}
 					tasks = append(tasks, &storageTask{
 						Next:     common.Hash{},
 						Last:     r.End(),
 						root:     acc.Root,
 						genBatch: batch,
-						genTrie: trie.NewStackTrieWithOwner(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
-							rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
-						}, account),
+						genTrie:  genTrie,
 					})
 					for r.Next() {
 						batch := ethdb.HookedBatch{
@@ -2024,14 +2082,23 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 								s.storageBytes += common.StorageSize(len(key) + len(value))
 							},
 						}
+						if s.enableStateExpiry {
+							genTrie = trie.NewStackTrieWithStateExpiry(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
+								rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
+							}, func(owner common.Hash, path []byte, blob []byte) {
+								rawdb.WriteEpochMetaPlainState(batch, owner, string(path), blob)
+							}, account, s.epoch)
+						} else {
+							genTrie = trie.NewStackTrieWithOwner(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
+								rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
+							}, account)
+						}
 						tasks = append(tasks, &storageTask{
 							Next:     r.Start(),
 							Last:     r.End(),
 							root:     acc.Root,
 							genBatch: batch,
-							genTrie: trie.NewStackTrieWithOwner(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
-								rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
-							}, account),
+							genTrie:  genTrie,
 						})
 					}
 					for _, task := range tasks {
@@ -2076,9 +2143,18 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 		slots += len(res.hashes[i])
 
 		if i < len(res.hashes)-1 || res.subTask == nil {
-			tr := trie.NewStackTrieWithOwner(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
-				rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
-			}, account)
+			var tr *trie.StackTrie
+			if s.enableStateExpiry {
+				tr = trie.NewStackTrieWithStateExpiry(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
+					rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
+				}, func(owner common.Hash, path []byte, blob []byte) {
+					rawdb.WriteEpochMetaPlainState(batch, owner, string(path), blob)
+				}, account, s.epoch)
+			} else {
+				tr = trie.NewStackTrieWithOwner(func(owner common.Hash, path []byte, hash common.Hash, val []byte) {
+					rawdb.WriteTrieNode(batch, owner, path, hash, val, s.scheme)
+				}, account)
+			}
 			for j := 0; j < len(res.hashes[i]); j++ {
 				tr.Update(res.hashes[i][j][:], res.slots[i][j])
 			}
@@ -2088,7 +2164,13 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 		// outdated during the sync, but it can be fixed later during the
 		// snapshot generation.
 		for j := 0; j < len(res.hashes[i]); j++ {
-			rawdb.WriteStorageSnapshot(batch, account, res.hashes[i][j], res.slots[i][j])
+			var snapVal []byte
+			if s.enableStateExpiry {
+				snapVal, _ = snapshot.EncodeValueToRLPBytes(snapshot.NewValueWithEpoch(s.epoch, res.slots[i][j]))
+			} else {
+				snapVal, _ = rlp.EncodeToBytes(res.slots[i][j])
+			}
+			rawdb.WriteStorageSnapshot(batch, account, res.hashes[i][j], snapVal)
 
 			// If we're storing large contracts, generate the trie nodes
 			// on the fly to not trash the gluing points

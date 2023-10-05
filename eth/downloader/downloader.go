@@ -131,6 +131,8 @@ type Downloader struct {
 	SnapSyncer     *snap.Syncer // TODO(karalabe): make private! hack for now
 	stateSyncStart chan *stateSync
 
+	enableStateExpiry bool
+
 	// Cancellation and termination
 	cancelPeer string         // Identifier of the peer currently being used as the master (cancel on drop)
 	cancelCh   chan struct{}  // Channel to cancel mid-flight syncs
@@ -207,6 +209,10 @@ type BlockChain interface {
 	// TrieDB retrieves the low level trie database used for interacting
 	// with trie nodes.
 	TrieDB() *trie.Database
+
+	Config() *params.ChainConfig
+
+	StateExpiryConfig() *types.StateExpiryConfig
 }
 
 type DownloadOption func(downloader *Downloader) *Downloader
@@ -229,6 +235,30 @@ func New(stateDb ethdb.Database, mux *event.TypeMux, chain BlockChain, lightchai
 		SnapSyncer:     snap.NewSyncer(stateDb, chain.TrieDB().Scheme()),
 		stateSyncStart: make(chan *stateSync),
 		syncStartBlock: chain.CurrentSnapBlock().Number.Uint64(),
+	}
+
+	go dl.stateFetcher()
+	return dl
+}
+
+func NewWithExpiry(stateDb ethdb.Database, mux *event.TypeMux, chain BlockChain, lightchain LightChain, enableStateExpiry bool, dropPeer peerDropFn, options ...DownloadOption) *Downloader {
+	if lightchain == nil {
+		lightchain = chain
+	}
+	dl := &Downloader{
+		stateDB:           stateDb,
+		mux:               mux,
+		queue:             newQueue(blockCacheMaxItems, blockCacheInitialItems),
+		peers:             newPeerSet(),
+		blockchain:        chain,
+		lightchain:        lightchain,
+		dropPeer:          dropPeer,
+		enableStateExpiry: enableStateExpiry,
+		headerProcCh:      make(chan *headerTask, 1),
+		quitCh:            make(chan struct{}),
+		SnapSyncer:        snap.NewSyncerWithStateExpiry(stateDb, chain.TrieDB().Scheme(), enableStateExpiry),
+		stateSyncStart:    make(chan *stateSync),
+		syncStartBlock:    chain.CurrentSnapBlock().Number.Uint64(),
 	}
 
 	go dl.stateFetcher()
@@ -1464,9 +1494,13 @@ func (d *Downloader) importBlockResults(results []*fetchResult) error {
 func (d *Downloader) processSnapSyncContent() error {
 	// Start syncing state of the reported head block. This should get us most of
 	// the state of the pivot block.
+	var epoch types.StateEpoch
+
 	d.pivotLock.RLock()
-	sync := d.syncState(d.pivotHeader.Root)
+	sync := d.syncStateWithEpoch(d.pivotHeader.Root, epoch)
 	d.pivotLock.RUnlock()
+
+	epoch = types.GetStateEpoch(d.blockchain.StateExpiryConfig(), new(big.Int).SetUint64(d.pivotHeader.Number.Uint64()))
 
 	defer func() {
 		// The `sync` object is replaced every time the pivot moves. We need to
@@ -1516,11 +1550,12 @@ func (d *Downloader) processSnapSyncContent() error {
 		d.pivotLock.RLock()
 		pivot := d.pivotHeader
 		d.pivotLock.RUnlock()
+		epoch = types.GetStateEpoch(d.blockchain.StateExpiryConfig(), new(big.Int).SetUint64(pivot.Number.Uint64()))
 
 		if oldPivot == nil {
 			if pivot.Root != sync.root {
 				sync.Cancel()
-				sync = d.syncState(pivot.Root)
+				sync = d.syncStateWithEpoch(pivot.Root, epoch)
 
 				go closeOnErr(sync)
 			}
@@ -1558,7 +1593,7 @@ func (d *Downloader) processSnapSyncContent() error {
 			// If new pivot block found, cancel old state retrieval and restart
 			if oldPivot != P {
 				sync.Cancel()
-				sync = d.syncState(P.Header.Root)
+				sync = d.syncStateWithEpoch(P.Header.Root, types.GetStateEpoch(d.blockchain.StateExpiryConfig(), new(big.Int).SetUint64(P.Header.Number.Uint64())))
 
 				go closeOnErr(sync)
 				oldPivot = P

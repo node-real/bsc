@@ -1566,3 +1566,11 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		panic(fmt.Sprintf("invalid node type: %T", n))
 	}
 }
+
+func (t *Trie) UpdateRootEpoch(epoch types.StateEpoch) {
+	t.rootEpoch = epoch
+}
+
+func (t *Trie) UpdateCurrentEpoch(epoch types.StateEpoch) {
+	t.currentEpoch = epoch
+}

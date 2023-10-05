@@ -27,6 +27,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 )
 
 var ErrCommitDisabled = errors.New("no database for committing")
@@ -40,11 +42,22 @@ var stPool = sync.Pool{
 // NodeWriteFunc is used to provide all information of a dirty node for committing
 // so that callers can flush nodes into database with desired scheme.
 type NodeWriteFunc = func(owner common.Hash, path []byte, hash common.Hash, blob []byte)
+type NodeMetaWriteFunc = func(owner common.Hash, path []byte, blob []byte)
 
 func stackTrieFromPool(writeFn NodeWriteFunc, owner common.Hash) *StackTrie {
 	st := stPool.Get().(*StackTrie)
 	st.owner = owner
 	st.writeFn = writeFn
+	return st
+}
+
+func stackTrieFromPoolWithExpiry(writeFn NodeWriteFunc, writeMetaFn NodeMetaWriteFunc, owner common.Hash, epoch types.StateEpoch) *StackTrie {
+	st := stPool.Get().(*StackTrie)
+	st.owner = owner
+	st.writeFn = writeFn
+	st.writeMetaFn = writeMetaFn
+	st.epoch = epoch
+	st.enableStateExpiry = true
 	return st
 }
 
@@ -57,12 +70,16 @@ func returnToPool(st *StackTrie) {
 // in order. Once it determines that a subtree will no longer be inserted
 // into, it will hash it and free up the memory it uses.
 type StackTrie struct {
-	owner    common.Hash    // the owner of the trie
-	nodeType uint8          // node type (as in branch, ext, leaf)
-	val      []byte         // value contained by this node if it's a leaf
-	key      []byte         // key chunk covered by this (leaf|ext) node
-	children [16]*StackTrie // list of children (for branch and exts)
-	writeFn  NodeWriteFunc  // function for committing nodes, can be nil
+	owner             common.Hash    // the owner of the trie
+	nodeType          uint8          // node type (as in branch, ext, leaf)
+	val               []byte         // value contained by this node if it's a leaf
+	key               []byte         // key chunk covered by this (leaf|ext) node
+	children          [16]*StackTrie // list of children (for branch and exts)
+	enableStateExpiry bool           // whether to enable state expiry
+	epoch             types.StateEpoch
+	epochMap          [16]types.StateEpoch
+	writeFn           NodeWriteFunc     // function for committing nodes, can be nil
+	writeMetaFn       NodeMetaWriteFunc // function for committing epoch metadata, can be nil
 }
 
 // NewStackTrie allocates and initializes an empty trie.
@@ -80,6 +97,17 @@ func NewStackTrieWithOwner(writeFn NodeWriteFunc, owner common.Hash) *StackTrie 
 		owner:    owner,
 		nodeType: emptyNode,
 		writeFn:  writeFn,
+	}
+}
+
+func NewStackTrieWithStateExpiry(writeFn NodeWriteFunc, writeMetaFn NodeMetaWriteFunc, owner common.Hash, epoch types.StateEpoch) *StackTrie {
+	return &StackTrie{
+		owner:             owner,
+		nodeType:          emptyNode,
+		epoch:             epoch,
+		enableStateExpiry: true,
+		writeFn:           writeFn,
+		writeMetaFn:       writeMetaFn,
 	}
 }
 
@@ -207,6 +235,10 @@ func (st *StackTrie) Update(key, value []byte) error {
 	k := keybytesToHex(key)
 	if len(value) == 0 {
 		panic("deletion not supported")
+	}
+	if st.enableStateExpiry {
+		st.insertWithEpoch(k[:len(k)-1], value, nil, st.epoch)
+		return nil
 	}
 	st.insert(k[:len(k)-1], value, nil)
 	return nil
@@ -387,6 +419,154 @@ func (st *StackTrie) insert(key, value []byte, prefix []byte) {
 	}
 }
 
+func (st *StackTrie) insertWithEpoch(key, value []byte, prefix []byte, epoch types.StateEpoch) {
+	switch st.nodeType {
+	case branchNode: /* Branch */
+		idx := int(key[0])
+
+		// Unresolve elder siblings
+		for i := idx - 1; i >= 0; i-- {
+			if st.children[i] != nil {
+				if st.children[i].nodeType != hashedNode {
+					st.children[i].hash(append(prefix, byte(i)))
+				}
+				break
+			}
+		}
+
+		// Add new child
+		if st.children[idx] == nil {
+			st.children[idx] = newLeaf(st.owner, key[1:], value, st.writeFn)
+		} else {
+			st.children[idx].insertWithEpoch(key[1:], value, append(prefix, key[0]), epoch)
+		}
+		st.epochMap[idx] = epoch
+
+	case extNode: /* Ext */
+		// Compare both key chunks and see where they differ
+		diffidx := st.getDiffIndex(key)
+
+		// Check if chunks are identical. If so, recurse into
+		// the child node. Otherwise, the key has to be split
+		// into 1) an optional common prefix, 2) the fullnode
+		// representing the two differing path, and 3) a leaf
+		// for each of the differentiated subtrees.
+		if diffidx == len(st.key) {
+			// Ext key and key segment are identical, recurse into
+			// the child node.
+			st.children[0].insertWithEpoch(key[diffidx:], value, append(prefix, key[:diffidx]...), epoch)
+			return
+		}
+		// Save the original part. Depending if the break is
+		// at the extension's last byte or not, create an
+		// intermediate extension or use the extension's child
+		// node directly.
+		var n *StackTrie
+		if diffidx < len(st.key)-1 {
+			// Break on the non-last byte, insert an intermediate
+			// extension. The path prefix of the newly-inserted
+			// extension should also contain the different byte.
+			n = newExt(st.owner, st.key[diffidx+1:], st.children[0], st.writeFn)
+			n.hash(append(prefix, st.key[:diffidx+1]...))
+		} else {
+			// Break on the last byte, no need to insert
+			// an extension node: reuse the current node.
+			// The path prefix of the original part should
+			// still be same.
+			n = st.children[0]
+			n.hash(append(prefix, st.key...))
+		}
+		var p *StackTrie
+		if diffidx == 0 {
+			// the break is on the first byte, so
+			// the current node is converted into
+			// a branch node.
+			st.children[0] = nil
+			p = st
+			st.nodeType = branchNode
+		} else {
+			// the common prefix is at least one byte
+			// long, insert a new intermediate branch
+			// node.
+			st.children[0] = stackTrieFromPoolWithExpiry(st.writeFn, st.writeMetaFn, st.owner, st.epoch)
+			st.children[0].nodeType = branchNode
+			p = st.children[0]
+		}
+		// Create a leaf for the inserted part
+		o := newLeaf(st.owner, key[diffidx+1:], value, st.writeFn)
+
+		// Insert both child leaves where they belong:
+		origIdx := st.key[diffidx]
+		newIdx := key[diffidx]
+		p.children[origIdx] = n
+		p.children[newIdx] = o
+		st.key = st.key[:diffidx]
+		p.epochMap[origIdx] = epoch
+		p.epochMap[newIdx] = epoch
+
+	case leafNode: /* Leaf */
+		// Compare both key chunks and see where they differ
+		diffidx := st.getDiffIndex(key)
+
+		// Overwriting a key isn't supported, which means that
+		// the current leaf is expected to be split into 1) an
+		// optional extension for the common prefix of these 2
+		// keys, 2) a fullnode selecting the path on which the
+		// keys differ, and 3) one leaf for the differentiated
+		// component of each key.
+		if diffidx >= len(st.key) {
+			panic("Trying to insert into existing key")
+		}
+
+		// Check if the split occurs at the first nibble of the
+		// chunk. In that case, no prefix extnode is necessary.
+		// Otherwise, create that
+		var p *StackTrie
+		if diffidx == 0 {
+			// Convert current leaf into a branch
+			st.nodeType = branchNode
+			p = st
+			st.children[0] = nil
+		} else {
+			// Convert current node into an ext,
+			// and insert a child branch node.
+			st.nodeType = extNode
+			st.children[0] = NewStackTrieWithStateExpiry(st.writeFn, st.writeMetaFn, st.owner, st.epoch)
+			st.children[0].nodeType = branchNode
+			p = st.children[0]
+		}
+
+		// Create the two child leaves: one containing the original
+		// value and another containing the new value. The child leaf
+		// is hashed directly in order to free up some memory.
+		origIdx := st.key[diffidx]
+		p.children[origIdx] = newLeaf(st.owner, st.key[diffidx+1:], st.val, st.writeFn)
+		p.children[origIdx].hash(append(prefix, st.key[:diffidx+1]...))
+
+		newIdx := key[diffidx]
+		p.children[newIdx] = newLeaf(st.owner, key[diffidx+1:], value, st.writeFn)
+
+		p.epochMap[origIdx] = epoch
+		p.epochMap[newIdx] = epoch
+
+		// Finally, cut off the key part that has been passed
+		// over to the children.
+		st.key = st.key[:diffidx]
+		st.val = nil
+
+	case emptyNode: /* Empty */
+		st.nodeType = leafNode
+		st.key = key
+		st.val = value
+
+	case hashedNode:
+		panic("trying to insert into hash")
+
+	default:
+		panic("invalid type")
+	}
+}
+
 // hash converts st into a 'hashedNode', if possible. Possible outcomes:
 //
 // 1. The rlp-encoded value was >= 32 bytes:
@@ -469,6 +649,7 @@ func (st *StackTrie) hashRec(hasher *hasher, path []byte) {
 		panic("invalid node type")
 	}
 
+	prevNodeType := st.nodeType
 	st.nodeType = hashedNode
 	st.key = st.key[:0]
 	if len(encodedNode) < 32 {
@@ -481,6 +662,12 @@ func (st *StackTrie) hashRec(hasher *hasher, path []byte) {
 	st.val = hasher.hashData(encodedNode)
 	if st.writeFn != nil {
 		st.writeFn(st.owner, path, common.BytesToHash(st.val), encodedNode)
+		if st.enableStateExpiry && prevNodeType == branchNode && st.writeMetaFn != nil {
+			epochMeta := epochmeta.NewBranchNodeEpochMeta(st.epochMap)
+			buf := rlp.NewEncoderBuffer(nil)
+			epochMeta.Encode(buf)
+			st.writeMetaFn(st.owner, path, buf.ToBytes())
+		}
 	}
 }
 
@@ -514,6 +701,9 @@ func (st *StackTrie) Commit() (h common.Hash, err error) {
 	if st.writeFn == nil {
 		return common.Hash{}, ErrCommitDisabled
 	}
+	if st.enableStateExpiry && st.writeMetaFn == nil {
+		return common.Hash{}, ErrCommitDisabled
+	}
 	hasher := newHasher(false)
 	defer returnHasherToPool(hasher)
 
@@ -529,6 +719,12 @@ func (st *StackTrie) Commit() (h common.Hash, err error) {
 	hasher.sha.Write(st.val)
 	hasher.sha.Read(h[:])
 
-	st.writeFn(st.owner, nil, h, st.val)
+	st.writeFn(st.owner, nil, h, st.val) // func(owner common.Hash, path []byte, hash common.Hash, blob []byte)
+	if st.enableStateExpiry && st.nodeType == branchNode && st.writeMetaFn != nil {
+		epochMeta := epochmeta.NewBranchNodeEpochMeta(st.epochMap)
+		buf := rlp.NewEncoderBuffer(nil)
+		epochMeta.Encode(buf)
+		st.writeMetaFn(st.owner, nil, buf.ToBytes())
+	}
 	return h, nil
 }
