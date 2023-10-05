@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -27,6 +28,22 @@ import (
 func (d *Downloader) syncState(root common.Hash) *stateSync {
 	// Create the state sync
 	s := newStateSync(d, root)
+	select {
+	case d.stateSyncStart <- s:
+		// If we tell the statesync to restart with a new root, we also need
+		// to wait for it to actually also start -- when old requests have timed
+		// out or been delivered
+		<-s.started
+	case <-d.quitCh:
+		s.err = errCancelStateFetch
+		close(s.done)
+	}
+	return s
+}
+
+func (d *Downloader) syncStateWithEpoch(root common.Hash, epoch types.StateEpoch) *stateSync {
+	// Create the state sync
+	s := newStateSyncWithEpoch(d, root, epoch)
 	select {
 	case d.stateSyncStart <- s:
 		// If we tell the statesync to restart with a new root, we also need
@@ -77,8 +94,10 @@ func (d *Downloader) runStateSync(s *stateSync) *stateSync {
 // stateSync schedules requests for downloading a particular state trie defined
 // by a given state root.
 type stateSync struct {
-	d    *Downloader // Downloader instance to access and manage current peerset
-	root common.Hash // State root currently being synced
+	d                 *Downloader // Downloader instance to access and manage current peerset
+	root              common.Hash // State root currently being synced
+	epoch             types.StateEpoch
+	enableStateExpiry bool
 
 	started    chan struct{} // Started is signalled once the sync loop starts
 	cancel     chan struct{} // Channel to signal a termination request
@@ -99,11 +118,26 @@ func newStateSync(d *Downloader, root common.Hash) *stateSync {
 	}
 }
 
+func newStateSyncWithEpoch(d *Downloader, root common.Hash, epoch types.StateEpoch) *stateSync {
+	return &stateSync{
+		d:                 d,
+		root:              root,
+		epoch:             epoch,
+		enableStateExpiry: true,
+		cancel:            make(chan struct{}),
+		done:              make(chan struct{}),
+		started:           make(chan struct{}),
+	}
+}
+
 // run starts the task assignment and response processing loop, blocking until
 // it finishes, and finally notifying any goroutines waiting for the loop to
 // finish.
 func (s *stateSync) run() {
 	close(s.started)
+	if s.enableStateExpiry {
+		s.d.SnapSyncer.UpdateEpoch(s.epoch)
+	}
 	s.err = s.d.SnapSyncer.Sync(s.root, s.cancel)
 	close(s.done)
 }

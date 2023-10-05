@@ -64,7 +64,7 @@ func fetchExpiredStorageFromRemote(meta *stateExpiryMeta, addr common.Address, r
 		return nil, fmt.Errorf("cannot find any revive proof from remoteDB")
 	}
 
-	return reviveStorageTrie(addr, tr, proofs[0], key)
+	return ReviveStorageTrie(addr, tr, proofs[0], key)
 }
 
 // batchFetchExpiredStorageFromRemote request expired state from remote full state node with a list of keys and prefixes.
@@ -126,8 +126,8 @@ func batchFetchExpiredFromRemote(expiryMeta *stateExpiryMeta, addr common.Addres
 	}
 
 	for i, proof := range proofs {
-		// kvs, err := reviveStorageTrie(addr, tr, proof, common.HexToHash(keysStr[i]))  // TODO(asyukii): this logically should work but it doesn't because of some reason, will need to investigate
-		kvs, err := reviveStorageTrie(addr, tr, proof, common.HexToHash(proof.Key))
+		// kvs, err := ReviveStorageTrie(addr, tr, proof, common.HexToHash(keysStr[i]))  // TODO(asyukii): this logically should work but it doesn't because of some reason, will need to investigate
+		kvs, err := ReviveStorageTrie(addr, tr, proof, common.HexToHash(proof.Key))
 		if err != nil {
 			log.Error("reviveStorageTrie failed", "addr", addr, "key", keys[i], "err", err)
 			continue
@@ -138,8 +138,8 @@ func batchFetchExpiredFromRemote(expiryMeta *stateExpiryMeta, addr common.Addres
 	return ret, nil
 }
 
-// reviveStorageTrie revive trie's expired state from proof
-func reviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) (map[string][]byte, error) {
+// ReviveStorageTrie revive trie's expired state from proof
+func ReviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStorageProof, targetKey common.Hash) (map[string][]byte, error) {
 	defer func(start time.Time) {
 		reviveStorageTrieTimer.Update(time.Since(start))
 	}(time.Now())

@@ -23,7 +23,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/light"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -381,13 +384,26 @@ func ServiceGetStorageRangesQuery(chain *core.BlockChain, req *GetStorageRangesP
 			storage []*StorageData
 			last    common.Hash
 			abort   bool
+			sv      snapshot.SnapValue
+			hash    common.Hash
+			slot    []byte
+			enc     []byte
 		)
 		for it.Next() {
 			if size >= hardLimit {
 				abort = true
 				break
 			}
-			hash, slot := it.Hash(), common.CopyBytes(it.Slot())
+			hash, enc = it.Hash(), common.CopyBytes(it.Slot())
+			if len(enc) > 0 {
+				sv, err = snapshot.DecodeValueFromRLPBytes(enc)
+				if err != nil || sv == nil {
+					log.Warn("Failed to decode storage slot", "err", err)
+					return nil, nil
+				}
+			}
+
+			slot = sv.GetVal()
 
 			// Track the returned interval for the Merkle proofs
 			last = hash
@@ -429,13 +445,23 @@ func ServiceGetStorageRangesQuery(chain *core.BlockChain, req *GetStorageRangesP
 			}
 			proof := light.NewNodeSet()
 			if err := stTrie.Prove(origin[:], proof); err != nil {
-				log.Warn("Failed to prove storage range", "origin", req.Origin, "err", err)
-				return nil, nil
+				if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+					err := reviveAndGetProof(chain.FullStateDB(), stTrie, req.Root, common.BytesToAddress(account[:]), acc.Root, enErr.Path, origin, proof)
+					if err != nil {
+						log.Warn("Failed to prove storage range", "origin", origin, "err", err)
+						return nil, nil
+					}
+				}
 			}
 			if last != (common.Hash{}) {
 				if err := stTrie.Prove(last[:], proof); err != nil {
-					log.Warn("Failed to prove storage range", "last", last, "err", err)
-					return nil, nil
+					if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+						err := reviveAndGetProof(chain.FullStateDB(), stTrie, req.Root, common.BytesToAddress(account[:]), acc.Root, enErr.Path, last, proof)
+						if err != nil {
+							log.Warn("Failed to prove storage range", "origin", origin, "err", err)
+							return nil, nil
+						}
+					}
 				}
 			}
 			for _, blob := range proof.NodeList() {
@@ -565,6 +591,24 @@ func ServiceGetTrieNodesQuery(chain *core.BlockChain, req *GetTrieNodesPacket, s
 		}
 	}
 	return nodes, nil
+}
+
+func reviveAndGetProof(fullStateDB ethdb.FullStateDB, tr *trie.StateTrie, stateRoot common.Hash, account common.Address, root common.Hash, prefixKey []byte, key common.Hash, proofDb *light.NodeSet) error {
+	proofs, err := fullStateDB.GetStorageReviveProof(stateRoot, account, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
+	if err != nil || len(proofs) == 0 {
+		return err
+	}
+
+	_, err = state.ReviveStorageTrie(account, tr, proofs[0], key)
+	if err != nil {
+		return err
+	}
+
+	if err := tr.Prove(key[:], proofDb); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // NodeInfo represents a short summary of the `snap` sub-protocol metadata
