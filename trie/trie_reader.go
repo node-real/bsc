@@ -51,11 +51,20 @@ type trieReader struct {
 
 // newTrieReader initializes the trie reader with the given node reader.
 func newTrieReader(stateRoot, owner common.Hash, db *Database) (*trieReader, error) {
+	var err error
+
 	if stateRoot == (common.Hash{}) || stateRoot == types.EmptyRootHash {
 		if stateRoot == (common.Hash{}) {
 			log.Error("Zero state root hash!")
 		}
-		return &trieReader{owner: owner}, nil
+		tr := &trieReader{owner: owner}
+		if db.snapTree != nil {
+			tr.emdb, err = epochmeta.NewEpochMetaDatabase(db.snapTree, new(big.Int), stateRoot)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return tr, nil
 	}
 	reader, err := db.Reader(stateRoot)
 	if err != nil {

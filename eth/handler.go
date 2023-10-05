@@ -122,6 +122,7 @@ type handlerConfig struct {
 	DirectBroadcast        bool
 	DisablePeerTxBroadcast bool
 	PeerSet                *peerSet
+	EnableStateExpiry      bool
 }
 
 type handler struct {
@@ -132,6 +133,8 @@ type handler struct {
 	snapSync        atomic.Bool // Flag whether snap sync is enabled (gets disabled if we already have blocks)
 	acceptTxs       atomic.Bool // Flag whether we're considered synchronised (enables transaction processing)
 	directBroadcast bool
+
+	enableStateExpiry bool
 
 	database             ethdb.Database
 	txpool               txPool
@@ -195,6 +198,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		peersPerIP:             make(map[string]int),
 		requiredBlocks:         config.RequiredBlocks,
 		directBroadcast:        config.DirectBroadcast,
+		enableStateExpiry:      config.EnableStateExpiry,
 		quitSync:               make(chan struct{}),
 		handlerDoneCh:          make(chan struct{}),
 		handlerStartCh:         make(chan struct{}),
@@ -248,7 +252,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		downloadOptions = append(downloadOptions, success)
 	*/
 
-	h.downloader = downloader.New(config.Database, h.eventMux, h.chain, nil, h.removePeer, downloadOptions...)
+	h.downloader = downloader.NewWithExpiry(config.Database, h.eventMux, h.chain, nil, config.EnableStateExpiry, h.removePeer, downloadOptions...)
 
 	// Construct the fetcher (short sync)
 	validator := func(header *types.Header) error {

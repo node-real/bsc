@@ -28,6 +28,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 )
 
 // ErrNotRequested is returned by the trie sync when it's requested to process a
@@ -104,10 +106,11 @@ type LeafCallback func(keys [][]byte, path []byte, leaf []byte, parent common.Ha
 
 // nodeRequest represents a scheduled or already in-flight trie node retrieval request.
 type nodeRequest struct {
-	hash    common.Hash // Hash of the trie node to retrieve
-	path    []byte      // Merkle path leading to this node for prioritization
-	data    []byte      // Data content of the node, cached until all subtrees complete
-	deletes [][]byte    // List of internal path segments for trie nodes to delete
+	hash     common.Hash // Hash of the trie node to retrieve
+	path     []byte      // Merkle path leading to this node for prioritization
+	data     []byte      // Data content of the node, cached until all subtrees complete
+	deletes  [][]byte    // List of internal path segments for trie nodes to delete
+	epochMap [16]types.StateEpoch
 
 	parent   *nodeRequest // Parent state node referencing this entry
 	deps     int          // Number of dependencies before allowed to commit this node
@@ -137,11 +140,12 @@ type CodeSyncResult struct {
 // syncMemBatch is an in-memory buffer of successfully downloaded but not yet
 // persisted data items.
 type syncMemBatch struct {
-	nodes   map[string][]byte      // In-memory membatch of recently completed nodes
-	hashes  map[string]common.Hash // Hashes of recently completed nodes
-	deletes map[string]struct{}    // List of paths for trie node to delete
-	codes   map[common.Hash][]byte // In-memory membatch of recently completed codes
-	size    uint64                 // Estimated batch-size of in-memory data.
+	nodes     map[string][]byte      // In-memory membatch of recently completed nodes
+	hashes    map[string]common.Hash // Hashes of recently completed nodes
+	deletes   map[string]struct{}    // List of paths for trie node to delete
+	epochMaps map[string][16]types.StateEpoch
+	codes     map[common.Hash][]byte // In-memory membatch of recently completed codes
+	size      uint64                 // Estimated batch-size of in-memory data.
 }
 
 // newSyncMemBatch allocates a new memory-buffer for not-yet persisted trie nodes.
@@ -170,13 +174,15 @@ func (batch *syncMemBatch) hasCode(hash common.Hash) bool {
 // unknown trie hashes to retrieve, accepts node data associated with said hashes
 // and reconstructs the trie step by step until all is done.
 type Sync struct {
-	scheme   string                       // Node scheme descriptor used in database.
-	database ethdb.KeyValueReader         // Persistent database to check for existing entries
-	membatch *syncMemBatch                // Memory buffer to avoid frequent database writes
-	nodeReqs map[string]*nodeRequest      // Pending requests pertaining to a trie node path
-	codeReqs map[common.Hash]*codeRequest // Pending requests pertaining to a code hash
-	queue    *prque.Prque[int64, any]     // Priority queue with the pending requests
-	fetches  map[int]int                  // Number of active fetches per trie node depth
+	scheme            string                       // Node scheme descriptor used in database.
+	database          ethdb.KeyValueReader         // Persistent database to check for existing entries
+	membatch          *syncMemBatch                // Memory buffer to avoid frequent database writes
+	nodeReqs          map[string]*nodeRequest      // Pending requests pertaining to a trie node path
+	codeReqs          map[common.Hash]*codeRequest // Pending requests pertaining to a code hash
+	queue             *prque.Prque[int64, any]     // Priority queue with the pending requests
+	fetches           map[int]int                  // Number of active fetches per trie node depth
+	enableStateExpiry bool
+	epoch             types.StateEpoch
 }
 
 // NewSync creates a new trie data download scheduler.
@@ -189,6 +195,22 @@ func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallb
 		codeReqs: make(map[common.Hash]*codeRequest),
 		queue:    prque.New[int64, any](nil), // Ugh, can contain both string and hash, whyyy
 		fetches:  make(map[int]int),
+	}
+	ts.AddSubTrie(root, nil, common.Hash{}, nil, callback)
+	return ts
+}
+
+func NewSyncWithEpoch(root common.Hash, database ethdb.KeyValueReader, callback LeafCallback, scheme string, epoch types.StateEpoch) *Sync {
+	ts := &Sync{
+		scheme:            scheme,
+		database:          database,
+		membatch:          newSyncMemBatch(),
+		nodeReqs:          make(map[string]*nodeRequest),
+		codeReqs:          make(map[common.Hash]*codeRequest),
+		queue:             prque.New[int64, any](nil), // Ugh, can contain both string and hash, whyyy
+		fetches:           make(map[int]int),
+		epoch:             epoch,
+		enableStateExpiry: true,
 	}
 	ts.AddSubTrie(root, nil, common.Hash{}, nil, callback)
 	return ts
@@ -342,6 +364,14 @@ func (s *Sync) ProcessNode(result NodeSyncResult) error {
 	}
 	req.data = result.Data
 
+	if fn, ok := node.(*fullNode); s.enableStateExpiry && ok {
+		for i := 0; i < 16; i++ {
+			if fn.Children[i] != nil {
+				req.epochMap[i] = s.epoch
+			}
+		}
+	}
+
 	// Create and schedule a request for all the children nodes
 	requests, err := s.children(req, node)
 	if err != nil {
@@ -365,6 +395,14 @@ func (s *Sync) Commit(dbw ethdb.Batch) error {
 	for path, value := range s.membatch.nodes {
 		owner, inner := ResolvePath([]byte(path))
 		rawdb.WriteTrieNode(dbw, owner, inner, s.membatch.hashes[path], value, s.scheme)
+		if s.enableStateExpiry {
+			if s.membatch.epochMaps[path] != [16]types.StateEpoch{} {
+				epochMeta := epochmeta.NewBranchNodeEpochMeta(s.membatch.epochMaps[path])
+				buf := rlp.NewEncoderBuffer(nil)
+				epochMeta.Encode(buf)
+				rawdb.WriteEpochMetaPlainState(dbw, owner, string(inner), buf.ToBytes())
+			}
+		}
 	}
 	// Flush the pending node deletes into the database batch.
 	// Please note that each written and deleted node has a
@@ -575,6 +613,18 @@ func (s *Sync) commitNodeRequest(req *nodeRequest) error {
 		path := append(req.path, segment...)
 		s.membatch.deletes[string(path)] = struct{}{}
 		s.membatch.size += uint64(len(path))
+	}
+	if req.epochMap != [16]types.StateEpoch{} {
+		s.membatch.epochMaps[string(req.path)] = req.epochMap
+	}
+	// The size tracking refers to the db-batch, not the in-memory data.
+	// Therefore, we ignore the req.Path, and account only for the hash+data
+	// which eventually is written to db.
+	s.membatch.size += common.HashLength + uint64(len(req.data))
+	for _, epoch := range req.epochMap {
+		if epoch != 0 {
+			s.membatch.size += 16
+		}
 	}
 	delete(s.nodeReqs, string(req.path))
 	s.fetches[len(req.path)]--
