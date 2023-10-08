@@ -8,17 +8,19 @@ import (
 )
 
 // ShrinkExpiredLeaf tool function for snapshot kv prune
-func ShrinkExpiredLeaf(db ethdb.KeyValueWriter, accountHash common.Hash, storageHash common.Hash, epoch types.StateEpoch, scheme string) error {
+func ShrinkExpiredLeaf(writer ethdb.KeyValueWriter, reader ethdb.KeyValueReader, accountHash common.Hash, storageHash common.Hash, epoch types.StateEpoch, scheme string) (int64, error) {
 	switch scheme {
 	case rawdb.HashScheme:
 		//cannot prune snapshot in hbss, because it will used for trie prune, but it's ok in pbss.
 	case rawdb.PathScheme:
+		val := rawdb.ReadStorageSnapshot(reader, accountHash, storageHash)
 		valWithEpoch := NewValueWithEpoch(epoch, nil)
 		enc, err := EncodeValueToRLPBytes(valWithEpoch)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		rawdb.WriteStorageSnapshot(db, accountHash, storageHash, enc)
+		rawdb.WriteStorageSnapshot(writer, accountHash, storageHash, enc)
+		return int64(65 + len(val)), nil
 	}
-	return nil
+	return 0, nil
 }

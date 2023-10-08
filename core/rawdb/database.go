@@ -608,6 +608,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		accountSnaps    stat
 		storageSnaps    stat
 		snapJournal     stat
+		trieJournal     stat
 		preimages       stat
 		bloomBits       stat
 		cliqueSnaps     stat
@@ -691,6 +692,8 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			epochMetaMetaSize.Add(size)
 		case bytes.Equal(key, snapshotJournalKey):
 			snapJournal.Add(size)
+		case bytes.Equal(key, trieJournalKey):
+			trieJournal.Add(size)
 		case bytes.Equal(key, epochMetaSnapshotJournalKey):
 			epochMetaSnapJournalSize.Add(size)
 		case bytes.HasPrefix(key, EpochMetaPlainStatePrefix) && len(key) >= (len(EpochMetaPlainStatePrefix)+common.HashLength):
@@ -702,7 +705,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 				lastPivotKey, fastTrieProgressKey, snapshotDisabledKey, SnapshotRootKey,
 				snapshotGeneratorKey, snapshotRecoveryKey, txIndexTailKey, fastTxLookupLimitKey,
 				uncleanShutdownKey, badBlockKey, transitionStatusKey, skeletonSyncStatusKey,
-				persistentStateIDKey, trieJournalKey, snapshotSyncStatusKey,
+				persistentStateIDKey, snapshotSyncStatusKey,
 			} {
 				if bytes.Equal(key, meta) {
 					metadata.Add(size)
@@ -735,6 +738,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		{"Key-Value store", "Path trie state lookups", stateLookups.Size(), stateLookups.Count()},
 		{"Key-Value store", "Path trie account nodes", accountTries.Size(), accountTries.Count()},
 		{"Key-Value store", "Path trie storage nodes", storageTries.Size(), storageTries.Count()},
+		{"Key-Value store", "Path trie snap journal", trieJournal.Size(), trieJournal.Count()},
 		{"Key-Value store", "Trie preimages", preimages.Size(), preimages.Count()},
 		{"Key-Value store", "Account snapshot", accountSnaps.Size(), accountSnaps.Count()},
 		{"Key-Value store", "Storage snapshot", storageSnaps.Size(), storageSnaps.Count()},
