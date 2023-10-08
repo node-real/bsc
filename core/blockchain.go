@@ -2156,7 +2156,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 		stats.usedGas += usedGas
 
 		dirty, _ := bc.triedb.Size()
-		stats.report(chain, it.index, dirty, setHead)
+		stats.report(chain, it.index, dirty, setHead, bc.chainConfig)
 
 		if !setHead {
 			// After merge we expect few side chains. Simply count
