@@ -229,19 +229,16 @@ func (inspect *Inspector) ConcurrentTraversal(theTrie *Trie, theTrieTreeStat *Tr
 	case *shortNode:
 		path = append(path, current.Key...)
 		inspect.ConcurrentTraversal(theTrie, theTrieTreeStat, current.Val, height+1, path)
-		path = path[:len(path)-len(current.Key)]
 	case *fullNode:
 		for idx, child := range current.Children {
 			if child == nil {
 				continue
 			}
-			childPath := path
-			childPath = append(childPath, byte(idx))
 			if len(inspect.concurrentQueue)*2 < cap(inspect.concurrentQueue) {
 				inspect.wg.Add(1)
-				go inspect.SubConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, childPath)
+				go inspect.SubConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, copyNewSlice(path, []byte{byte(idx)}))
 			} else {
-				inspect.ConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, childPath)
+				inspect.ConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, append(path, byte(idx)))
 			}
 		}
 	case hashNode:

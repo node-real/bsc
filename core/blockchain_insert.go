@@ -19,6 +19,8 @@ package core
 import (
 	"time"
 
+	"github.com/ethereum/go-ethereum/params"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/mclock"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -39,7 +41,7 @@ const statsReportLimit = 8 * time.Second
 
 // report prints statistics if some number of blocks have been processed
 // or more than a few seconds have passed since the last message.
-func (st *insertStats) report(chain []*types.Block, index int, trieDiffNodes, trieBufNodes, trieImmutableBufNodes common.StorageSize, setHead bool) {
+func (st *insertStats) report(chain []*types.Block, index int, trieDiffNodes, trieBufNodes, trieImmutableBufNodes common.StorageSize, setHead bool, config *params.ChainConfig) {
 	// Fetch the timings for the batch
 	var (
 		now     = mclock.Now()
@@ -56,7 +58,7 @@ func (st *insertStats) report(chain []*types.Block, index int, trieDiffNodes, tr
 
 		// Assemble the log context and send it to the logger
 		context := []interface{}{
-			"number", end.Number(), "hash", end.Hash(), "miner", end.Coinbase(),
+			"number", end.Number(), "hash", end.Hash(), "miner", end.Coinbase(), "stateEpoch", types.GetStateEpoch(config, end.Number()),
 			"blocks", st.processed, "txs", txs, "mgas", float64(st.usedGas) / 1000000,
 			"elapsed", common.PrettyDuration(elapsed), "mgasps", float64(st.usedGas) * 1000 / float64(elapsed),
 		}

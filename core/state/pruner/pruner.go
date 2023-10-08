@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/tsdb/fileutil"
@@ -740,8 +741,13 @@ func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
 // here are some issues when just delete it from hash-based storage, because it's shared kv in hbss
 // but it's ok for pbss.
 func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch types.StateEpoch, expireContractCh chan *snapshot.ContractItem, pruneExpiredInDisk chan *trie.NodeInfo) error {
+	var (
+		trieCount atomic.Uint64
+		start     = time.Now()
+		logged    = time.Now()
+	)
 	for item := range expireContractCh {
-		log.Info("start scan trie expired state", "addr", item.Addr, "root", item.Root)
+		log.Info("start scan trie expired state", "addrHash", item.Addr, "root", item.Root)
 		tr, err := trie.New(&trie.ID{
 			StateRoot: stateRoot,
 			Owner:     item.Addr,
@@ -752,11 +758,16 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 			return err
 		}
 		tr.SetEpoch(epoch)
-		if err = tr.PruneExpired(pruneExpiredInDisk); err != nil {
+		if err = tr.PruneExpired(pruneExpiredInDisk, &trieCount); err != nil {
 			log.Error("asyncScanExpiredInTrie, PruneExpired err", "id", item, "err", err)
 			return err
 		}
+		if time.Since(logged) > 8*time.Second {
+			log.Info("Pruning expired states", "trieNodes", trieCount.Load())
+			logged = time.Now()
+		}
 	}
+	log.Info("Scan expired states", "trieNodes", trieCount.Load(), "elapsed", common.PrettyDuration(time.Since(start)))
 	close(pruneExpiredInDisk)
 	return nil
 }
@@ -780,32 +791,39 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 		addr := info.Addr
 		// delete trie kv
 		trieCount++
-		trieSize += common.StorageSize(len(info.Key) + 32)
 		switch scheme {
 		case rawdb.PathScheme:
+			val := rawdb.ReadTrieNode(diskdb, addr, info.Path, info.Hash, rawdb.PathScheme)
+			trieSize += common.StorageSize(len(val) + 33 + len(info.Path))
 			rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.PathScheme)
 		case rawdb.HashScheme:
 			// hbss has shared kv, so using bloom to filter them out.
 			if !bloom.Contain(info.Hash.Bytes()) {
+				val := rawdb.ReadTrieNode(diskdb, addr, info.Path, info.Hash, rawdb.HashScheme)
+				trieSize += common.StorageSize(len(val) + 33)
 				rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
 			}
 		}
 		// delete epoch meta
 		if info.IsBranch {
 			epochMetaCount++
-			epochMetaSize += common.StorageSize(32 + len(info.Path) + 32)
+			val := rawdb.ReadEpochMetaPlainState(diskdb, addr, string(info.Path))
+			epochMetaSize += common.StorageSize(33 + len(info.Path) + len(val))
 			rawdb.DeleteEpochMetaPlainState(batch, addr, string(info.Path))
 		}
 		// replace snapshot kv only epoch
 		if info.IsLeaf {
 			snapCount++
-			snapSize += common.StorageSize(32)
-			if err := snapshot.ShrinkExpiredLeaf(batch, addr, info.Key, info.Epoch, scheme); err != nil {
+			size, err := snapshot.ShrinkExpiredLeaf(batch, diskdb, addr, info.Key, info.Epoch, scheme)
+			if err != nil {
 				log.Error("ShrinkExpiredLeaf err", "addr", addr, "key", info.Key, "err", err)
 			}
+			snapSize += common.StorageSize(size)
 		}
 		if batch.ValueSize() >= ethdb.IdealBatchSize {
-			batch.Write()
+			if err := batch.Write(); err != nil {
+				log.Error("asyncPruneExpiredStorageInDisk, batch write err", "err", err)
+			}
 			batch.Reset()
 		}
 		if time.Since(logged) > 8*time.Second {
@@ -816,7 +834,9 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 		}
 	}
 	if batch.ValueSize() > 0 {
-		batch.Write()
+		if err := batch.Write(); err != nil {
+			log.Error("asyncPruneExpiredStorageInDisk, batch write err", "err", err)
+		}
 		batch.Reset()
 	}
 	log.Info("Pruned expired states", "trieNodes", trieCount, "trieSize", trieSize,

@@ -26,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie/trienode"
+	"sync/atomic"
 )
 
 var (
@@ -1427,7 +1428,7 @@ type NodeInfo struct {
 }
 
 // PruneExpired traverses the storage trie and prunes all expired nodes.
-func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo) error {
+func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo, stats *atomic.Uint64) error {
 
 	if !t.enableExpiry {
 		return nil
@@ -1441,7 +1442,7 @@ func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo) error {
 		if pruneErr := t.recursePruneExpiredNode(n, path, epoch, pruneItemCh); pruneErr != nil {
 			log.Error("recursePruneExpiredNode err", "Path", path, "err", pruneErr)
 		}
-	})
+	}, stats)
 	if err != nil {
 		return err
 	}
@@ -1449,7 +1450,7 @@ func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo) error {
 	return nil
 }
 
-func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch)) error {
+func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch), stats *atomic.Uint64) error {
 	// Upon reaching expired node, it will recursively traverse downwards to all the child nodes
 	// and collect their hashes. Then, the corresponding key-value pairs will be deleted from the
 	// database by batches.
@@ -1460,16 +1461,22 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 
 	switch n := n.(type) {
 	case *shortNode:
-		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner)
+		if stats != nil {
+			stats.Add(1)
+		}
+		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, stats)
 		if err != nil {
 			return err
 		}
 		return nil
 	case *fullNode:
+		if stats != nil {
+			stats.Add(1)
+		}
 		var err error
 		// Go through every child and recursively delete expired nodes
 		for i, child := range n.Children {
-			err = t.findExpiredSubTree(child, append(path, byte(i)), epoch, pruner)
+			err = t.findExpiredSubTree(child, append(path, byte(i)), epoch, pruner, stats)
 			if err != nil {
 				return err
 			}
@@ -1478,6 +1485,9 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 
 	case hashNode:
 		resolve, err := t.resolveAndTrack(n, path)
+		if _, ok := err.(*MissingNodeError); ok {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -1485,7 +1495,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 			return err
 		}
 
-		return t.findExpiredSubTree(resolve, path, epoch, pruner)
+		return t.findExpiredSubTree(resolve, path, epoch, pruner, stats)
 	case valueNode:
 		return nil
 	case nil:
