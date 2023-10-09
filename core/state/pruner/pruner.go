@@ -695,7 +695,7 @@ func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
 	var (
 		pruneExpiredTrieCh   = make(chan *snapshot.ContractItem, 100000)
 		pruneExpiredInDiskCh = make(chan *trie.NodeInfo, 100000)
-		epoch                = types.GetStateEpoch(p.config.ChainConfig, height)
+		epoch                = types.GetStateEpoch(p.config.CacheConfig.StateExpiryCfg, height)
 		rets                 = make([]error, 3)
 		tasksWG              sync.WaitGroup
 	)

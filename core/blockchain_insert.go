@@ -17,7 +17,6 @@
 package core
 
 import (
-	"github.com/ethereum/go-ethereum/params"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -40,7 +39,7 @@ const statsReportLimit = 8 * time.Second
 
 // report prints statistics if some number of blocks have been processed
 // or more than a few seconds have passed since the last message.
-func (st *insertStats) report(chain []*types.Block, index int, dirty common.StorageSize, setHead bool, config *params.ChainConfig) {
+func (st *insertStats) report(chain []*types.Block, index int, dirty common.StorageSize, setHead bool, config *types.StateExpiryConfig) {
 	// Fetch the timings for the batch
 	var (
 		now     = mclock.Now()
@@ -57,9 +56,12 @@ func (st *insertStats) report(chain []*types.Block, index int, dirty common.Stor
 
 		// Assemble the log context and send it to the logger
 		context := []interface{}{
-			"number", end.Number(), "hash", end.Hash(), "miner", end.Coinbase(), "stateEpoch", types.GetStateEpoch(config, end.Number()),
+			"number", end.Number(), "hash", end.Hash(), "miner", end.Coinbase(),
 			"blocks", st.processed, "txs", txs, "mgas", float64(st.usedGas) / 1000000,
 			"elapsed", common.PrettyDuration(elapsed), "mgasps", float64(st.usedGas) * 1000 / float64(elapsed),
+		}
+		if config.EnableExpiry() {
+			context = append(context, []interface{}{"stateEpoch", types.GetStateEpoch(config, end.Number())}...)
 		}
 		if timestamp := time.Unix(int64(end.Time()), 0); time.Since(timestamp) > time.Minute {
 			context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)

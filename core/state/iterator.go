@@ -127,8 +127,8 @@ func (it *nodeIterator) step() error {
 	if err != nil {
 		return err
 	}
-	if it.state.enableStateExpiry {
-		dataTrie.SetEpoch(it.state.epoch)
+	if it.state.EnableExpire() {
+		dataTrie.SetEpoch(it.state.Epoch())
 	}
 	it.dataIt, err = dataTrie.NodeIterator(nil)
 	if err != nil {

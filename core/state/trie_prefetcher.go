@@ -17,8 +17,6 @@
 package state
 
 import (
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"sync"
 	"sync/atomic"
 
@@ -67,10 +65,7 @@ type triePrefetcher struct {
 	prefetchChan      chan *prefetchMsg // no need to wait for return
 
 	// state expiry feature
-	enableStateExpiry bool              // default disable
-	epoch             types.StateEpoch  // epoch indicate stateDB start at which block's target epoch
-	fullStateDB       ethdb.FullStateDB // RemoteFullStateNode
-	blockHash         common.Hash
+	expiryMeta *stateExpiryMeta
 
 	deliveryMissMeter metrics.Meter
 	accountLoadMeter  metrics.Meter
@@ -116,6 +111,8 @@ func newTriePrefetcher(db Database, root, rootParent common.Hash, namespace stri
 		accountStaleDupMeter:   metrics.GetOrRegisterMeter(prefix+"/accountst/dup", nil),
 		accountStaleSkipMeter:  metrics.GetOrRegisterMeter(prefix+"/accountst/skip", nil),
 		accountStaleWasteMeter: metrics.GetOrRegisterMeter(prefix+"/accountst/waste", nil),
+
+		expiryMeta: defaultStateExpiryMeta(),
 	}
 	go p.mainLoop()
 	return p
@@ -132,8 +129,8 @@ func (p *triePrefetcher) mainLoop() {
 			fetcher := p.fetchers[id]
 			if fetcher == nil {
 				fetcher = newSubfetcher(p.db, p.root, pMsg.owner, pMsg.root, pMsg.addr)
-				if p.enableStateExpiry {
-					fetcher.initStateExpiryFeature(p.epoch, p.blockHash, p.fullStateDB)
+				if p.expiryMeta.enableStateExpiry {
+					fetcher.initStateExpiryFeature(p.expiryMeta)
 				}
 				fetcher.start()
 				p.fetchersMutex.Lock()
@@ -218,11 +215,8 @@ func (p *triePrefetcher) mainLoop() {
 }
 
 // InitStateExpiryFeature it must call in initial period.
-func (p *triePrefetcher) InitStateExpiryFeature(epoch types.StateEpoch, blockHash common.Hash, fullStateDB ethdb.FullStateDB) {
-	p.enableStateExpiry = true
-	p.epoch = epoch
-	p.fullStateDB = fullStateDB
-	p.blockHash = blockHash
+func (p *triePrefetcher) InitStateExpiryFeature(expiryMeta *stateExpiryMeta) {
+	p.expiryMeta = expiryMeta
 }
 
 // close iterates over all the subfetchers, aborts any that were left spinning
@@ -376,10 +370,7 @@ type subfetcher struct {
 	trie  Trie           // Trie being populated with nodes
 
 	// state expiry feature
-	enableStateExpiry bool              // default disable
-	epoch             types.StateEpoch  // epoch indicate stateDB start at which block's target epoch
-	fullStateDB       ethdb.FullStateDB // RemoteFullStateNode
-	blockHash         common.Hash
+	expiryMeta *stateExpiryMeta
 
 	tasks [][]byte   // Items queued up for retrieval
 	lock  sync.Mutex // Lock protecting the task queue
@@ -401,16 +392,17 @@ type subfetcher struct {
 // particular root hash.
 func newSubfetcher(db Database, state common.Hash, owner common.Hash, root common.Hash, addr common.Address) *subfetcher {
 	sf := &subfetcher{
-		db:    db,
-		state: state,
-		owner: owner,
-		root:  root,
-		addr:  addr,
-		wake:  make(chan struct{}, 1),
-		stop:  make(chan struct{}),
-		term:  make(chan struct{}),
-		copy:  make(chan chan Trie),
-		seen:  make(map[string]struct{}),
+		db:         db,
+		state:      state,
+		owner:      owner,
+		root:       root,
+		addr:       addr,
+		wake:       make(chan struct{}, 1),
+		stop:       make(chan struct{}),
+		term:       make(chan struct{}),
+		copy:       make(chan chan Trie),
+		seen:       make(map[string]struct{}),
+		expiryMeta: defaultStateExpiryMeta(),
 	}
 	return sf
 }
@@ -420,11 +412,8 @@ func (sf *subfetcher) start() {
 }
 
 // InitStateExpiryFeature it must call in initial period.
-func (sf *subfetcher) initStateExpiryFeature(epoch types.StateEpoch, blockHash common.Hash, fullStateDB ethdb.FullStateDB) {
-	sf.enableStateExpiry = true
-	sf.epoch = epoch
-	sf.fullStateDB = fullStateDB
-	sf.blockHash = blockHash
+func (sf *subfetcher) initStateExpiryFeature(expiryMeta *stateExpiryMeta) {
+	sf.expiryMeta = expiryMeta
 }
 
 // schedule adds a batch of trie keys to the queue to prefetch.
@@ -470,8 +459,8 @@ func (sf *subfetcher) scheduleParallel(keys [][]byte) {
 	keysLeftSize := len(keysLeft)
 	for i := 0; i*parallelTriePrefetchCapacity < keysLeftSize; i++ {
 		child := newSubfetcher(sf.db, sf.state, sf.owner, sf.root, sf.addr)
-		if sf.enableStateExpiry {
-			child.initStateExpiryFeature(sf.epoch, sf.blockHash, sf.fullStateDB)
+		if sf.expiryMeta.enableStateExpiry {
+			child.initStateExpiryFeature(sf.expiryMeta)
 		}
 		child.start()
 		sf.paraChildren = append(sf.paraChildren, child)
@@ -526,8 +515,8 @@ func (sf *subfetcher) loop() {
 		trie, err = sf.db.OpenTrie(sf.root)
 	} else {
 		trie, err = sf.db.OpenStorageTrie(sf.state, sf.addr, sf.root)
-		if err == nil && sf.enableStateExpiry {
-			trie.SetEpoch(sf.epoch)
+		if err == nil && sf.expiryMeta.enableStateExpiry {
+			trie.SetEpoch(sf.expiryMeta.epoch)
 		}
 	}
 	if err != nil {
@@ -547,8 +536,8 @@ func (sf *subfetcher) loop() {
 				} else {
 					// address is useless
 					sf.trie, err = sf.db.OpenStorageTrie(sf.state, sf.addr, sf.root)
-					if err == nil && sf.enableStateExpiry {
-						trie.SetEpoch(sf.epoch)
+					if err == nil && sf.expiryMeta.enableStateExpiry {
+						trie.SetEpoch(sf.expiryMeta.epoch)
 					}
 				}
 				if err != nil {
@@ -587,7 +576,7 @@ func (sf *subfetcher) loop() {
 						} else {
 							_, err := sf.trie.GetStorage(sf.addr, task)
 							// handle expired state
-							if sf.enableStateExpiry {
+							if sf.expiryMeta.enableStateExpiry {
 								if exErr, match := err.(*trie2.ExpiredNodeError); match {
 									reviveKeys = append(reviveKeys, common.BytesToHash(task))
 									revivePaths = append(revivePaths, exErr.Path)
@@ -601,7 +590,7 @@ func (sf *subfetcher) loop() {
 			}
 
 			if len(reviveKeys) != 0 {
-				_, err = batchFetchExpiredFromRemote(sf.fullStateDB, sf.state, sf.addr, sf.root, sf.trie, revivePaths, reviveKeys)
+				_, err = batchFetchExpiredFromRemote(sf.expiryMeta, sf.addr, sf.root, sf.trie, revivePaths, reviveKeys)
 				if err != nil {
 					log.Error("subfetcher batchFetchExpiredFromRemote err", "addr", sf.addr, "state", sf.state, "revivePaths", revivePaths, "reviveKeys", reviveKeys, "err", err)
 				}

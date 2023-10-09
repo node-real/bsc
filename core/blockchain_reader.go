@@ -356,14 +356,16 @@ func (bc *BlockChain) StateAt(startAtRoot common.Hash, startAtBlockHash common.H
 	if err != nil {
 		return nil, err
 	}
-	if bc.enableStateExpiry {
-		sdb.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, startAtBlockHash, expectHeight)
+	if bc.EnableStateExpiry() {
+		sdb.InitStateExpiryFeature(bc.stateExpiryCfg, bc.fullStateDB, startAtBlockHash, expectHeight)
 	}
 	return sdb, err
 }
 
 // Config retrieves the chain's fork configuration.
 func (bc *BlockChain) Config() *params.ChainConfig { return bc.chainConfig }
+
+func (bc *BlockChain) StateExpiryConfig() *types.StateExpiryConfig { return bc.stateExpiryCfg }
 
 // Engine retrieves the blockchain's consensus engine.
 func (bc *BlockChain) Engine() consensus.Engine { return bc.engine }

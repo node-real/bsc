@@ -4,7 +4,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/params"
 )
 
 const (
@@ -22,7 +21,7 @@ type StateEpoch uint16
 // ClaudeBlock indicates start state epoch1.
 // ElwoodBlock indicates start state epoch2 and start epoch rotate by StateEpochPeriod.
 // When N>=2 and epochN started, epoch(N-2)'s state will expire.
-func GetStateEpoch(config *params.ChainConfig, blockNumber *big.Int) StateEpoch {
+func GetStateEpoch(config *StateExpiryConfig, blockNumber *big.Int) StateEpoch {
 	if blockNumber == nil || config == nil {
 		return StateEpoch0
 	}
@@ -30,10 +29,10 @@ func GetStateEpoch(config *params.ChainConfig, blockNumber *big.Int) StateEpoch 
 	epoch1Block := epochPeriod
 	epoch2Block := new(big.Int).Add(epoch1Block, epochPeriod)
 
-	if config.Parlia != nil && config.Parlia.StateEpochPeriod != 0 {
-		epochPeriod = new(big.Int).SetUint64(config.Parlia.StateEpochPeriod)
-		epoch1Block = new(big.Int).SetUint64(config.Parlia.StateEpoch1Block)
-		epoch2Block = new(big.Int).SetUint64(config.Parlia.StateEpoch2Block)
+	if config != nil {
+		epochPeriod = new(big.Int).SetUint64(config.StateEpochPeriod)
+		epoch1Block = new(big.Int).SetUint64(config.StateEpoch1Block)
+		epoch2Block = new(big.Int).SetUint64(config.StateEpoch2Block)
 	}
 	if isBlockReached(blockNumber, epoch2Block) {
 		ret := new(big.Int).Sub(blockNumber, epoch2Block)
