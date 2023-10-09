@@ -110,6 +110,9 @@ var (
 	// epochMetaPlainStateMeta save disk layer meta data
 	epochMetaPlainStateMeta = []byte("epochMetaPlainStateMeta")
 
+	// stateExpiryCfgKey save state expiry persistence config
+	stateExpiryCfgKey = []byte("stateExpiryCfgKey")
+
 	// Data item prefixes (use single byte to avoid mixing data types, avoid `i`, used for indexes).
 	headerPrefix       = []byte("h") // headerPrefix + num (uint64 big endian) + hash -> header
 	headerTDSuffix     = []byte("t") // headerPrefix + num (uint64 big endian) + hash + headerTDSuffix -> td

@@ -161,8 +161,7 @@ type CacheConfig struct {
 	SnapshotWait    bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
 
 	// state expiry feature
-	EnableStateExpiry bool
-	RemoteEndPoint    string
+	StateExpiryCfg *types.StateExpiryConfig
 }
 
 // TriedbConfig derives the configures for trie database.
@@ -171,7 +170,7 @@ func (c *CacheConfig) TriedbConfig() *trie.Config {
 		Cache:             c.TrieCleanLimit,
 		Preimages:         c.Preimages,
 		NoTries:           c.NoTries,
-		EnableStateExpiry: c.EnableStateExpiry,
+		EnableStateExpiry: c.StateExpiryCfg.EnableExpiry(),
 	}
 	if c.StateScheme == rawdb.HashScheme {
 		config.HashDB = &hashdb.Config{
@@ -302,8 +301,8 @@ type BlockChain struct {
 	doubleSignMonitor *monitor.DoubleSignMonitor
 
 	// state expiry feature
-	enableStateExpiry bool
-	fullStateDB       ethdb.FullStateDB
+	stateExpiryCfg *types.StateExpiryConfig
+	fullStateDB    ethdb.FullStateDB
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -376,10 +375,10 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	bc.processor = NewStateProcessor(chainConfig, bc, engine)
 
 	var err error
-	if cacheConfig.EnableStateExpiry {
-		log.Info("enable state expiry feature", "RemoteEndPoint", cacheConfig.RemoteEndPoint)
-		bc.enableStateExpiry = true
-		bc.fullStateDB, err = ethdb.NewFullStateRPCServer(cacheConfig.RemoteEndPoint)
+	if cacheConfig.StateExpiryCfg.EnableExpiry() {
+		log.Info("enable state expiry feature", "RemoteEndPoint", cacheConfig.StateExpiryCfg.FullStateEndpoint)
+		bc.stateExpiryCfg = cacheConfig.StateExpiryCfg
+		bc.fullStateDB, err = ethdb.NewFullStateRPCServer(cacheConfig.StateExpiryCfg.FullStateEndpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -624,7 +623,15 @@ func (bc *BlockChain) cacheBlock(hash common.Hash, block *types.Block) {
 }
 
 func (bc *BlockChain) EnableStateExpiry() bool {
-	return bc.enableStateExpiry
+	return bc.stateExpiryCfg.EnableExpiry()
+}
+
+func (bc *BlockChain) EnableStateExpiryLocalRevive() bool {
+	if bc.EnableStateExpiry() {
+		return bc.stateExpiryCfg.EnableLocalRevive
+	}
+
+	return false
 }
 
 func (bc *BlockChain) FullStateDB() ethdb.FullStateDB {
@@ -1037,8 +1044,8 @@ func (bc *BlockChain) StateAtWithSharedPool(root, startAtBlockHash common.Hash, 
 	if err != nil {
 		return nil, err
 	}
-	if bc.enableStateExpiry {
-		stateDB.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, startAtBlockHash, height)
+	if bc.EnableStateExpiry() {
+		stateDB.InitStateExpiryFeature(bc.stateExpiryCfg, bc.fullStateDB, startAtBlockHash, height)
 	}
 	return stateDB, err
 }
@@ -2040,8 +2047,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			return it.index, err
 		}
 		bc.updateHighestVerifiedHeader(block.Header())
-		if bc.enableStateExpiry {
-			statedb.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, parent.Hash(), block.Number())
+		if bc.EnableStateExpiry() {
+			statedb.InitStateExpiryFeature(bc.stateExpiryCfg, bc.fullStateDB, parent.Hash(), block.Number())
 		}
 
 		// Enable prefetching to pull in trie node paths while processing transactions
@@ -2052,8 +2059,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			// do Prefetch in a separate goroutine to avoid blocking the critical path
 			// 1.do state prefetch for snapshot cache
 			throwaway := statedb.CopyDoPrefetch()
-			if throwaway != nil && bc.enableStateExpiry {
-				throwaway.InitStateExpiryFeature(bc.chainConfig, bc.fullStateDB, parent.Hash(), block.Number())
+			if throwaway != nil && bc.EnableStateExpiry() {
+				throwaway.InitStateExpiryFeature(bc.stateExpiryCfg, bc.fullStateDB, parent.Hash(), block.Number())
 			}
 			go bc.prefetcher.Prefetch(block, throwaway, &bc.vmConfig, interruptCh)
 
@@ -2136,13 +2143,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 		stats.processed++
 		stats.usedGas += usedGas
 
-<<<<<<< HEAD
 		trieDiffNodes, trieBufNodes, trieImmutableBufNodes, _ := bc.triedb.Size()
-		stats.report(chain, it.index, trieDiffNodes, trieBufNodes, trieImmutableBufNodes, setHead)
-=======
-		dirty, _ := bc.triedb.Size()
-		stats.report(chain, it.index, dirty, setHead, bc.chainConfig)
->>>>>>> c3a31d7a2 (pruner: opt size statistic;)
+		stats.report(chain, it.index, trieDiffNodes, trieBufNodes, trieImmutableBufNodes, setHead, bc.stateExpiryCfg)
 
 		if !setHead {
 			// After merge we expect few side chains. Simply count

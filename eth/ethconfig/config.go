@@ -19,6 +19,7 @@ package ethconfig
 
 import (
 	"errors"
+	"github.com/ethereum/go-ethereum/core/types"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -104,8 +105,7 @@ type Config struct {
 	DisablePeerTxBroadcast bool
 
 	// state expiry configs
-	StateExpiryEnable            bool
-	StateExpiryFullStateEndpoint string
+	StateExpiryCfg *types.StateExpiryConfig
 
 	// This can be set to list of enrtree:// URLs which will be queried for
 	// for nodes to connect to.

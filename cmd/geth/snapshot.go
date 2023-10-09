@@ -451,13 +451,12 @@ func pruneState(ctx *cli.Context) error {
 		Preimages:           cfg.Eth.Preimages,
 		StateHistory:        cfg.Eth.StateHistory,
 		StateScheme:         cfg.Eth.StateScheme,
-		EnableStateExpiry:   cfg.Eth.StateExpiryEnable,
-		RemoteEndPoint:      cfg.Eth.StateExpiryFullStateEndpoint,
+		StateExpiryCfg:      cfg.Eth.StateExpiryCfg,
 	}
 	prunerconfig := pruner.Config{
 		Datadir:           stack.ResolvePath(""),
 		BloomSize:         ctx.Uint64(utils.BloomFilterSizeFlag.Name),
-		EnableStateExpiry: cfg.Eth.StateExpiryEnable,
+		EnableStateExpiry: cfg.Eth.StateExpiryCfg.EnableExpiry(),
 		ChainConfig:       chainConfig,
 		CacheConfig:       cacheConfig,
 	}

@@ -154,10 +154,7 @@ type StateDB struct {
 	nextRevisionId int
 
 	// state expiry feature
-	enableStateExpiry bool              // default disable
-	epoch             types.StateEpoch  // epoch indicate stateDB start at which block's target epoch
-	fullStateDB       ethdb.FullStateDB // RemoteFullStateNode
-	originalHash      common.Hash
+	expiryMeta *stateExpiryMeta
 
 	// Measurements gathered during execution for debugging purposes
 	// MetricsMux should be used in more places, but will affect on performance, so following meteration is not accruate
@@ -211,7 +208,7 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
 		hasher:               crypto.NewKeccakState(),
-		epoch:                types.StateEpoch0,
+		expiryMeta:           defaultStateExpiryMeta(),
 	}
 
 	if sdb.snaps != nil {
@@ -253,15 +250,20 @@ func (s *StateDB) TransferPrefetcher(prev *StateDB) {
 
 // InitStateExpiryFeature it must set in initial, reset later will cause wrong result
 // Attention: startAtBlockHash corresponding to stateDB's originalRoot, expectHeight is the epoch indicator.
-func (s *StateDB) InitStateExpiryFeature(config *params.ChainConfig, remote ethdb.FullStateDB, startAtBlockHash common.Hash, expectHeight *big.Int) *StateDB {
+func (s *StateDB) InitStateExpiryFeature(config *types.StateExpiryConfig, remote ethdb.FullStateDB, startAtBlockHash common.Hash, expectHeight *big.Int) *StateDB {
 	if config == nil || expectHeight == nil || remote == nil {
 		panic("cannot init state expiry stateDB with nil config/height/remote")
 	}
-	s.enableStateExpiry = true
-	s.fullStateDB = remote
-	s.epoch = types.GetStateEpoch(config, expectHeight)
-	s.originalHash = startAtBlockHash
-	log.Debug("StateDB enable state expiry feature", "expectHeight", expectHeight, "startAtBlockHash", startAtBlockHash, "epoch", s.epoch)
+	epoch := types.GetStateEpoch(config, expectHeight)
+	s.expiryMeta = &stateExpiryMeta{
+		enableStateExpiry: config.Enable,
+		enableLocalRevive: config.EnableLocalRevive,
+		fullStateDB:       remote,
+		epoch:             epoch,
+		originalRoot:      s.originalRoot,
+		originalHash:      startAtBlockHash,
+	}
+	log.Debug("StateDB enable state expiry feature", "expectHeight", expectHeight, "startAtBlockHash", startAtBlockHash, "epoch", epoch)
 	return s
 }
 
@@ -285,7 +287,7 @@ func (s *StateDB) StartPrefetcher(namespace string) {
 		} else {
 			s.prefetcher = newTriePrefetcher(s.db, s.originalRoot, common.Hash{}, namespace)
 		}
-		s.prefetcher.InitStateExpiryFeature(s.epoch, s.originalHash, s.fullStateDB)
+		s.prefetcher.InitStateExpiryFeature(s.expiryMeta)
 	}
 }
 
@@ -399,7 +401,7 @@ func (s *StateDB) AddLog(log *types.Log) {
 }
 
 // GetLogs returns the logs matching the specified transaction hash, and annotates
-// them with the given blockNumber and blockHash.
+// them with the given blockNumber and originalHash.
 func (s *StateDB) GetLogs(hash common.Hash, blockNumber uint64, blockHash common.Hash) []*types.Log {
 	logs := s.logs[hash]
 	for _, l := range logs {
@@ -1000,10 +1002,7 @@ func (s *StateDB) copyInternal(doPrefetch bool) *StateDB {
 		hasher:    crypto.NewKeccakState(),
 
 		// state expiry copy
-		epoch:             s.epoch,
-		enableStateExpiry: s.enableStateExpiry,
-		fullStateDB:       s.fullStateDB,
-		originalHash:      s.originalHash,
+		expiryMeta: s.expiryMeta,
 
 		// In order for the block producer to be able to use and make additions
 		// to the snapshot tree, we need to copy that as well. Otherwise, any
@@ -1080,7 +1079,7 @@ func (s *StateDB) copyInternal(doPrefetch bool) *StateDB {
 	state.transientStorage = s.transientStorage.Copy()
 
 	state.prefetcher = s.prefetcher
-	if !s.enableStateExpiry && s.prefetcher != nil && !doPrefetch {
+	if !s.EnableExpire() && s.prefetcher != nil && !doPrefetch {
 		// If there's a prefetcher running, make an inactive copy of it that can
 		// only access data but does not actively preload (since the user will not
 		// know that they need to explicitly terminate an active copy).
@@ -1440,8 +1439,8 @@ func (s *StateDB) slowDeleteStorage(addr common.Address, addrHash common.Hash, r
 	if _, ok := tr.(*trie.EmptyTrie); ok {
 		return false, 0, nil, nil, nil
 	}
-	if s.enableStateExpiry {
-		tr.SetEpoch(s.epoch)
+	if s.EnableExpire() {
+		tr.SetEpoch(s.Epoch())
 	}
 	it, err := tr.NodeIterator(nil)
 	if err != nil {
@@ -1997,7 +1996,15 @@ func (s *StateDB) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 }
 
 func (s *StateDB) EnableExpire() bool {
-	return s.enableStateExpiry
+	return s.expiryMeta.enableStateExpiry
+}
+
+func (s *StateDB) Epoch() types.StateEpoch {
+	return s.expiryMeta.epoch
+}
+
+func (s *StateDB) EnableLocalRevive() bool {
+	return s.expiryMeta.enableLocalRevive
 }
 
 // AddressInAccessList returns true if the given address is in the access list.

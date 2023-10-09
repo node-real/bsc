@@ -23,6 +23,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
 	"math"
 	"math/big"
 	"net"
@@ -1136,6 +1138,26 @@ var (
 		Usage:    "set state expiry remote full state rpc endpoint, every expired state will fetch from remote",
 		Category: flags.StateExpiryCategory,
 	}
+	StateExpiryStateEpoch1BlockFlag = &cli.Uint64Flag{
+		Name:     "state-expiry.epoch1",
+		Usage:    "set state expiry epoch1 block number",
+		Category: flags.StateExpiryCategory,
+	}
+	StateExpiryStateEpoch2BlockFlag = &cli.Uint64Flag{
+		Name:     "state-expiry.epoch2",
+		Usage:    "set state expiry epoch2 block number",
+		Category: flags.StateExpiryCategory,
+	}
+	StateExpiryStateEpochPeriodFlag = &cli.Uint64Flag{
+		Name:     "state-expiry.period",
+		Usage:    "set state expiry epoch period after epoch2",
+		Category: flags.StateExpiryCategory,
+	}
+	StateExpiryEnableLocalReviveFlag = &cli.BoolFlag{
+		Name:     "state-expiry.localrevive",
+		Usage:    "if enable local revive",
+		Category: flags.StateExpiryCategory,
+	}
 )
 
 func init() {
@@ -1951,13 +1973,18 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		cfg.StateHistory = ctx.Uint64(StateHistoryFlag.Name)
 	}
 	// Parse state scheme, abort the process if it's not compatible.
-	chaindb := tryMakeReadOnlyDatabase(ctx, stack)
+	chaindb := MakeChainDatabase(ctx, stack, false, false)
 	scheme, err := ParseStateScheme(ctx, chaindb)
-	chaindb.Close()
 	if err != nil {
 		Fatalf("%v", err)
 	}
 	cfg.StateScheme = scheme
+	seCfg, err := ParseStateExpiryConfig(ctx, chaindb, scheme)
+	if err != nil {
+		Fatalf("%v", err)
+	}
+	cfg.StateExpiryCfg = seCfg
+	chaindb.Close()
 
 	// Parse transaction history flag, if user is still using legacy config
 	// file with 'TxLookupLimit' configured, copy the value to 'TransactionHistory'.
@@ -2533,6 +2560,79 @@ func ParseStateScheme(ctx *cli.Context, disk ethdb.Database) (string, error) {
 		return scheme, nil
 	}
 	return "", fmt.Errorf("incompatible state scheme, stored: %s, provided: %s", stored, scheme)
+}
+
+func ParseStateExpiryConfig(ctx *cli.Context, disk ethdb.Database, scheme string) (*types.StateExpiryConfig, error) {
+	enc := rawdb.ReadStateExpiryCfg(disk)
+	var stored *types.StateExpiryConfig
+	if len(enc) > 0 {
+		var cfg types.StateExpiryConfig
+		if err := rlp.DecodeBytes(enc, &cfg); err != nil {
+			return nil, err
+		}
+		stored = &cfg
+	}
+	newCfg := &types.StateExpiryConfig{StateScheme: scheme}
+	if ctx.IsSet(StateExpiryEnableFlag.Name) {
+		newCfg.Enable = ctx.Bool(StateExpiryEnableFlag.Name)
+	}
+	if ctx.IsSet(StateExpiryFullStateEndpointFlag.Name) {
+		newCfg.FullStateEndpoint = ctx.String(StateExpiryFullStateEndpointFlag.Name)
+	}
+
+	// some config will use stored default
+	if ctx.IsSet(StateExpiryStateEpoch1BlockFlag.Name) {
+		newCfg.StateEpoch1Block = ctx.Uint64(StateExpiryStateEpoch1BlockFlag.Name)
+	} else if stored != nil {
+		newCfg.StateEpoch1Block = stored.StateEpoch1Block
+	}
+	if ctx.IsSet(StateExpiryStateEpoch2BlockFlag.Name) {
+		newCfg.StateEpoch2Block = ctx.Uint64(StateExpiryStateEpoch2BlockFlag.Name)
+	} else if stored != nil {
+		newCfg.StateEpoch2Block = stored.StateEpoch2Block
+	}
+	if ctx.IsSet(StateExpiryStateEpochPeriodFlag.Name) {
+		newCfg.StateEpochPeriod = ctx.Uint64(StateExpiryStateEpochPeriodFlag.Name)
+	} else if stored != nil {
+		newCfg.StateEpochPeriod = stored.StateEpochPeriod
+	}
+	if ctx.IsSet(StateExpiryEnableLocalReviveFlag.Name) {
+		newCfg.EnableLocalRevive = ctx.Bool(StateExpiryEnableLocalReviveFlag.Name)
+	}
+
+	// override prune level
+	newCfg.PruneLevel = types.StateExpiryPruneLevel1
+	switch newCfg.StateScheme {
+	case rawdb.HashScheme:
+		// TODO(0xbundler): will stop support HBSS later.
+		newCfg.PruneLevel = types.StateExpiryPruneLevel0
+	case rawdb.PathScheme:
+		newCfg.PruneLevel = types.StateExpiryPruneLevel1
+	default:
+		return nil, fmt.Errorf("not support the state scheme: %v", newCfg.StateScheme)
+	}
+
+	if err := newCfg.Validation(); err != nil {
+		return nil, err
+	}
+	if err := stored.CheckCompatible(newCfg); err != nil {
+		return nil, err
+	}
+
+	log.Info("Apply State Expiry", "cfg", newCfg)
+	if !newCfg.Enable {
+		return newCfg, nil
+	}
+
+	// save it into db
+	enc, err := rlp.EncodeToBytes(newCfg)
+	if err != nil {
+		return nil, err
+	}
+	if err = rawdb.WriteStateExpiryCfg(disk, enc); err != nil {
+		return nil, err
+	}
+	return newCfg, nil
 }
 
 // MakeTrieDatabase constructs a trie database based on the configured scheme.

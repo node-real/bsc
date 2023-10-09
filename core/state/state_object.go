@@ -174,8 +174,8 @@ func (s *stateObject) getTrie() (Trie, error) {
 		if err != nil {
 			return nil, err
 		}
-		if s.db.enableStateExpiry {
-			tr.SetEpoch(s.db.epoch)
+		if s.db.EnableExpire() {
+			tr.SetEpoch(s.db.Epoch())
 		}
 		s.trie = tr
 		// }
@@ -463,7 +463,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 			// it must hit in cache
 			value := s.GetState(key)
 			dirtyStorage[key] = common.TrimLeftZeroes(value[:])
-			log.Debug("updateTrie access state", "contract", s.address, "key", key, "epoch", s.db.epoch)
+			log.Debug("updateTrie access state", "contract", s.address, "key", key, "epoch", s.db.Epoch())
 		}
 	}
 
@@ -483,7 +483,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 					s.db.setError(fmt.Errorf("state object pendingFutureReviveState err, contract: %v, key: %v, err: %v", s.address, key, err))
 					continue
 				}
-				if _, err = fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, enErr.Path, key); err != nil {
+				if _, err = fetchExpiredStorageFromRemote(s.db.expiryMeta, s.address, s.data.Root, tr, enErr.Path, key); err != nil {
 					s.db.setError(fmt.Errorf("state object pendingFutureReviveState fetchExpiredStorageFromRemote err, contract: %v, key: %v, path: %v, err: %v", s.address, key, enErr.Path, err))
 				}
 			}
@@ -529,7 +529,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 			var snapshotVal []byte
 			// Encoding []byte cannot fail, ok to ignore the error.
 			if s.db.EnableExpire() {
-				snapshotVal, _ = snapshot.EncodeValueToRLPBytes(snapshot.NewValueWithEpoch(s.db.epoch, value))
+				snapshotVal, _ = snapshot.EncodeValueToRLPBytes(snapshot.NewValueWithEpoch(s.db.Epoch(), value))
 			} else {
 				snapshotVal, _ = rlp.EncodeToBytes(value)
 			}
@@ -812,7 +812,7 @@ func (s *stateObject) accessState(key common.Hash) {
 		return
 	}
 
-	if s.db.epoch > s.originStorageEpoch[key] {
+	if s.db.Epoch() > s.originStorageEpoch[key] {
 		count := s.pendingAccessedState[key]
 		s.pendingAccessedState[key] = count + 1
 	}
@@ -857,7 +857,7 @@ func (s *stateObject) fetchExpiredFromRemote(prefixKey []byte, key common.Hash, 
 		prefixKey = enErr.Path
 	}
 
-	kvs, err := fetchExpiredStorageFromRemote(s.db.fullStateDB, s.db.originalRoot, s.address, s.data.Root, tr, prefixKey, key)
+	kvs, err := fetchExpiredStorageFromRemote(s.db.expiryMeta, s.address, s.data.Root, tr, prefixKey, key)
 	if err != nil {
 		return nil, err
 	}
@@ -891,12 +891,12 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, erro
 	}
 
 	s.originStorageEpoch[key] = val.GetEpoch()
-	if !types.EpochExpired(val.GetEpoch(), s.db.epoch) {
+	if !types.EpochExpired(val.GetEpoch(), s.db.Epoch()) {
 		return val.GetVal(), nil, nil
 	}
 
 	// if found value not been pruned, just return, local revive later
-	if EnableLocalRevive && len(val.GetVal()) > 0 {
+	if s.db.EnableLocalRevive() && len(val.GetVal()) > 0 {
 		s.futureReviveState(key)
 		log.Debug("getExpirySnapStorage GetVal", "addr", s.address, "key", key, "val", hex.EncodeToString(val.GetVal()))
 		return val.GetVal(), nil, nil
