@@ -219,6 +219,10 @@ var (
 	stateExpiryFlags = []cli.Flag{
 		utils.StateExpiryEnableFlag,
 		utils.StateExpiryFullStateEndpointFlag,
+		utils.StateExpiryStateEpoch1BlockFlag,
+		utils.StateExpiryStateEpoch2BlockFlag,
+		utils.StateExpiryStateEpochPeriodFlag,
+		utils.StateExpiryEnableLocalReviveFlag,
 	}
 )
 

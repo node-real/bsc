@@ -45,6 +45,15 @@ func DeleteEpochMetaPlainState(db ethdb.KeyValueWriter, addr common.Hash, path s
 	return db.Delete(epochMetaPlainStateKey(addr, path))
 }
 
+func ReadStateExpiryCfg(db ethdb.Reader) []byte {
+	val, _ := db.Get(stateExpiryCfgKey)
+	return val
+}
+
+func WriteStateExpiryCfg(db ethdb.KeyValueWriter, val []byte) error {
+	return db.Put(stateExpiryCfgKey, val)
+}
+
 func epochMetaPlainStateKey(addr common.Hash, path string) []byte {
 	key := make([]byte, len(EpochMetaPlainStatePrefix)+len(addr)+len(path))
 	copy(key[:], EpochMetaPlainStatePrefix)

@@ -32,7 +32,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/scwallet"
 	"github.com/ethereum/go-ethereum/accounts/usbwallet"
 	"github.com/ethereum/go-ethereum/cmd/utils"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/internal/flags"
@@ -158,7 +157,6 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 		cfg.Ethstats.URL = ctx.String(utils.EthStatsURLFlag.Name)
 	}
 	applyMetricConfig(ctx, &cfg)
-	applyStateExpiryConfig(ctx, &cfg)
 
 	return stack, cfg
 }
@@ -269,21 +267,6 @@ func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
 	}
 	if ctx.IsSet(utils.MetricsInfluxDBOrganizationFlag.Name) {
 		cfg.Metrics.InfluxDBOrganization = ctx.String(utils.MetricsInfluxDBOrganizationFlag.Name)
-	}
-}
-
-func applyStateExpiryConfig(ctx *cli.Context, cfg *gethConfig) {
-
-	if ctx.IsSet(utils.StateExpiryEnableFlag.Name) {
-		enableStateExpiry := ctx.Bool(utils.StateExpiryEnableFlag.Name)
-		if enableStateExpiry && ctx.IsSet(utils.StateSchemeFlag.Name) && ctx.String(utils.StateSchemeFlag.Name) == rawdb.HashScheme {
-			log.Warn("State expiry is not supported with hash scheme. Disabling state expiry")
-			enableStateExpiry = false
-		}
-		cfg.Eth.StateExpiryEnable = enableStateExpiry
-	}
-	if ctx.IsSet(utils.StateExpiryFullStateEndpointFlag.Name) {
-		cfg.Eth.StateExpiryFullStateEndpoint = ctx.String(utils.StateExpiryFullStateEndpointFlag.Name)
 	}
 }
 
