@@ -215,8 +215,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			Preimages:           config.Preimages,
 			StateHistory:        config.StateHistory,
 			StateScheme:         config.StateScheme,
-			EnableStateExpiry:   config.StateExpiryEnable,
-			RemoteEndPoint:      config.StateExpiryFullStateEndpoint,
+			StateExpiryCfg:      config.StateExpiryCfg,
 		}
 	)
 	bcOps := make([]core.BlockChainOption, 0)

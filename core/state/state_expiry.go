@@ -14,13 +14,26 @@ import (
 
 var (
 	reviveStorageTrieTimer = metrics.NewRegisteredTimer("state/revivetrie/rt", nil)
-	EnableLocalRevive      = false // indicate if using local revive
 )
 
+// stateExpiryMeta it contains all state expiry meta for target block
+type stateExpiryMeta struct {
+	enableStateExpiry bool
+	enableLocalRevive bool
+	fullStateDB       ethdb.FullStateDB
+	epoch             types.StateEpoch
+	originalRoot      common.Hash
+	originalHash      common.Hash
+}
+
+func defaultStateExpiryMeta() *stateExpiryMeta {
+	return &stateExpiryMeta{enableStateExpiry: false}
+}
+
 // fetchExpiredStorageFromRemote request expired state from remote full state node;
-func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
+func fetchExpiredStorageFromRemote(meta *stateExpiryMeta, addr common.Address, root common.Hash, tr Trie, prefixKey []byte, key common.Hash) (map[string][]byte, error) {
 	log.Debug("fetching expired storage from remoteDB", "addr", addr, "prefix", prefixKey, "key", key)
-	if EnableLocalRevive {
+	if meta.enableLocalRevive {
 		// if there need revive expired state, try to revive locally, when the node is not being pruned, just renew the epoch
 		val, err := tr.TryLocalRevive(addr, key.Bytes())
 		log.Debug("fetchExpiredStorageFromRemote TryLocalRevive", "addr", addr, "key", key, "val", val, "err", err)
@@ -40,7 +53,7 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Ha
 	}
 
 	// cannot revive locally, fetch remote proof
-	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
+	proofs, err := meta.fullStateDB.GetStorageReviveProof(meta.originalRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
 	log.Debug("fetchExpiredStorageFromRemote GetStorageReviveProof", "addr", addr, "key", key, "proofs", len(proofs), "err", err)
 	if err != nil {
 		return nil, err
@@ -55,13 +68,13 @@ func fetchExpiredStorageFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Ha
 }
 
 // batchFetchExpiredStorageFromRemote request expired state from remote full state node with a list of keys and prefixes.
-func batchFetchExpiredFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash, addr common.Address, root common.Hash, tr Trie, prefixKeys [][]byte, keys []common.Hash) ([]map[string][]byte, error) {
+func batchFetchExpiredFromRemote(expiryMeta *stateExpiryMeta, addr common.Address, root common.Hash, tr Trie, prefixKeys [][]byte, keys []common.Hash) ([]map[string][]byte, error) {
 
 	ret := make([]map[string][]byte, len(keys))
 	prefixKeysStr := make([]string, len(prefixKeys))
 	keysStr := make([]string, len(keys))
 
-	if EnableLocalRevive {
+	if expiryMeta.enableLocalRevive {
 		var expiredKeys []common.Hash
 		var expiredPrefixKeys [][]byte
 		for i, key := range keys {
@@ -101,7 +114,7 @@ func batchFetchExpiredFromRemote(fullDB ethdb.FullStateDB, stateRoot common.Hash
 	}
 
 	// cannot revive locally, fetch remote proof
-	proofs, err := fullDB.GetStorageReviveProof(stateRoot, addr, root, prefixKeysStr, keysStr)
+	proofs, err := expiryMeta.fullStateDB.GetStorageReviveProof(expiryMeta.originalRoot, addr, root, prefixKeysStr, keysStr)
 	log.Debug("fetchExpiredStorageFromRemote GetStorageReviveProof", "addr", addr, "keys", keysStr, "prefixKeys", prefixKeysStr, "proofs", len(proofs), "err", err)
 	if err != nil {
 		return nil, err
