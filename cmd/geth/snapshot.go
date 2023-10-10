@@ -88,6 +88,7 @@ WARNING: it's only supported in hash mode(--state.scheme=hash)".
 					utils.BlockAmountReserved,
 					utils.TriesInMemoryFlag,
 					utils.CheckSnapshotWithMPT,
+					utils.StateExpiryEnableFlag,
 				},
 				Description: `
 geth offline prune-block for block data in ancientdb.
@@ -108,6 +109,7 @@ so it's very necessary to do block data prune, this feature will handle it.
 				Action:    verifyState,
 				Flags: flags.Merge([]cli.Flag{
 					utils.StateSchemeFlag,
+					utils.StateExpiryEnableFlag,
 				}, utils.NetworkFlags, utils.DatabasePathFlags),
 				Description: `
 geth snapshot verify-state <state-root>
@@ -126,6 +128,7 @@ In other words, this command does the snapshot to trie conversion.
 				Flags: []cli.Flag{
 					utils.DataDirFlag,
 					utils.AncientFlag,
+					utils.StateExpiryEnableFlag,
 				},
 				Description: `
 will prune all historical trie state data except genesis block.
@@ -144,7 +147,7 @@ the trie clean cache with default directory will be deleted.
 				Usage:     "Check that there is no 'dangling' snap storage",
 				ArgsUsage: "<root>",
 				Action:    checkDanglingStorage,
-				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags),
+				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
 				Description: `
 geth snapshot check-dangling-storage <state-root> traverses the snap storage 
 data, and verifies that all snapshot storage data has a corresponding account. 
@@ -155,7 +158,7 @@ data, and verifies that all snapshot storage data has a corresponding account.
 				Usage:     "Check all snapshot layers for the a specific account",
 				ArgsUsage: "<address | hash>",
 				Action:    checkAccount,
-				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags),
+				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
 				Description: `
 geth snapshot inspect-account <address | hash> checks all snapshot layers and prints out
 information about the specified address. 
@@ -168,6 +171,7 @@ information about the specified address.
 				Action:    traverseState,
 				Flags: flags.Merge([]cli.Flag{
 					utils.StateSchemeFlag,
+					utils.StateExpiryEnableFlag,
 				}, utils.NetworkFlags, utils.DatabasePathFlags),
 				Description: `
 geth snapshot traverse-state <state-root>
@@ -185,6 +189,7 @@ It's also usable without snapshot enabled.
 				Action:    traverseRawState,
 				Flags: flags.Merge([]cli.Flag{
 					utils.StateSchemeFlag,
+					utils.StateExpiryEnableFlag,
 				}, utils.NetworkFlags, utils.DatabasePathFlags),
 				Description: `
 geth snapshot traverse-rawstate <state-root>
@@ -208,6 +213,7 @@ It's also usable without snapshot enabled.
 					utils.DumpLimitFlag,
 					utils.TriesInMemoryFlag,
 					utils.StateSchemeFlag,
+					utils.StateExpiryEnableFlag,
 				}, utils.NetworkFlags, utils.DatabasePathFlags),
 				Description: `
 This command is semantically equivalent to 'geth dump', but uses the snapshots

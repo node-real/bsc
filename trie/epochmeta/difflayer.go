@@ -324,6 +324,7 @@ func loadDiffLayers(db ethdb.KeyValueStore, diskLayer *diskLayer) (map[common.Ha
 	return layers, children, nil
 }
 
+// TODO(0xbundler): add bloom filter?
 type diffLayer struct {
 	blockNumber *big.Int
 	blockRoot   common.Hash
@@ -348,8 +349,10 @@ func (s *diffLayer) Root() common.Hash {
 }
 
 func (s *diffLayer) EpochMeta(addrHash common.Hash, path string) ([]byte, error) {
+	// TODO(0xbundler): remove lock?
 	s.lock.RLock()
 	defer s.lock.RUnlock()
+	// TODO(0xbundler): difflayer cache hit rate.
 	cm, exist := s.nodeSet[addrHash]
 	if exist {
 		if ret, ok := cm[path]; ok {
@@ -465,6 +468,7 @@ func (s *diskLayer) EpochMeta(addr common.Hash, path string) ([]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
+	// TODO(0xbundler): disklayer cache hit rate.
 	cacheKey := cacheKey(addr, path)
 	cached, exist := s.cache.Get(cacheKey)
 	if exist {

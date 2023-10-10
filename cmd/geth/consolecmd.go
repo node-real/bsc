@@ -33,7 +33,7 @@ var (
 		Action: localConsole,
 		Name:   "console",
 		Usage:  "Start an interactive JavaScript environment",
-		Flags:  flags.Merge(nodeFlags, rpcFlags, consoleFlags),
+		Flags:  flags.Merge(nodeFlags, rpcFlags, consoleFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
 		Description: `
 The Geth console is an interactive shell for the JavaScript runtime environment
 which exposes a node admin interface as well as the Ðapp JavaScript API.

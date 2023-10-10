@@ -45,6 +45,7 @@ func DecodeFullNodeEpochMeta(enc []byte) (*BranchNodeEpochMeta, error) {
 	return &n, nil
 }
 
+// TODO(0xbundler): modify it as reader
 type Storage interface {
 	Get(addr common.Hash, path string) ([]byte, error)
 	Delete(addr common.Hash, path string) error
@@ -81,6 +82,7 @@ func NewEpochMetaDatabase(tree *SnapshotTree, number *big.Int, blockRoot common.
 func (s *StorageRW) Get(addr common.Hash, path string) ([]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
+	// TODO(0xbundler): remove cache
 	sub, exist := s.dirties[addr]
 	if exist {
 		if val, ok := sub[path]; ok {
@@ -88,6 +90,7 @@ func (s *StorageRW) Get(addr common.Hash, path string) ([]byte, error) {
 		}
 	}
 
+	// TODO(0xbundler): metrics hit count
 	return s.snap.EpochMeta(addr, path)
 }
 
