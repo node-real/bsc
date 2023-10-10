@@ -767,7 +767,7 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 			logged = time.Now()
 		}
 	}
-	log.Info("Scan expired states", "trieNodes", trieCount.Load(), "elapsed", common.PrettyDuration(time.Since(start)))
+	log.Info("Scan unexpired states", "trieNodes", trieCount.Load(), "elapsed", common.PrettyDuration(time.Since(start)))
 	close(pruneExpiredInDisk)
 	return nil
 }
@@ -842,6 +842,26 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 	log.Info("Pruned expired states", "trieNodes", trieCount, "trieSize", trieSize,
 		"SnapKV", snapCount, "SnapKVSize", snapSize, "EpochMeta", epochMetaCount,
 		"EpochMetaSize", epochMetaSize, "elapsed", common.PrettyDuration(time.Since(start)))
+	// Start compactions, will remove the deleted data from the disk immediately.
+	// Note for small pruning, the compaction is skipped.
+	if trieCount+snapCount+epochMetaCount >= rangeCompactionThreshold {
+		cstart := time.Now()
+		for b := 0x00; b <= 0xf0; b += 0x10 {
+			var (
+				start = []byte{byte(b)}
+				end   = []byte{byte(b + 0x10)}
+			)
+			if b == 0xf0 {
+				end = nil
+			}
+			log.Info("Compacting database", "range", fmt.Sprintf("%#x-%#x", start, end), "elapsed", common.PrettyDuration(time.Since(cstart)))
+			if err := diskdb.Compact(start, end); err != nil {
+				log.Error("Database compaction failed", "error", err)
+				return err
+			}
+		}
+		log.Info("Database compaction finished", "elapsed", common.PrettyDuration(time.Since(cstart)))
+	}
 	return nil
 }
 
