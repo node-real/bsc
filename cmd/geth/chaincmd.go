@@ -56,6 +56,7 @@ var (
 		Flags: flags.Merge([]cli.Flag{
 			utils.CachePreimagesFlag,
 			utils.StateSchemeFlag,
+			utils.StateExpiryEnableFlag,
 		}, utils.DatabasePathFlags),
 		Description: `
 The init command initializes a new genesis block and definition for the network.
@@ -86,7 +87,8 @@ It expects the genesis file as argument.`,
 		Name:      "dumpgenesis",
 		Usage:     "Dumps genesis block JSON configuration to stdout",
 		ArgsUsage: "",
-		Flags:     append([]cli.Flag{utils.DataDirFlag}, utils.NetworkFlags...),
+		Flags: append([]cli.Flag{utils.DataDirFlag,
+			utils.StateExpiryEnableFlag}, utils.NetworkFlags...),
 		Description: `
 The dumpgenesis command prints the genesis configuration of the network preset
 if one is set.  Otherwise it prints the genesis from the datadir.`,
@@ -121,6 +123,7 @@ if one is set.  Otherwise it prints the genesis from the datadir.`,
 			utils.TransactionHistoryFlag,
 			utils.StateSchemeFlag,
 			utils.StateHistoryFlag,
+			utils.StateExpiryEnableFlag,
 		}, utils.DatabasePathFlags),
 		Description: `
 The import command imports blocks from an RLP-encoded form. The form can be one file
@@ -138,6 +141,7 @@ processing will proceed even if an individual RLP-file import failure occurs.`,
 			utils.CacheFlag,
 			utils.SyncModeFlag,
 			utils.StateSchemeFlag,
+			utils.StateExpiryEnableFlag,
 		}, utils.DatabasePathFlags),
 		Description: `
 Requires a first argument of the file to write to.
@@ -154,6 +158,7 @@ be gzipped.`,
 		Flags: flags.Merge([]cli.Flag{
 			utils.CacheFlag,
 			utils.SyncModeFlag,
+			utils.StateExpiryEnableFlag,
 		}, utils.DatabasePathFlags),
 		Description: `
 The import-preimages command imports hash preimages from an RLP encoded stream.
@@ -168,6 +173,7 @@ It's deprecated, please use "geth db import" instead.
 		Flags: flags.Merge([]cli.Flag{
 			utils.CacheFlag,
 			utils.SyncModeFlag,
+			utils.StateExpiryEnableFlag,
 		}, utils.DatabasePathFlags),
 		Description: `
 The export-preimages command exports hash preimages to an RLP encoded stream.
@@ -188,6 +194,7 @@ It's deprecated, please use "geth db export" instead.
 			utils.StartKeyFlag,
 			utils.DumpLimitFlag,
 			utils.StateSchemeFlag,
+			utils.StateExpiryEnableFlag,
 		}, utils.DatabasePathFlags),
 		Description: `
 This command dumps out the state for a given block (or latest, if none provided).

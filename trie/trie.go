@@ -1479,7 +1479,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		var err error
 		// Go through every child and recursively delete expired nodes
 		for i, child := range n.Children {
-			err = t.findExpiredSubTree(child, append(path, byte(i)), epoch, pruner, stats)
+			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, stats)
 			if err != nil {
 				return err
 			}

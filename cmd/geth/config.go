@@ -49,7 +49,7 @@ var (
 		Name:        "dumpconfig",
 		Usage:       "Export configuration values in a TOML format",
 		ArgsUsage:   "<dumpfile (optional)>",
-		Flags:       flags.Merge(nodeFlags, rpcFlags),
+		Flags:       flags.Merge(nodeFlags, rpcFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
 		Description: `Export configuration values in TOML format (to stdout by default).`,
 	}
 

@@ -125,6 +125,7 @@ func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, err
 	}
 	if len(blob) == 0 {
 		// set default epoch map
+		// TODO(0xbundler): remove mem alloc?
 		return epochmeta.NewBranchNodeEpochMeta([16]types.StateEpoch{}), nil
 	}
 	meta, err := epochmeta.DecodeFullNodeEpochMeta(blob)
