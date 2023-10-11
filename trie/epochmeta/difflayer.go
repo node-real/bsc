@@ -2,326 +2,97 @@ package epochmeta
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
-	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
-	"io"
-	"math/big"
-	"sync"
-
-	"github.com/ethereum/go-ethereum/log"
-
-	lru "github.com/hashicorp/golang-lru"
-
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
+	bloomfilter "github.com/holiman/bloomfilter/v2"
+	"math"
+	"math/big"
+	"math/rand"
+	"sync"
 )
 
 const (
 	// MaxEpochMetaDiffDepth default is 128 layers
-	MaxEpochMetaDiffDepth            = 128
-	journalVersion            uint64 = 1
-	defaultDiskLayerCacheSize        = 100000
+	MaxEpochMetaDiffDepth        = 128
+	journalVersion        uint64 = 1
 )
 
-// snapshot record diff layer and disk layer of shadow nodes, support mini reorg
-type snapshot interface {
-	// Root block state root
-	Root() common.Hash
+var (
+	// aggregatorMemoryLimit is the maximum size of the bottom-most diff layer
+	// that aggregates the writes from above until it's flushed into the disk
+	// layer.
+	//
+	// Note, bumping this up might drastically increase the size of the bloom
+	// filters that's stored in every diff layer. Don't do that without fully
+	// understanding all the implications.
+	aggregatorMemoryLimit = uint64(4 * 1024 * 1024)
 
-	// EpochMeta query shadow node from db, got RLP format
-	EpochMeta(addrHash common.Hash, path string) ([]byte, error)
+	// aggregatorItemLimit is an approximate number of items that will end up
+	// in the agregator layer before it's flushed out to disk. A plain account
+	// weighs around 14B (+hash), a storage slot 32B (+hash), a deleted slot
+	// 0B (+hash). Slots are mostly set/unset in lockstep, so that average at
+	// 16B (+hash). All in all, the average entry seems to be 15+32=47B. Use a
+	// smaller number to be on the safe side.
+	aggregatorItemLimit = aggregatorMemoryLimit / 42
 
-	// Parent parent snap
-	Parent() snapshot
+	// bloomTargetError is the target false positive rate when the aggregator
+	// layer is at its fullest. The actual value will probably move around up
+	// and down from this number, it's mostly a ballpark figure.
+	//
+	// Note, dropping this down might drastically increase the size of the bloom
+	// filters that's stored in every diff layer. Don't do that without fully
+	// understanding all the implications.
+	bloomTargetError = 0.02
 
-	// Update create a new diff layer from here
-	Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (snapshot, error)
+	// bloomSize is the ideal bloom filter size given the maximum number of items
+	// it's expected to hold and the target false positive error rate.
+	bloomSize = math.Ceil(float64(aggregatorItemLimit) * math.Log(bloomTargetError) / math.Log(1/math.Pow(2, math.Log(2))))
 
-	// Journal commit self as a journal to buffer
-	Journal(buffer *bytes.Buffer) (common.Hash, error)
+	// bloomFuncs is the ideal number of bits a single entry should set in the
+	// bloom filter to keep its size to a minimum (given it's size and maximum
+	// entry count).
+	bloomFuncs = math.Round((bloomSize / float64(aggregatorItemLimit)) * math.Log(2))
+	// the bloom offsets are runtime constants which determines which part of the
+	// account/storage hash the hasher functions looks at, to determine the
+	// bloom key for an account/slot. This is randomized at init(), so that the
+	// global population of nodes do not all display the exact same behaviour with
+	// regards to bloom content
+	bloomStorageHasherOffset = 0
+)
+
+func init() {
+	// Init the bloom offsets in the range [0:24] (requires 8 bytes)
+	bloomStorageHasherOffset = rand.Intn(25)
 }
 
-// SnapshotTree maintain all diff layers support reorg, will flush to db when MaxEpochMetaDiffDepth reach
-// every layer response to a block state change set, there no flatten layers operation.
-type SnapshotTree struct {
-	diskdb ethdb.KeyValueStore
-
-	// diffLayers + diskLayer, disk layer, always not nil
-	layers   map[common.Hash]snapshot
-	children map[common.Hash][]common.Hash
-
-	lock sync.RWMutex
+// storageBloomHasher is a wrapper around a [2]common.Hash to satisfy the interface
+// API requirements of the bloom library used. It's used to convert an account
+// hash into a 64 bit mini hash.
+type storageBloomHasher struct {
+	accountHash common.Hash
+	path        string
 }
 
-func NewEpochMetaSnapTree(diskdb ethdb.KeyValueStore) (*SnapshotTree, error) {
-	diskLayer, err := loadDiskLayer(diskdb)
-	if err != nil {
-		return nil, err
+func (h storageBloomHasher) Write(p []byte) (n int, err error) { panic("not implemented") }
+func (h storageBloomHasher) Sum(b []byte) []byte               { panic("not implemented") }
+func (h storageBloomHasher) Reset()                            { panic("not implemented") }
+func (h storageBloomHasher) BlockSize() int                    { panic("not implemented") }
+func (h storageBloomHasher) Size() int                         { return 8 }
+func (h storageBloomHasher) Sum64() uint64 {
+	if len(h.path) < 8 {
+		path := [8]byte{}
+		copy(path[:], h.path)
+		return binary.BigEndian.Uint64(h.accountHash[bloomStorageHasherOffset:bloomStorageHasherOffset+8]) ^
+			binary.BigEndian.Uint64(path[:])
 	}
-	layers, children, err := loadDiffLayers(diskdb, diskLayer)
-	if err != nil {
-		return nil, err
+	if len(h.path) < bloomStorageHasherOffset+8 {
+		return binary.BigEndian.Uint64(h.accountHash[bloomStorageHasherOffset:bloomStorageHasherOffset+8]) ^
+			binary.BigEndian.Uint64([]byte(h.path[len(h.path)-8:]))
 	}
-
-	layers[diskLayer.blockRoot] = diskLayer
-	// check if continuously after disk layer
-	if len(layers) > 1 && len(children[diskLayer.blockRoot]) == 0 {
-		return nil, errors.New("cannot found any diff layers link to disk layer")
-	}
-	return &SnapshotTree{
-		diskdb:   diskdb,
-		layers:   layers,
-		children: children,
-	}, nil
-}
-
-// Cap keep tree depth not greater MaxEpochMetaDiffDepth, all forks parent to disk layer will delete
-func (s *SnapshotTree) Cap(blockRoot common.Hash) error {
-	snap := s.Snapshot(blockRoot)
-	if snap == nil {
-		return fmt.Errorf("epoch meta snapshot missing: [%#x]", blockRoot)
-	}
-	nextDiff, ok := snap.(*diffLayer)
-	if !ok {
-		return nil
-	}
-	for i := 0; i < MaxEpochMetaDiffDepth-1; i++ {
-		nextDiff, ok = nextDiff.Parent().(*diffLayer)
-		// if depth less MaxEpochMetaDiffDepth, just return
-		if !ok {
-			return nil
-		}
-	}
-
-	flatten := make([]snapshot, 0)
-	parent := nextDiff.Parent()
-	for parent != nil {
-		flatten = append(flatten, parent)
-		parent = parent.Parent()
-	}
-	if len(flatten) <= 1 {
-		return nil
-	}
-
-	last, ok := flatten[len(flatten)-1].(*diskLayer)
-	if !ok {
-		return errors.New("the diff layers not link to disk layer")
-	}
-
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	newDiskLayer, err := s.flattenDiffs2Disk(flatten[:len(flatten)-1], last)
-	if err != nil {
-		return err
-	}
-
-	// clear forks, but keep latest disk forks
-	for i := len(flatten) - 1; i > 0; i-- {
-		var childRoot common.Hash
-		if i > 0 {
-			childRoot = flatten[i-1].Root()
-		} else {
-			childRoot = nextDiff.Root()
-		}
-		root := flatten[i].Root()
-		s.removeSubLayers(s.children[root], &childRoot)
-		delete(s.layers, root)
-		delete(s.children, root)
-	}
-
-	// reset newDiskLayer and children's parent
-	s.layers[newDiskLayer.Root()] = newDiskLayer
-	for _, child := range s.children[newDiskLayer.Root()] {
-		if diff, exist := s.layers[child].(*diffLayer); exist {
-			diff.setParent(newDiskLayer)
-		}
-	}
-	return nil
-}
-
-func (s *SnapshotTree) Update(parentRoot common.Hash, blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) error {
-	// if there are no changes, just skip
-	if blockRoot == parentRoot {
-		return nil
-	}
-
-	// Generate a new snapshot on top of the parent
-	parent := s.Snapshot(parentRoot)
-	if parent == nil {
-		// just point to fake disk layers
-		parent = s.Snapshot(types.EmptyRootHash)
-		if parent == nil {
-			return errors.New("cannot find any suitable parent")
-		}
-		parentRoot = parent.Root()
-	}
-	snap, err := parent.Update(blockNumber, blockRoot, nodeSet)
-	if err != nil {
-		return err
-	}
-
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	s.layers[blockRoot] = snap
-	s.children[parentRoot] = append(s.children[parentRoot], blockRoot)
-	return nil
-}
-
-func (s *SnapshotTree) Snapshot(blockRoot common.Hash) snapshot {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.layers[blockRoot]
-}
-
-func (s *SnapshotTree) DB() ethdb.KeyValueStore {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.diskdb
-}
-
-func (s *SnapshotTree) Journal() error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	// Firstly write out the metadata of journal
-	journal := new(bytes.Buffer)
-	if err := rlp.Encode(journal, journalVersion); err != nil {
-		return err
-	}
-	for _, snap := range s.layers {
-		if _, err := snap.Journal(journal); err != nil {
-			return err
-		}
-	}
-	rawdb.WriteEpochMetaSnapshotJournal(s.diskdb, journal.Bytes())
-	return nil
-}
-
-func (s *SnapshotTree) removeSubLayers(layers []common.Hash, skip *common.Hash) {
-	for _, layer := range layers {
-		if skip != nil && layer == *skip {
-			continue
-		}
-		s.removeSubLayers(s.children[layer], nil)
-		delete(s.layers, layer)
-		delete(s.children, layer)
-	}
-}
-
-// flattenDiffs2Disk delete all flatten and push them to db
-func (s *SnapshotTree) flattenDiffs2Disk(flatten []snapshot, diskLayer *diskLayer) (*diskLayer, error) {
-	var err error
-	for i := len(flatten) - 1; i >= 0; i-- {
-		diskLayer, err = diskLayer.PushDiff(flatten[i].(*diffLayer))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return diskLayer, nil
-}
-
-// loadDiskLayer load from db, could be nil when none in db
-func loadDiskLayer(db ethdb.KeyValueStore) (*diskLayer, error) {
-	val := rawdb.ReadEpochMetaPlainStateMeta(db)
-	// if there is no disk layer, will construct a fake disk layer
-	if len(val) == 0 {
-		diskLayer, err := newEpochMetaDiskLayer(db, common.Big0, types.EmptyRootHash)
-		if err != nil {
-			return nil, err
-		}
-		return diskLayer, nil
-	}
-	var meta epochMetaPlainMeta
-	if err := rlp.DecodeBytes(val, &meta); err != nil {
-		return nil, err
-	}
-
-	layer, err := newEpochMetaDiskLayer(db, meta.BlockNumber, meta.BlockRoot)
-	if err != nil {
-		return nil, err
-	}
-	return layer, nil
-}
-
-func loadDiffLayers(db ethdb.KeyValueStore, diskLayer *diskLayer) (map[common.Hash]snapshot, map[common.Hash][]common.Hash, error) {
-	layers := make(map[common.Hash]snapshot)
-	children := make(map[common.Hash][]common.Hash)
-
-	journal := rawdb.ReadEpochMetaSnapshotJournal(db)
-	if len(journal) == 0 {
-		return layers, children, nil
-	}
-	r := rlp.NewStream(bytes.NewReader(journal), 0)
-	// Firstly, resolve the first element as the journal version
-	version, err := r.Uint64()
-	if err != nil {
-		return nil, nil, errors.New("failed to resolve journal version")
-	}
-	if version != journalVersion {
-		return nil, nil, errors.New("wrong journal version")
-	}
-
-	parents := make(map[common.Hash]common.Hash)
-	for {
-		var (
-			parent common.Hash
-			number big.Int
-			root   common.Hash
-			js     []journalEpochMeta
-		)
-		// Read the next diff journal entry
-		if err := r.Decode(&number); err != nil {
-			// The first read may fail with EOF, marking the end of the journal
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, nil, fmt.Errorf("load diff number: %v", err)
-		}
-		if err := r.Decode(&parent); err != nil {
-			return nil, nil, fmt.Errorf("load diff parent: %v", err)
-		}
-		// Read the next diff journal entry
-		if err := r.Decode(&root); err != nil {
-			return nil, nil, fmt.Errorf("load diff root: %v", err)
-		}
-		if err := r.Decode(&js); err != nil {
-			return nil, nil, fmt.Errorf("load diff storage: %v", err)
-		}
-
-		nodeSet := make(map[common.Hash]map[string][]byte)
-		for _, entry := range js {
-			nodes := make(map[string][]byte)
-			for i, key := range entry.Keys {
-				if len(entry.Vals[i]) > 0 { // RLP loses nil-ness, but `[]byte{}` is not a valid item, so reinterpret that
-					nodes[key] = entry.Vals[i]
-				} else {
-					nodes[key] = nil
-				}
-			}
-			nodeSet[entry.Hash] = nodes
-		}
-
-		parents[root] = parent
-		layers[root] = newEpochMetaDiffLayer(&number, root, nil, nodeSet)
-	}
-
-	for t, s := range layers {
-		parent := parents[t]
-		children[parent] = append(children[parent], t)
-		if p, ok := layers[parent]; ok {
-			s.(*diffLayer).parent = p
-		} else if diskLayer != nil && parent == diskLayer.Root() {
-			s.(*diffLayer).parent = diskLayer
-		} else {
-			return nil, nil, errors.New("cannot find it's parent")
-		}
-	}
-	return layers, children, nil
+	return binary.BigEndian.Uint64(h.accountHash[bloomStorageHasherOffset:bloomStorageHasherOffset+8]) ^
+		binary.BigEndian.Uint64([]byte(h.path[bloomStorageHasherOffset:bloomStorageHasherOffset+8]))
 }
 
 // TODO(0xbundler): add bloom filter?
@@ -329,37 +100,61 @@ type diffLayer struct {
 	blockNumber *big.Int
 	blockRoot   common.Hash
 	parent      snapshot
+	origin      *diskLayer
 	nodeSet     map[common.Hash]map[string][]byte
-	lock        sync.RWMutex
+	diffed      *bloomfilter.Filter // Bloom filter tracking all the diffed items up to the disk layer
+	lock        sync.RWMutex        // lock only protect parent filed change now.
 }
 
 func newEpochMetaDiffLayer(blockNumber *big.Int, blockRoot common.Hash, parent snapshot, nodeSet map[common.Hash]map[string][]byte) *diffLayer {
-	return &diffLayer{
+	dl := &diffLayer{
 		blockNumber: blockNumber,
 		blockRoot:   blockRoot,
 		parent:      parent,
 		nodeSet:     nodeSet,
 	}
+
+	switch p := parent.(type) {
+	case *diffLayer:
+		dl.origin = p.origin
+		dl.diffed, _ = p.diffed.Copy()
+	case *diskLayer:
+		dl.origin = p
+		dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
+	default:
+		panic("newEpochMetaDiffLayer got wrong snapshot type")
+	}
+
+	// Iterate over all the accounts and storage metas and index them
+	for accountHash, metas := range dl.nodeSet {
+		for path := range metas {
+			dl.diffed.Add(storageBloomHasher{accountHash, path})
+		}
+	}
+	return dl
 }
 
 func (s *diffLayer) Root() common.Hash {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
 	return s.blockRoot
 }
 
+// EpochMeta find target epoch meta from diff layer or disk layer
 func (s *diffLayer) EpochMeta(addrHash common.Hash, path string) ([]byte, error) {
-	// TODO(0xbundler): remove lock?
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	// TODO(0xbundler): difflayer cache hit rate.
+	// if the diff chain not contain the meta or staled, try get from disk layer
+	if !s.diffed.Contains(storageBloomHasher{addrHash, path}) {
+		return s.origin.EpochMeta(addrHash, path)
+	}
+
 	cm, exist := s.nodeSet[addrHash]
 	if exist {
 		if ret, ok := cm[path]; ok {
+			metaHitDiffMeter.Mark(1)
 			return ret, nil
 		}
 	}
 
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	return s.parent.EpochMeta(addrHash, path)
 }
 
@@ -371,18 +166,15 @@ func (s *diffLayer) Parent() snapshot {
 
 // Update append new diff layer onto current, nodeChgRecord when val is []byte{}, it delete the kv
 func (s *diffLayer) Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (snapshot, error) {
-	s.lock.RLock()
 	if s.blockNumber.Int64() != 0 && s.blockNumber.Cmp(blockNumber) >= 0 {
 		return nil, errors.New("update a unordered diff layer in diff layer")
 	}
-	s.lock.RUnlock()
 	return newEpochMetaDiffLayer(blockNumber, blockRoot, s, nodeSet), nil
 }
 
 func (s *diffLayer) Journal(buffer *bytes.Buffer) (common.Hash, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-
 	if err := rlp.Encode(buffer, s.blockNumber); err != nil {
 		return common.Hash{}, err
 	}
@@ -414,16 +206,14 @@ func (s *diffLayer) Journal(buffer *bytes.Buffer) (common.Hash, error) {
 	return s.blockRoot, nil
 }
 
-func (s *diffLayer) setParent(parent snapshot) {
+func (s *diffLayer) getNodeSet() map[common.Hash]map[string][]byte {
+	return s.nodeSet
+}
+
+func (s *diffLayer) resetParent(parent snapshot) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.parent = parent
-}
-
-func (s *diffLayer) getNodeSet() map[common.Hash]map[string][]byte {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	return s.nodeSet
 }
 
 type journalEpochMeta struct {
@@ -435,136 +225,4 @@ type journalEpochMeta struct {
 type epochMetaPlainMeta struct {
 	BlockNumber *big.Int
 	BlockRoot   common.Hash
-}
-
-type diskLayer struct {
-	diskdb      ethdb.KeyValueStore
-	blockNumber *big.Int
-	blockRoot   common.Hash
-	cache       *lru.Cache
-	lock        sync.RWMutex
-}
-
-func newEpochMetaDiskLayer(diskdb ethdb.KeyValueStore, blockNumber *big.Int, blockRoot common.Hash) (*diskLayer, error) {
-	cache, err := lru.New(defaultDiskLayerCacheSize)
-	if err != nil {
-		return nil, err
-	}
-	return &diskLayer{
-		diskdb:      diskdb,
-		blockNumber: blockNumber,
-		blockRoot:   blockRoot,
-		cache:       cache,
-	}, nil
-}
-
-func (s *diskLayer) Root() common.Hash {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.blockRoot
-}
-
-func (s *diskLayer) EpochMeta(addr common.Hash, path string) ([]byte, error) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-
-	// TODO(0xbundler): disklayer cache hit rate.
-	cacheKey := cacheKey(addr, path)
-	cached, exist := s.cache.Get(cacheKey)
-	if exist {
-		return cached.([]byte), nil
-	}
-
-	val := rawdb.ReadEpochMetaPlainState(s.diskdb, addr, path)
-	s.cache.Add(cacheKey, val)
-	return val, nil
-}
-
-func (s *diskLayer) Parent() snapshot {
-	return nil
-}
-
-func (s *diskLayer) Update(blockNumber *big.Int, blockRoot common.Hash, nodeSet map[common.Hash]map[string][]byte) (snapshot, error) {
-	s.lock.RLock()
-	if s.blockNumber.Int64() != 0 && s.blockNumber.Cmp(blockNumber) >= 0 {
-		return nil, errors.New("update a unordered diff layer in disk layer")
-	}
-	s.lock.RUnlock()
-	return newEpochMetaDiffLayer(blockNumber, blockRoot, s, nodeSet), nil
-}
-
-func (s *diskLayer) Journal(buffer *bytes.Buffer) (common.Hash, error) {
-	return common.Hash{}, nil
-}
-
-func (s *diskLayer) PushDiff(diff *diffLayer) (*diskLayer, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	number := diff.blockNumber
-	if s.blockNumber.Cmp(number) >= 0 {
-		return nil, errors.New("push a lower block to disk")
-	}
-	batch := s.diskdb.NewBatch()
-	nodeSet := diff.getNodeSet()
-	if err := s.writeHistory(number, batch, diff.getNodeSet()); err != nil {
-		return nil, err
-	}
-
-	// update meta
-	meta := epochMetaPlainMeta{
-		BlockNumber: number,
-		BlockRoot:   diff.blockRoot,
-	}
-	enc, err := rlp.EncodeToBytes(meta)
-	if err != nil {
-		return nil, err
-	}
-	if err = rawdb.WriteEpochMetaPlainStateMeta(batch, enc); err != nil {
-		return nil, err
-	}
-
-	if err = batch.Write(); err != nil {
-		return nil, err
-	}
-	diskLayer := &diskLayer{
-		diskdb:      s.diskdb,
-		blockNumber: number,
-		blockRoot:   diff.blockRoot,
-		cache:       s.cache,
-	}
-
-	// reuse cache
-	for addr, nodes := range nodeSet {
-		for path, val := range nodes {
-			diskLayer.cache.Add(cacheKey(addr, path), val)
-		}
-	}
-	return diskLayer, nil
-}
-
-func (s *diskLayer) writeHistory(number *big.Int, batch ethdb.Batch, nodeSet map[common.Hash]map[string][]byte) error {
-	for addr, subSet := range nodeSet {
-		for path, val := range subSet {
-			// refresh plain state
-			if len(val) == 0 {
-				if err := rawdb.DeleteEpochMetaPlainState(batch, addr, path); err != nil {
-					return err
-				}
-			} else {
-				if err := rawdb.WriteEpochMetaPlainState(batch, addr, path, val); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	log.Debug("shadow node history pruned, only keep plainState", "number", number, "count", len(nodeSet))
-	return nil
-}
-
-func cacheKey(addr common.Hash, path string) string {
-	key := make([]byte, len(addr)+len(path))
-	copy(key[:], addr.Bytes())
-	copy(key[len(addr):], path)
-	return string(key)
 }

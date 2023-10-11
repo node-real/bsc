@@ -46,6 +46,7 @@ type Config struct {
 
 	// state expiry feature
 	EnableStateExpiry bool
+	EpochMeta         *epochmeta.Config
 }
 
 // HashDefaults represents a config for using hash-based scheme with
@@ -167,7 +168,7 @@ func NewDatabase(diskdb ethdb.Database, config *Config) *Database {
 		db.backend = hashdb.New(diskdb, config.HashDB, mptResolver{})
 	}
 	if config != nil && config.EnableStateExpiry {
-		snapTree, err := epochmeta.NewEpochMetaSnapTree(diskdb)
+		snapTree, err := epochmeta.NewEpochMetaSnapTree(diskdb, config.EpochMeta)
 		if err != nil {
 			panic(fmt.Sprintf("init SnapshotTree err: %v", err))
 		}
