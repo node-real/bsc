@@ -1055,11 +1055,17 @@ func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) e
 		return nil
 	case *fullNode:
 		n.setEpoch(epoch)
+		// TODO if parent's epoch <= 1, just set Epoch0, opt in startup hit more time epochmeta problem
+		//if epoch <= types.StateEpoch1 {
+		//	return nil
+		//}
 		meta, err := t.reader.epochMeta(prefix)
 		if err != nil {
 			return err
 		}
-		n.EpochMap = meta.EpochMap
+		if meta != nil {
+			n.EpochMap = meta.EpochMap
+		}
 		return nil
 	case valueNode, hashNode, nil:
 		// just skip
@@ -1430,8 +1436,8 @@ type NodeInfo struct {
 	IsBranch bool
 }
 
-// PruneExpired traverses the storage trie and prunes all expired nodes.
-func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo, stats *atomic.Uint64) error {
+// ScanForPrune traverses the storage trie and prunes all expired or unexpired nodes.
+func (t *Trie) ScanForPrune(itemCh chan *NodeInfo, stats *atomic.Uint64, findExpired bool) error {
 
 	if !t.enableExpiry {
 		return nil
@@ -1442,10 +1448,10 @@ func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo, stats *atomic.Uint64) er
 	}
 
 	err := t.findExpiredSubTree(t.root, nil, t.getRootEpoch(), func(n node, path []byte, epoch types.StateEpoch) {
-		if pruneErr := t.recursePruneExpiredNode(n, path, epoch, pruneItemCh); pruneErr != nil {
+		if pruneErr := t.recursePruneExpiredNode(n, path, epoch, itemCh); pruneErr != nil {
 			log.Error("recursePruneExpiredNode err", "Path", path, "err", pruneErr)
 		}
-	}, stats)
+	}, stats, itemCh, findExpired)
 	if err != nil {
 		return err
 	}
@@ -1453,12 +1459,14 @@ func (t *Trie) PruneExpired(pruneItemCh chan *NodeInfo, stats *atomic.Uint64) er
 	return nil
 }
 
-func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch), stats *atomic.Uint64) error {
+func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch), stats *atomic.Uint64, itemCh chan *NodeInfo, findExpired bool) error {
 	// Upon reaching expired node, it will recursively traverse downwards to all the child nodes
 	// and collect their hashes. Then, the corresponding key-value pairs will be deleted from the
 	// database by batches.
 	if t.epochExpired(n, epoch) {
-		pruner(n, path, epoch)
+		if findExpired {
+			pruner(n, path, epoch)
+		}
 		return nil
 	}
 
@@ -1467,7 +1475,12 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		if stats != nil {
 			stats.Add(1)
 		}
-		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, stats)
+		if !findExpired {
+			itemCh <- &NodeInfo{
+				Hash: common.BytesToHash(n.flags.hash),
+			}
+		}
+		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, stats, nil, false)
 		if err != nil {
 			return err
 		}
@@ -1479,7 +1492,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		var err error
 		// Go through every child and recursively delete expired nodes
 		for i, child := range n.Children {
-			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, stats)
+			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, stats, nil, false)
 			if err != nil {
 				return err
 			}
@@ -1498,7 +1511,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 			return err
 		}
 
-		return t.findExpiredSubTree(resolve, path, epoch, pruner, stats)
+		return t.findExpiredSubTree(resolve, path, epoch, pruner, stats, nil, false)
 	case valueNode:
 		return nil
 	case nil:
