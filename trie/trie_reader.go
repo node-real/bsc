@@ -43,10 +43,10 @@ type Reader interface {
 // trieReader is a wrapper of the underlying node reader. It's not safe
 // for concurrent usage.
 type trieReader struct {
-	owner  common.Hash
-	reader Reader
-	emdb   epochmeta.Storage
-	banned map[string]struct{} // Marker to prevent node from being accessed, for tests
+	owner    common.Hash
+	reader   Reader
+	emReader *epochmeta.Reader
+	banned   map[string]struct{} // Marker to prevent node from being accessed, for tests
 }
 
 // newTrieReader initializes the trie reader with the given node reader.
@@ -63,7 +63,7 @@ func newTrieReader(stateRoot, owner common.Hash, db *Database) (*trieReader, err
 	}
 	tr := trieReader{owner: owner, reader: reader}
 	if db.snapTree != nil {
-		tr.emdb, err = epochmeta.NewEpochMetaDatabase(db.snapTree, new(big.Int), stateRoot)
+		tr.emReader, err = epochmeta.NewReader(db.snapTree, new(big.Int), stateRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -114,19 +114,17 @@ func (l *trieLoader) OpenStorageTrie(stateRoot common.Hash, addrHash, root commo
 
 // epochMeta resolve from epoch meta storage
 func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, error) {
-	if r.emdb == nil {
+	if r.emReader == nil {
 		return nil, fmt.Errorf("cannot resolve epochmeta without db, path: %#x", path)
 	}
 
 	// epoch meta cloud be empty, because epoch0 or delete?
-	blob, err := r.emdb.Get(r.owner, string(path))
+	blob, err := r.emReader.Get(r.owner, string(path))
 	if err != nil {
 		return nil, fmt.Errorf("resolve epoch meta err, path: %#x, err: %v", path, err)
 	}
 	if len(blob) == 0 {
-		// set default epoch map
-		// TODO(0xbundler): remove mem alloc?
-		return epochmeta.NewBranchNodeEpochMeta([16]types.StateEpoch{}), nil
+		return nil, nil
 	}
 	meta, err := epochmeta.DecodeFullNodeEpochMeta(blob)
 	if err != nil {
@@ -137,11 +135,11 @@ func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, err
 
 // accountMeta resolve account metadata
 func (r *trieReader) accountMeta() (types.MetaNoConsensus, error) {
-	if r.emdb == nil {
+	if r.emReader == nil {
 		return types.EmptyMetaNoConsensus, errors.New("cannot resolve epoch meta without db for account")
 	}
 
-	blob, err := r.emdb.Get(r.owner, epochmeta.AccountMetadataPath)
+	blob, err := r.emReader.Get(r.owner, epochmeta.AccountMetadataPath)
 	if err != nil {
 		return types.EmptyMetaNoConsensus, fmt.Errorf("resolve epoch meta err for account, err: %v", err)
 	}

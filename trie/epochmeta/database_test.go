@@ -15,51 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEpochMetaRW_CRUD(t *testing.T) {
-	diskdb := memorydb.New()
-	tree, err := NewEpochMetaSnapTree(diskdb)
-	assert.NoError(t, err)
-	storageDB, err := NewEpochMetaDatabase(tree, common.Big1, blockRoot1)
-	assert.NoError(t, err)
-
-	err = storageDB.Put(contract1, "hello", []byte("world"))
-	assert.NoError(t, err)
-	err = storageDB.Put(contract1, "hello", []byte("world"))
-	assert.NoError(t, err)
-	val, err := storageDB.Get(contract1, "hello")
-	assert.NoError(t, err)
-	assert.Equal(t, []byte("world"), val)
-	err = storageDB.Delete(contract1, "hello")
-	assert.NoError(t, err)
-	val, err = storageDB.Get(contract1, "hello")
-	assert.NoError(t, err)
-	assert.Equal(t, []byte(nil), val)
-}
-
-func TestEpochMetaRO_Get(t *testing.T) {
-	diskdb := memorydb.New()
-	makeDiskLayer(diskdb, common.Big1, blockRoot1, contract1, []string{"k1", "v1"})
-
-	tree, err := NewEpochMetaSnapTree(diskdb)
-	assert.NoError(t, err)
-	storageRO, err := NewEpochMetaDatabase(tree, common.Big1, blockRoot1)
-	assert.NoError(t, err)
-
-	err = storageRO.Put(contract1, "hello", []byte("world"))
-	assert.NoError(t, err)
-	err = storageRO.Delete(contract1, "hello")
-	assert.NoError(t, err)
-	err = storageRO.Commit(common.Big2, blockRoot2)
-	assert.NoError(t, err)
-
-	val, err := storageRO.Get(contract1, "hello")
-	assert.NoError(t, err)
-	assert.Equal(t, []byte(nil), val)
-	val, err = storageRO.Get(contract1, "k1")
-	assert.NoError(t, err)
-	assert.Equal(t, []byte("v1"), val)
-}
-
 func makeDiskLayer(diskdb *memorydb.Database, number *big.Int, root common.Hash, addr common.Hash, kv []string) {
 	if len(kv)%2 != 0 {
 		panic("wrong kv")
@@ -76,20 +31,12 @@ func makeDiskLayer(diskdb *memorydb.Database, number *big.Int, root common.Hash,
 	}
 }
 
-func TestEpochMetaRW_Commit(t *testing.T) {
+func TestEpochMetaReader(t *testing.T) {
 	diskdb := memorydb.New()
-	tree, err := NewEpochMetaSnapTree(diskdb)
+	makeDiskLayer(diskdb, common.Big1, blockRoot1, contract1, []string{"hello", "world"})
+	tree, err := NewEpochMetaSnapTree(diskdb, nil)
 	assert.NoError(t, err)
-	storageDB, err := NewEpochMetaDatabase(tree, common.Big1, blockRoot1)
-	assert.NoError(t, err)
-
-	err = storageDB.Put(contract1, "hello", []byte("world"))
-	assert.NoError(t, err)
-
-	err = storageDB.Commit(common.Big1, blockRoot1)
-	assert.NoError(t, err)
-
-	storageDB, err = NewEpochMetaDatabase(tree, common.Big1, blockRoot1)
+	storageDB, err := NewReader(tree, common.Big1, blockRoot1)
 	assert.NoError(t, err)
 	val, err := storageDB.Get(contract1, "hello")
 	assert.NoError(t, err)

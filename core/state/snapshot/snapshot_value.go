@@ -108,16 +108,6 @@ func DecodeValueFromRLPBytes(b []byte) (SnapValue, error) {
 	return decodeTypedVal(b)
 }
 
-func GetValueTypeFromRLPBytes(b []byte) byte {
-	if len(b) == 0 {
-		return RawValueType
-	}
-	if b[0] > 0x7f {
-		return RawValueType
-	}
-	return b[0]
-}
-
 func decodeTypedVal(b []byte) (SnapValue, error) {
 	switch b[0] {
 	case ValueWithEpochType:

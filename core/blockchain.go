@@ -1265,9 +1265,9 @@ func (bc *BlockChain) Stop() {
 			}
 		}
 
-		epochMetaSnapTree := bc.triedb.EpochMetaSnapTree()
-		if epochMetaSnapTree != nil {
-			if err := epochMetaSnapTree.Journal(); err != nil {
+		epochMetaSnap := bc.triedb.EpochMetaSnapTree()
+		if epochMetaSnap != nil {
+			if err := epochMetaSnap.Journal(); err != nil {
 				log.Error("Failed to journal epochMetaSnapTree", "err", err)
 			}
 		}
@@ -1668,6 +1668,10 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 			// Full but not archive node, do proper garbage collection
 			triedb.Reference(block.Root(), common.Hash{}) // metadata reference to keep trie alive
 			bc.triegc.Push(block.Root(), -int64(block.NumberU64()))
+			err := triedb.CommitEpochMeta(block.Root())
+			if err != nil {
+				return err
+			}
 
 			if current := block.NumberU64(); current > bc.triesInMemory {
 				// If we exceeded our memory allowance, flush matured singleton nodes to disk
