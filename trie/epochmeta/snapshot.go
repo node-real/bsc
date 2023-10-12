@@ -142,7 +142,7 @@ func (s *SnapshotTree) Cap(blockRoot common.Hash) error {
 			diff.resetParent(newDiskLayer)
 		}
 	}
-	log.Info("SnapshotTree cap", "layers", len(s.layers), "children", len(s.children), "flatten", len(flatten))
+	log.Debug("epochmeta snap tree cap", "root", blockRoot, "layers", len(s.layers), "flatten", len(flatten))
 	return nil
 }
 
@@ -172,6 +172,7 @@ func (s *SnapshotTree) Update(parentRoot common.Hash, blockNumber *big.Int, bloc
 
 	s.layers[blockRoot] = snap
 	s.children[parentRoot] = append(s.children[parentRoot], blockRoot)
+	log.Debug("epochmeta snap tree update", "root", blockRoot, "number", blockNumber, "layers", len(s.layers))
 	return nil
 }
 

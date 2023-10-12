@@ -38,6 +38,7 @@ func (t *Trie) tryLocalRevive(origNode node, key []byte, pos int, epoch types.St
 			n = n.copy()
 			n.Val = newnode
 			n.setEpoch(t.currentEpoch)
+			n.flags = t.newFlag()
 			didResolve = true
 		}
 		return value, n, didResolve, err
@@ -50,6 +51,7 @@ func (t *Trie) tryLocalRevive(origNode node, key []byte, pos int, epoch types.St
 			if newnode != nil {
 				n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
 			}
+			n.flags = t.newFlag()
 			didResolve = true
 		}
 		return value, n, didResolve, err
@@ -59,10 +61,8 @@ func (t *Trie) tryLocalRevive(origNode node, key []byte, pos int, epoch types.St
 			return nil, n, true, err
 		}
 
-		if child, ok := child.(*fullNode); ok {
-			if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
-				return nil, n, true, err
-			}
+		if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
+			return nil, n, true, err
 		}
 		value, newnode, _, err := t.tryLocalRevive(child, key, pos, epoch)
 		return value, newnode, true, err
