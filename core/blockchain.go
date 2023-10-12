@@ -1645,6 +1645,10 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		// If node is running in path mode, skip explicit gc operation
 		// which is unnecessary in this mode.
 		if bc.triedb.Scheme() == rawdb.PathScheme {
+			err := bc.triedb.CommitEpochMeta(block.Root())
+			if err != nil {
+				return err
+			}
 			return nil
 		}
 
@@ -1659,10 +1663,12 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 			// Full but not archive node, do proper garbage collection
 			triedb.Reference(block.Root(), common.Hash{}) // metadata reference to keep trie alive
 			bc.triegc.Push(block.Root(), -int64(block.NumberU64()))
-			err := triedb.CommitEpochMeta(block.Root())
-			if err != nil {
-				return err
-			}
+			// TODO(0xbundler): when opt commit later, remove it.
+			go triedb.CommitEpochMeta(block.Root())
+			//err := triedb.CommitEpochMeta(block.Root())
+			//if err != nil {
+			//	return err
+			//}
 
 			if current := block.NumberU64(); current > bc.triesInMemory {
 				// If we exceeded our memory allowance, flush matured singleton nodes to disk
