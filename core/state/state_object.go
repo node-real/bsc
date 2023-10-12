@@ -169,7 +169,6 @@ func (s *stateObject) getTrie() (Trie, error) {
 			s.trie = s.db.prefetcher.trie(s.addrHash, s.data.Root)
 		}
 		if s.trie == nil {
-			// TODO(0xbundler): if any change to open a storage trie in state expiry feature?
 			tr, err := s.db.db.OpenStorageTrie(s.db.originalRoot, s.address, s.data.Root)
 			if err != nil {
 				return nil, err
@@ -320,6 +319,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
+				log.Debug("GetCommittedState expired in trie", "addr", s.address, "key", key, "err", err)
 				val, err = s.fetchExpiredFromRemote(enErr.Path, key, false)
 			}
 			// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
@@ -486,6 +486,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				if _, err = fetchExpiredStorageFromRemote(s.db.expiryMeta, s.address, s.data.Root, tr, enErr.Path, key); err != nil {
 					s.db.setError(fmt.Errorf("state object pendingFutureReviveState fetchExpiredStorageFromRemote err, contract: %v, key: %v, path: %v, err: %v", s.address, key, enErr.Path, err))
 				}
+				log.Debug("updateTrie pendingFutureReviveState", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 			}
 		}
 		for key, value := range dirtyStorage {
@@ -493,11 +494,13 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				if err := tr.DeleteStorage(s.address, key[:]); err != nil {
 					s.db.setError(fmt.Errorf("state object update trie DeleteStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
+				log.Debug("updateTrie DeleteStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 				s.db.StorageDeleted += 1
 			} else {
 				if err := tr.UpdateStorage(s.address, key[:], value); err != nil {
 					s.db.setError(fmt.Errorf("state object update trie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
+				log.Debug("updateTrie UpdateStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 				s.db.StorageUpdated += 1
 			}
 			// Cache the items for preloading
@@ -527,13 +530,16 @@ func (s *stateObject) updateTrie() (Trie, error) {
 
 			// rlp-encoded value to be used by the snapshot
 			var snapshotVal []byte
-			// Encoding []byte cannot fail, ok to ignore the error.
-			if s.db.EnableExpire() {
-				snapshotVal, _ = snapshot.EncodeValueToRLPBytes(snapshot.NewValueWithEpoch(s.db.Epoch(), value))
-			} else {
-				snapshotVal, _ = rlp.EncodeToBytes(value)
+			if len(value) != 0 {
+				// Encoding []byte cannot fail, ok to ignore the error.
+				if s.db.EnableExpire() {
+					snapshotVal, _ = snapshot.EncodeValueToRLPBytes(snapshot.NewValueWithEpoch(s.db.Epoch(), value))
+				} else {
+					snapshotVal, _ = rlp.EncodeToBytes(value)
+				}
 			}
 			storage[khash] = snapshotVal // snapshotVal will be nil if it's deleted
+			log.Debug("updateTrie UpdateSnapShot", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", snapshotVal, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 
 			// Track the original value of slot only if it's mutated first time
 			prev := s.originStorage[key]
@@ -905,6 +911,7 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, erro
 		return val.GetVal(), nil, nil
 	}
 
+	log.Debug("GetCommittedState expired in snapshot", "addr", s.address, "key", key, "val", val, "enc", enc, "err", err)
 	// handle from remoteDB, if got err just setError, or return to revert in consensus version.
 	valRaw, err := s.fetchExpiredFromRemote(nil, key, true)
 	if err != nil {

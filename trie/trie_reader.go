@@ -22,9 +22,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"github.com/ethereum/go-ethereum/trie/triestate"
 	"math/big"
+	"time"
+)
+
+var (
+	accountMetaTimer = metrics.NewRegisteredTimer("trie/reader/accountmeta", nil)
+	epochMetaTimer   = metrics.NewRegisteredTimer("trie/reader/epochmeta", nil)
+	nodeTimer        = metrics.NewRegisteredTimer("trie/reader/node", nil)
 )
 
 // Reader wraps the Node method of a backing trie store.
@@ -81,6 +89,9 @@ func newEmptyReader() *trieReader {
 // information. An MissingNodeError will be returned in case the node is
 // not found or any error is encountered.
 func (r *trieReader) node(path []byte, hash common.Hash) ([]byte, error) {
+	defer func(start time.Time) {
+		nodeTimer.Update(time.Since(start))
+	}(time.Now())
 	// Perform the logics in tests for preventing trie node access.
 	if r.banned != nil {
 		if _, ok := r.banned[string(path)]; ok {
@@ -114,6 +125,9 @@ func (l *trieLoader) OpenStorageTrie(stateRoot common.Hash, addrHash, root commo
 
 // epochMeta resolve from epoch meta storage
 func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, error) {
+	defer func(start time.Time) {
+		epochMetaTimer.Update(time.Since(start))
+	}(time.Now())
 	if r.emReader == nil {
 		return nil, fmt.Errorf("cannot resolve epochmeta without db, path: %#x", path)
 	}
@@ -135,6 +149,9 @@ func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, err
 
 // accountMeta resolve account metadata
 func (r *trieReader) accountMeta() (types.MetaNoConsensus, error) {
+	defer func(start time.Time) {
+		accountMetaTimer.Update(time.Since(start))
+	}(time.Now())
 	if r.emReader == nil {
 		return types.EmptyMetaNoConsensus, errors.New("cannot resolve epoch meta without db for account")
 	}
