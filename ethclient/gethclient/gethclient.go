@@ -127,7 +127,7 @@ func (ec *Client) GetProof(ctx context.Context, account common.Address, keys []s
 
 // GetStorageReviveProof returns the proof for the given keys. Prefix keys can be specified to obtain partial proof for a given key.
 // Both keys and prefix keys should have the same length. If user wish to obtain full proof for a given key, the corresponding prefix key should be empty string.
-func (ec *Client) GetStorageReviveProof(ctx context.Context, account common.Address, keys []string, prefixKeys []string, hash common.Hash) (*types.ReviveResult, error) {
+func (ec *Client) GetStorageReviveProof(ctx context.Context, stateRoot common.Hash, account common.Address, root common.Hash, keys []string, prefixKeys []string) (*types.ReviveResult, error) {
 	type reviveResult struct {
 		StorageProof []types.ReviveStorageProof `json:"storageProof"`
 		BlockNum     hexutil.Uint64             `json:"blockNum"`
@@ -136,7 +136,7 @@ func (ec *Client) GetStorageReviveProof(ctx context.Context, account common.Addr
 	var err error
 	var res reviveResult
 
-	err = ec.c.CallContext(ctx, &res, "eth_getStorageReviveProof", account, keys, prefixKeys, hash)
+	err = ec.c.CallContext(ctx, &res, "eth_getStorageReviveProof", stateRoot, account, root, keys, prefixKeys)
 
 	return &types.ReviveResult{
 		StorageProof: res.StorageProof,

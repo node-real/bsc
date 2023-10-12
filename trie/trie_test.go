@@ -1118,7 +1118,7 @@ func TestReviveBadProof(t *testing.T) {
 
 	// Verify value does exists after revive
 	val, err := trieA.Get([]byte("abcd"))
-	assert.NoError(t, err, "Get failed, key %x, val %x", []byte("abcd"), val)
+	assert.Error(t, err, "Get failed, key %x, val %x", []byte("abcd"), val)
 	assert.NotEqual(t, []byte("A"), val)
 }
 

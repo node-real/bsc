@@ -93,7 +93,7 @@ func generateTestChain() (*core.Genesis, []*types.Block) {
 }
 
 func TestGethClient(t *testing.T) {
-	backend, _ := newTestBackend(t)
+	backend, blocks := newTestBackend(t)
 	client := backend.Attach()
 	defer backend.Close()
 	defer client.Close()
@@ -107,7 +107,7 @@ func TestGethClient(t *testing.T) {
 			func(t *testing.T) { testGetProof(t, client) },
 		}, {
 			"TestGetStorageReviveProof",
-			func(t *testing.T) { testGetStorageReviveProof(t, client) },
+			func(t *testing.T) { testGetStorageReviveProof(t, client, blocks[0]) },
 		}, {
 			"TestGetProofCanonicalizeKeys",
 			func(t *testing.T) { testGetProofCanonicalizeKeys(t, client) },
@@ -239,9 +239,9 @@ func testGetProof(t *testing.T, client *rpc.Client) {
 	}
 }
 
-func testGetStorageReviveProof(t *testing.T, client *rpc.Client) {
+func testGetStorageReviveProof(t *testing.T, client *rpc.Client, block *types.Block) {
 	ec := New(client)
-	result, err := ec.GetStorageReviveProof(context.Background(), testAddr, []string{testSlot.String()}, []string{""}, common.Hash{})
+	result, err := ec.GetStorageReviveProof(context.Background(), block.Header().Root, testAddr, block.Header().Root, []string{testSlot.String()}, []string{""})
 	proofs := result.StorageProof
 
 	if err != nil {
