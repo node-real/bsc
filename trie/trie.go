@@ -274,6 +274,7 @@ func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.Stat
 			if updateEpoch {
 				n.setEpoch(t.currentEpoch)
 			}
+			n.flags = t.newFlag()
 			didResolve = true
 		}
 		return value, n, didResolve, err
@@ -288,6 +289,7 @@ func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.Stat
 			if updateEpoch && newnode != nil {
 				n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
 			}
+			n.flags = t.newFlag()
 			didResolve = true
 		}
 		return value, n, didResolve, err
@@ -297,10 +299,8 @@ func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.Stat
 			return nil, n, true, err
 		}
 
-		if child, ok := child.(*fullNode); ok {
-			if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
-				return nil, n, true, err
-			}
+		if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
+			return nil, n, true, err
 		}
 		value, newnode, _, err := t.getWithEpoch(child, key, pos, epoch, updateEpoch)
 		return value, newnode, true, err
@@ -626,7 +626,6 @@ func (t *Trie) insertWithEpoch(n node, prefix, key []byte, value node, epoch typ
 			return false, nil, err
 		}
 		branch.UpdateChildEpoch(int(key[matchlen]), t.currentEpoch)
-		branch.setEpoch(t.currentEpoch)
 
 		// Replace this shortNode with the branch if it occurs at index 0.
 		if matchlen == 0 {
@@ -672,10 +671,8 @@ func (t *Trie) insertWithEpoch(n node, prefix, key []byte, value node, epoch typ
 			return false, nil, err
 		}
 
-		if child, ok := rn.(*fullNode); ok {
-			if err = t.resolveEpochMeta(child, epoch, prefix); err != nil {
-				return false, nil, err
-			}
+		if err = t.resolveEpochMeta(rn, epoch, prefix); err != nil {
+			return false, nil, err
 		}
 
 		dirty, nn, err := t.insertWithEpoch(rn, prefix, key, value, epoch)
@@ -813,7 +810,7 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 				// shortNode{..., shortNode{...}}.  Since the entry
 				// might not be loaded yet, resolve it just for this
 				// check.
-				cnode, err := t.resolve(n.Children[pos], append(prefix, byte(pos)))
+				cnode, err := t.resolve(n.Children[pos], append(prefix, byte(pos)), n.GetChildEpoch(pos))
 				if err != nil {
 					return false, nil, err
 				}
@@ -885,7 +882,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 		// subtrie must contain at least two other values with keys
 		// longer than n.Key.
 		dirty, child, err := t.deleteWithEpoch(n.Val, append(prefix, key[:len(n.Key)]...), key[len(n.Key):], epoch)
-		if !t.renewNode(epoch, dirty, true) || err != nil {
+		if !dirty || err != nil {
 			return false, n, err
 		}
 		switch child := child.(type) {
@@ -907,7 +904,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 
 	case *fullNode:
 		dirty, nn, err := t.deleteWithEpoch(n.Children[key[0]], append(prefix, key[0]), key[1:], n.GetChildEpoch(int(key[0])))
-		if !t.renewNode(epoch, dirty, true) || err != nil {
+		if !dirty || err != nil {
 			return false, n, err
 		}
 		n = n.copy()
@@ -952,7 +949,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 				// shortNode{..., shortNode{...}}.  Since the entry
 				// might not be loaded yet, resolve it just for this
 				// check.
-				cnode, err := t.resolve(n.Children[pos], append(prefix, byte(pos)))
+				cnode, err := t.resolve(n.Children[pos], append(prefix, byte(pos)), n.GetChildEpoch(pos))
 				if err != nil {
 					return false, nil, err
 				}
@@ -990,14 +987,12 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 			return false, nil, err
 		}
 
-		if child, ok := rn.(*fullNode); ok {
-			if err = t.resolveEpochMeta(child, epoch, prefix); err != nil {
-				return false, nil, err
-			}
+		if err = t.resolveEpochMeta(rn, epoch, prefix); err != nil {
+			return false, nil, err
 		}
 
 		dirty, nn, err := t.deleteWithEpoch(rn, prefix, key, epoch)
-		if !t.renewNode(epoch, dirty, true) || err != nil {
+		if !dirty || err != nil {
 			return false, rn, err
 		}
 		return true, nn, nil
@@ -1015,9 +1010,16 @@ func concat(s1 []byte, s2 ...byte) []byte {
 	return r
 }
 
-func (t *Trie) resolve(n node, prefix []byte) (node, error) {
+func (t *Trie) resolve(n node, prefix []byte, epoch types.StateEpoch) (node, error) {
 	if n, ok := n.(hashNode); ok {
-		return t.resolveAndTrack(n, prefix)
+		n, err := t.resolveAndTrack(n, prefix)
+		if err != nil {
+			return nil, err
+		}
+		if err = t.resolveEpochMeta(n, epoch, prefix); err != nil {
+			return nil, err
+		}
+		return n, nil
 	}
 	return n, nil
 }
@@ -1055,10 +1057,6 @@ func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) e
 		return nil
 	case *fullNode:
 		n.setEpoch(epoch)
-		// TODO if parent's epoch <= 1, just set Epoch0, opt in startup hit more time epochmeta problem
-		//if epoch <= types.StateEpoch1 {
-		//	return nil
-		//}
 		meta, err := t.reader.epochMeta(prefix)
 		if err != nil {
 			return err
@@ -1295,11 +1293,8 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 		if err != nil {
 			return nil, false, err
 		}
-
-		if child, ok := child.(*fullNode); ok {
-			if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
-				return nil, false, err
-			}
+		if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
+			return nil, false, err
 		}
 
 		newNode, _, err := t.tryRevive(child, key, targetPrefixKey, nub, pos, epoch, isExpired)
@@ -1477,7 +1472,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 				Hash: common.BytesToHash(n.flags.hash),
 			}
 		}
-		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, stats, nil, false)
+		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, stats, itemCh, findExpired)
 		if err != nil {
 			return err
 		}
@@ -1486,10 +1481,15 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		if stats != nil {
 			stats.Add(1)
 		}
+		if !findExpired {
+			itemCh <- &NodeInfo{
+				Hash: common.BytesToHash(n.flags.hash),
+			}
+		}
 		var err error
 		// Go through every child and recursively delete expired nodes
 		for i, child := range n.Children {
-			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, stats, nil, false)
+			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, stats, itemCh, findExpired)
 			if err != nil {
 				return err
 			}
@@ -1508,7 +1508,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 			return err
 		}
 
-		return t.findExpiredSubTree(resolve, path, epoch, pruner, stats, nil, false)
+		return t.findExpiredSubTree(resolve, path, epoch, pruner, stats, itemCh, findExpired)
 	case valueNode:
 		return nil
 	case nil:

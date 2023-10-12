@@ -17,6 +17,7 @@ const (
 	// MaxEpochMetaDiffDepth default is 128 layers
 	MaxEpochMetaDiffDepth        = 128
 	journalVersion        uint64 = 1
+	enableBloomFilter            = false
 )
 
 var (
@@ -95,7 +96,6 @@ func (h storageBloomHasher) Sum64() uint64 {
 		binary.BigEndian.Uint64([]byte(h.path[bloomStorageHasherOffset:bloomStorageHasherOffset+8]))
 }
 
-// TODO(0xbundler): add bloom filter?
 type diffLayer struct {
 	blockNumber *big.Int
 	blockRoot   common.Hash
@@ -114,23 +114,25 @@ func newEpochMetaDiffLayer(blockNumber *big.Int, blockRoot common.Hash, parent s
 		nodeSet:     nodeSet,
 	}
 
-	switch p := parent.(type) {
-	case *diffLayer:
-		dl.origin = p.origin
-		dl.diffed, _ = p.diffed.Copy()
-	case *diskLayer:
-		dl.origin = p
-		dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
-	default:
-		panic("newEpochMetaDiffLayer got wrong snapshot type")
-	}
-
-	// Iterate over all the accounts and storage metas and index them
-	for accountHash, metas := range dl.nodeSet {
-		for path := range metas {
-			dl.diffed.Add(storageBloomHasher{accountHash, path})
+	if enableBloomFilter {
+		switch p := parent.(type) {
+		case *diffLayer:
+			dl.origin = p.origin
+			dl.diffed, _ = p.diffed.Copy()
+		case *diskLayer:
+			dl.origin = p
+			dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
+		default:
+			panic("newEpochMetaDiffLayer got wrong snapshot type")
+		}
+		// Iterate over all the accounts and storage metas and index them
+		for accountHash, metas := range dl.nodeSet {
+			for path := range metas {
+				dl.diffed.Add(storageBloomHasher{accountHash, path})
+			}
 		}
 	}
+
 	return dl
 }
 
@@ -141,7 +143,7 @@ func (s *diffLayer) Root() common.Hash {
 // EpochMeta find target epoch meta from diff layer or disk layer
 func (s *diffLayer) EpochMeta(addrHash common.Hash, path string) ([]byte, error) {
 	// if the diff chain not contain the meta or staled, try get from disk layer
-	if !s.diffed.Contains(storageBloomHasher{addrHash, path}) {
+	if s.diffed != nil && !s.diffed.Contains(storageBloomHasher{addrHash, path}) {
 		return s.origin.EpochMeta(addrHash, path)
 	}
 

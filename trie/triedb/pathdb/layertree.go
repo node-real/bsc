@@ -19,6 +19,7 @@ package pathdb
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -106,6 +107,7 @@ func (tree *layerTree) add(root common.Hash, parentRoot common.Hash, block uint6
 
 	tree.lock.Lock()
 	tree.layers[l.rootHash()] = l
+	log.Debug("pathdb snap tree update", "root", root, "number", block, "layers", len(tree.layers))
 	tree.lock.Unlock()
 	return nil
 }
@@ -191,6 +193,7 @@ func (tree *layerTree) cap(root common.Hash, layers int) error {
 			remove(root)
 		}
 	}
+	log.Debug("pathdb snap tree cap", "root", root, "layers", len(tree.layers))
 	return nil
 }
 

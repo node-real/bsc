@@ -112,6 +112,9 @@ func batchFetchExpiredFromRemote(expiryMeta *stateExpiryMeta, addr common.Addres
 			keysStr[i] = common.Bytes2Hex(key[:])
 		}
 	}
+	if len(prefixKeysStr) == 0 {
+		return ret, nil
+	}
 
 	// cannot revive locally, fetch remote proof
 	proofs, err := expiryMeta.fullStateDB.GetStorageReviveProof(expiryMeta.originalRoot, addr, root, prefixKeysStr, keysStr)
