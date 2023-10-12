@@ -194,7 +194,11 @@ func (dl *diskLayer) proveRange(ctx *generatorContext, trieId *trie.ID, prefix [
 		keys = append(keys, common.CopyBytes(key[len(prefix):]))
 
 		if valueConvertFn == nil {
-			vals = append(vals, common.CopyBytes(iter.Value()))
+			rlpVal, err := convertSnapValToRLPVal(iter.Value())
+			if err != nil {
+				return nil, err
+			}
+			vals = append(vals, rlpVal)
 		} else {
 			val, err := valueConvertFn(iter.Value())
 			if err != nil {
@@ -204,10 +208,18 @@ func (dl *diskLayer) proveRange(ctx *generatorContext, trieId *trie.ID, prefix [
 				//
 				// Here append the original value to ensure that the number of key and
 				// value are aligned.
-				vals = append(vals, common.CopyBytes(iter.Value()))
+				rlpVal, err := convertSnapValToRLPVal(val)
+				if err != nil {
+					return nil, err
+				}
+				vals = append(vals, rlpVal)
 				log.Error("Failed to convert account state data", "err", err)
 			} else {
-				vals = append(vals, val)
+				rlpVal, err := convertSnapValToRLPVal(val)
+				if err != nil {
+					return nil, err
+				}
+				vals = append(vals, rlpVal)
 			}
 		}
 	}
@@ -733,6 +745,14 @@ func increaseKey(key []byte) []byte {
 		}
 	}
 	return nil
+}
+
+func convertSnapValToRLPVal(val []byte) ([]byte, error) {
+	snapVal, err := DecodeValueFromRLPBytes(val)
+	if err != nil {
+		return nil, err
+	}
+	return rlp.EncodeToBytes(snapVal.GetVal())
 }
 
 // abortErr wraps an interruption signal received to represent the
