@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"sync/atomic"
 )
@@ -107,13 +108,13 @@ func New(id *ID, db *Database) (*Trie, error) {
 	}
 	// resolve root epoch
 	if trie.enableExpiry {
-		meta, err := reader.accountMeta()
-		if err != nil {
-			return nil, err
-		}
-		trie.rootEpoch = meta.Epoch()
 		if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
 			trie.root = hashNode(id.Root[:])
+			meta, err := trie.resolveAccountMetaAndTrack()
+			if err != nil {
+				return nil, err
+			}
+			trie.rootEpoch = meta.Epoch()
 		}
 		return trie, nil
 	}
@@ -299,7 +300,7 @@ func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.Stat
 			return nil, n, true, err
 		}
 
-		if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
+		if err = t.resolveEpochMetaAndTrack(child, epoch, key[:pos]); err != nil {
 			return nil, n, true, err
 		}
 		value, newnode, _, err := t.getWithEpoch(child, key, pos, epoch, updateEpoch)
@@ -671,7 +672,7 @@ func (t *Trie) insertWithEpoch(n node, prefix, key []byte, value node, epoch typ
 			return false, nil, err
 		}
 
-		if err = t.resolveEpochMeta(rn, epoch, prefix); err != nil {
+		if err = t.resolveEpochMetaAndTrack(rn, epoch, prefix); err != nil {
 			return false, nil, err
 		}
 
@@ -987,7 +988,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 			return false, nil, err
 		}
 
-		if err = t.resolveEpochMeta(rn, epoch, prefix); err != nil {
+		if err = t.resolveEpochMetaAndTrack(rn, epoch, prefix); err != nil {
 			return false, nil, err
 		}
 
@@ -1016,7 +1017,7 @@ func (t *Trie) resolve(n node, prefix []byte, epoch types.StateEpoch) (node, err
 		if err != nil {
 			return nil, err
 		}
-		if err = t.resolveEpochMeta(n, epoch, prefix); err != nil {
+		if err = t.resolveEpochMetaAndTrack(n, epoch, prefix); err != nil {
 			return nil, err
 		}
 		return n, nil
@@ -1057,11 +1058,15 @@ func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) e
 		return nil
 	case *fullNode:
 		n.setEpoch(epoch)
-		meta, err := t.reader.epochMeta(prefix)
+		enc, err := t.reader.epochMeta(prefix)
 		if err != nil {
 			return err
 		}
-		if meta != nil {
+		if len(enc) > 0 {
+			meta, err := epochmeta.DecodeFullNodeEpochMeta(enc)
+			if err != nil {
+				return err
+			}
 			n.EpochMap = meta.EpochMap
 		}
 		return nil
@@ -1071,6 +1076,55 @@ func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) e
 	default:
 		return errors.New("resolveShadowNode unsupported node type")
 	}
+}
+
+// resolveEpochMetaAndTrack resolve full node's epoch map.
+func (t *Trie) resolveEpochMetaAndTrack(n node, epoch types.StateEpoch, prefix []byte) error {
+	if !t.enableExpiry {
+		return nil
+	}
+	// 1. Check if the node is a full node
+	switch n := n.(type) {
+	case *shortNode:
+		n.setEpoch(epoch)
+		return nil
+	case *fullNode:
+		n.setEpoch(epoch)
+		enc, err := t.reader.epochMeta(prefix)
+		if err != nil {
+			return err
+		}
+		t.tracer.onReadEpochMeta(string(prefix), enc)
+		if len(enc) > 0 {
+			meta, err := epochmeta.DecodeFullNodeEpochMeta(enc)
+			if err != nil {
+				return err
+			}
+			n.EpochMap = meta.EpochMap
+		}
+		return nil
+	case valueNode, hashNode, nil:
+		// just skip
+		return nil
+	default:
+		return errors.New("resolveShadowNode unsupported node type")
+	}
+}
+
+// resolveAccountMetaAndTrack resolve account's epoch map.
+func (t *Trie) resolveAccountMetaAndTrack() (types.MetaNoConsensus, error) {
+	if !t.enableExpiry {
+		return types.EmptyMetaNoConsensus, nil
+	}
+	enc, err := t.reader.accountMeta()
+	if err != nil {
+		return types.EmptyMetaNoConsensus, err
+	}
+	t.tracer.onReadEpochMeta(epochmeta.AccountMetadataPath, enc)
+	if len(enc) > 0 {
+		return types.DecodeMetaNoConsensusFromRLPBytes(enc)
+	}
+	return types.EmptyMetaNoConsensus, nil
 }
 
 // Hash returns the root hash of the trie. It does not write to the
@@ -1132,8 +1186,12 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 	}
 	// store state expiry account meta
 	if t.enableExpiry {
-		if err := nodes.AddAccountMeta(types.NewMetaNoConsensus(t.rootEpoch)); err != nil {
+		blob, err := epochmeta.AccountMeta2Bytes(types.NewMetaNoConsensus(t.rootEpoch))
+		if err != nil {
 			return common.Hash{}, nil, err
+		}
+		if t.tracer.checkEpochMetaChanged([]byte(epochmeta.AccountMetadataPath), blob) {
+			nodes.AddAccountMeta(blob)
 		}
 	}
 	t.root = newCommitter(nodes, t.tracer, collectLeaf, t.enableExpiry).Commit(t.root)
@@ -1293,7 +1351,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 		if err != nil {
 			return nil, false, err
 		}
-		if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
+		if err = t.resolveEpochMetaAndTrack(child, epoch, key[:pos]); err != nil {
 			return nil, false, err
 		}
 
@@ -1504,7 +1562,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		if err != nil {
 			return err
 		}
-		if err = t.resolveEpochMeta(resolve, epoch, path); err != nil {
+		if err = t.resolveEpochMetaAndTrack(resolve, epoch, path); err != nil {
 			return err
 		}
 
@@ -1563,7 +1621,7 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		if err != nil {
 			return err
 		}
-		if err = t.resolveEpochMeta(resolve, epoch, path); err != nil {
+		if err = t.resolveEpochMetaAndTrack(resolve, epoch, path); err != nil {
 			return err
 		}
 		return t.recursePruneExpiredNode(resolve, path, epoch, pruneItemCh)

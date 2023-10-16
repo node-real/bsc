@@ -61,7 +61,7 @@ func (t *Trie) tryLocalRevive(origNode node, key []byte, pos int, epoch types.St
 			return nil, n, true, err
 		}
 
-		if err = t.resolveEpochMeta(child, epoch, key[:pos]); err != nil {
+		if err = t.resolveEpochMetaAndTrack(child, epoch, key[:pos]); err != nil {
 			return nil, n, true, err
 		}
 		value, newnode, _, err := t.tryLocalRevive(child, key, pos, epoch)

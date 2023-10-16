@@ -142,18 +142,25 @@ func (c *committer) store(path []byte, n node) node {
 	}
 	// Collect the dirty node to nodeset for return.
 	nhash := common.BytesToHash(hash)
-	c.nodes.AddNode(path, trienode.New(nhash, nodeToBytes(n)))
+	blob := nodeToBytes(n)
+	changed := c.tracer.checkNodeChanged(path, blob)
+	if changed {
+		c.nodes.AddNode(path, trienode.New(nhash, blob))
+	}
 	if c.enableStateExpiry {
 		switch n := n.(type) {
 		case *fullNode:
-			c.nodes.AddBranchNodeEpochMeta(path, epochmeta.NewBranchNodeEpochMeta(n.EpochMap))
+			metaBlob := epochmeta.BranchMeta2Bytes(epochmeta.NewBranchNodeEpochMeta(n.EpochMap))
+			if c.tracer.checkEpochMetaChanged(path, metaBlob) {
+				c.nodes.AddBranchNodeEpochMeta(path, metaBlob)
+			}
 		}
 	}
 
 	// Collect the corresponding leaf node if it's required. We don't check
 	// full node since it's impossible to store value in fullNode. The key
 	// length of leaves should be exactly same.
-	if c.collectLeaf {
+	if changed && c.collectLeaf {
 		if sn, ok := n.(*shortNode); ok {
 			if val, ok := sn.Val.(valueNode); ok {
 				c.nodes.AddLeaf(nhash, val)

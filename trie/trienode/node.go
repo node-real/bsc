@@ -18,8 +18,6 @@ package trienode
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"sort"
 	"strings"
@@ -105,28 +103,13 @@ func (set *NodeSet) AddNode(path []byte, n *Node) {
 }
 
 // AddBranchNodeEpochMeta adds the provided epoch meta into set.
-func (set *NodeSet) AddBranchNodeEpochMeta(path []byte, meta *epochmeta.BranchNodeEpochMeta) {
-	if meta == nil || *meta == (epochmeta.BranchNodeEpochMeta{}) {
-		set.EpochMetas[string(path)] = []byte{}
-		return
-	}
-	buf := rlp.NewEncoderBuffer(nil)
-	meta.Encode(buf)
-	set.EpochMetas[string(path)] = buf.ToBytes()
+func (set *NodeSet) AddBranchNodeEpochMeta(path []byte, blob []byte) {
+	set.EpochMetas[string(path)] = blob
 }
 
 // AddAccountMeta adds the provided account into set.
-func (set *NodeSet) AddAccountMeta(meta types.StateMeta) error {
-	if meta == nil {
-		set.EpochMetas[epochmeta.AccountMetadataPath] = []byte{}
-		return nil
-	}
-	enc, err := meta.EncodeToRLPBytes()
-	if err != nil {
-		return err
-	}
-	set.EpochMetas[epochmeta.AccountMetadataPath] = enc
-	return nil
+func (set *NodeSet) AddAccountMeta(blob []byte) {
+	set.EpochMetas[epochmeta.AccountMetadataPath] = blob
 }
 
 // Merge adds a set of nodes into the set.
