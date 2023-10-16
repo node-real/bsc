@@ -74,3 +74,19 @@ func (s *Reader) Get(addr common.Hash, path string) ([]byte, error) {
 	metaAccessMeter.Mark(1)
 	return s.snap.EpochMeta(addr, path)
 }
+
+func BranchMeta2Bytes(meta *BranchNodeEpochMeta) []byte {
+	if meta == nil || *meta == (BranchNodeEpochMeta{}) {
+		return []byte{}
+	}
+	buf := rlp.NewEncoderBuffer(nil)
+	meta.Encode(buf)
+	return buf.ToBytes()
+}
+
+func AccountMeta2Bytes(meta types.StateMeta) ([]byte, error) {
+	if meta == nil {
+		return []byte{}, nil
+	}
+	return meta.EncodeToRLPBytes()
+}
