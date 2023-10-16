@@ -67,7 +67,7 @@ func newTrieReader(stateRoot, owner common.Hash, db *Database) (*trieReader, err
 		}
 		tr := &trieReader{owner: owner}
 		if db.snapTree != nil {
-			tr.emdb, err = epochmeta.NewEpochMetaDatabase(db.snapTree, new(big.Int), stateRoot)
+			tr.emReader, err = epochmeta.NewReader(db.snapTree, new(big.Int), stateRoot)
 			if err != nil {
 				return nil, err
 			}
