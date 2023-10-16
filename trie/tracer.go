@@ -17,6 +17,7 @@
 package trie
 
 import (
+	"bytes"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -40,19 +41,21 @@ import (
 // Note tracer is not thread-safe, callers should be responsible for handling
 // the concurrency issues by themselves.
 type tracer struct {
-	inserts           map[string]struct{}
-	deletes           map[string]struct{}
-	deleteBranchNodes map[string]struct{} // record for epoch meta
-	accessList        map[string][]byte
+	inserts             map[string]struct{}
+	deletes             map[string]struct{}
+	deleteEpochMetas    map[string]struct{} // record for epoch meta
+	accessList          map[string][]byte
+	accessEpochMetaList map[string][]byte
 }
 
 // newTracer initializes the tracer for capturing trie changes.
 func newTracer() *tracer {
 	return &tracer{
-		inserts:           make(map[string]struct{}),
-		deletes:           make(map[string]struct{}),
-		deleteBranchNodes: make(map[string]struct{}),
-		accessList:        make(map[string][]byte),
+		inserts:             make(map[string]struct{}),
+		deletes:             make(map[string]struct{}),
+		deleteEpochMetas:    make(map[string]struct{}),
+		accessList:          make(map[string][]byte),
+		accessEpochMetaList: make(map[string][]byte),
 	}
 }
 
@@ -61,6 +64,11 @@ func newTracer() *tracer {
 // it's not deep-copied.
 func (t *tracer) onRead(path []byte, val []byte) {
 	t.accessList[string(path)] = val
+}
+
+// onReadEpochMeta tracks the newly loaded trie epoch meta
+func (t *tracer) onReadEpochMeta(path string, val []byte) {
+	t.accessEpochMetaList[path] = val
 }
 
 // onInsert tracks the newly inserted trie node. If it's already
@@ -76,8 +84,8 @@ func (t *tracer) onInsert(path []byte) {
 
 // onExpandToBranchNode tracks the newly inserted trie branch node.
 func (t *tracer) onExpandToBranchNode(path []byte) {
-	if _, present := t.deleteBranchNodes[string(path)]; present {
-		delete(t.deleteBranchNodes, string(path))
+	if _, present := t.deleteEpochMetas[string(path)]; present {
+		delete(t.deleteEpochMetas, string(path))
 	}
 }
 
@@ -94,24 +102,26 @@ func (t *tracer) onDelete(path []byte) {
 
 // onDeleteBranchNode tracks the newly deleted trie branch node.
 func (t *tracer) onDeleteBranchNode(path []byte) {
-	t.deleteBranchNodes[string(path)] = struct{}{}
+	t.deleteEpochMetas[string(path)] = struct{}{}
 }
 
 // reset clears the content tracked by tracer.
 func (t *tracer) reset() {
 	t.inserts = make(map[string]struct{})
 	t.deletes = make(map[string]struct{})
-	t.deleteBranchNodes = make(map[string]struct{})
+	t.deleteEpochMetas = make(map[string]struct{})
 	t.accessList = make(map[string][]byte)
+	t.accessEpochMetaList = make(map[string][]byte)
 }
 
 // copy returns a deep copied tracer instance.
 func (t *tracer) copy() *tracer {
 	var (
-		inserts           = make(map[string]struct{})
-		deletes           = make(map[string]struct{})
-		deleteBranchNodes = make(map[string]struct{})
-		accessList        = make(map[string][]byte)
+		inserts             = make(map[string]struct{})
+		deletes             = make(map[string]struct{})
+		deleteBranchNodes   = make(map[string]struct{})
+		accessList          = make(map[string][]byte)
+		accessEpochMetaList = make(map[string][]byte)
 	)
 	for path := range t.inserts {
 		inserts[path] = struct{}{}
@@ -119,17 +129,21 @@ func (t *tracer) copy() *tracer {
 	for path := range t.deletes {
 		deletes[path] = struct{}{}
 	}
-	for path := range t.deleteBranchNodes {
+	for path := range t.deleteEpochMetas {
 		deleteBranchNodes[path] = struct{}{}
 	}
 	for path, blob := range t.accessList {
 		accessList[path] = common.CopyBytes(blob)
 	}
+	for path, blob := range t.accessEpochMetaList {
+		accessEpochMetaList[path] = common.CopyBytes(blob)
+	}
 	return &tracer{
-		inserts:           inserts,
-		deletes:           deletes,
-		deleteBranchNodes: deleteBranchNodes,
-		accessList:        accessList,
+		inserts:             inserts,
+		deletes:             deletes,
+		deleteEpochMetas:    deleteBranchNodes,
+		accessList:          accessList,
+		accessEpochMetaList: accessEpochMetaList,
 	}
 }
 
@@ -152,8 +166,32 @@ func (t *tracer) deletedNodes() []string {
 // deletedBranchNodes returns a list of branch node paths which are deleted from the trie.
 func (t *tracer) deletedBranchNodes() []string {
 	var paths []string
-	for path := range t.deleteBranchNodes {
+	for path := range t.deleteEpochMetas {
+		_, ok := t.accessEpochMetaList[path]
+		if !ok {
+			continue
+		}
 		paths = append(paths, path)
 	}
 	return paths
+}
+
+// checkNodeChanged check if change for node.
+func (t *tracer) checkNodeChanged(path []byte, blob []byte) bool {
+	val, ok := t.accessList[string(path)]
+	if !ok {
+		return len(blob) > 0
+	}
+
+	return !bytes.Equal(val, blob)
+}
+
+// checkEpochMetaChanged check if change for epochMeta.
+func (t *tracer) checkEpochMetaChanged(path []byte, blob []byte) bool {
+	val, ok := t.accessEpochMetaList[string(path)]
+	if !ok {
+		return len(blob) > 0
+	}
+
+	return !bytes.Equal(val, blob)
 }

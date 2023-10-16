@@ -850,7 +850,7 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 		logged    = time.Now()
 	)
 	for item := range expireContractCh {
-		log.Info("start scan trie expired state", "addrHash", item.Addr, "root", item.Root)
+		log.Debug("start scan trie expired state", "addrHash", item.Addr, "root", item.Root)
 		tr, err := trie.New(&trie.ID{
 			StateRoot: stateRoot,
 			Owner:     item.Addr,
@@ -897,12 +897,18 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 		switch scheme {
 		case rawdb.PathScheme:
 			val := rawdb.ReadTrieNode(diskdb, addr, info.Path, info.Hash, rawdb.PathScheme)
+			if len(val) == 0 {
+				log.Warn("cannot find source trie?", "addr", addr, "path", info.Path, "hash", info.Hash)
+			}
 			trieSize += common.StorageSize(len(val) + 33 + len(info.Path))
 			rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.PathScheme)
 		case rawdb.HashScheme:
 			// hbss has shared kv, so using bloom to filter them out.
 			if bloom == nil || !bloom.Contains(stateBloomHasher(info.Hash.Bytes())) {
 				val := rawdb.ReadTrieNode(diskdb, addr, info.Path, info.Hash, rawdb.HashScheme)
+				if len(val) == 0 {
+					log.Warn("cannot find source trie?", "addr", addr, "path", info.Path, "hash", info.Hash)
+				}
 				trieSize += common.StorageSize(len(val) + 33)
 				rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
 			}
@@ -911,6 +917,9 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 		if info.IsBranch {
 			epochMetaCount++
 			val := rawdb.ReadEpochMetaPlainState(diskdb, addr, string(info.Path))
+			if len(val) == 0 {
+				log.Warn("cannot find source epochmeta?", "addr", addr, "path", info.Path, "hash", info.Hash)
+			}
 			epochMetaSize += common.StorageSize(33 + len(info.Path) + len(val))
 			rawdb.DeleteEpochMetaPlainState(batch, addr, string(info.Path))
 		}

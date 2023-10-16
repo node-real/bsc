@@ -133,7 +133,7 @@ func (l *trieLoader) OpenStorageTrie(stateRoot common.Hash, addrHash, root commo
 }
 
 // epochMeta resolve from epoch meta storage
-func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, error) {
+func (r *trieReader) epochMeta(path []byte) ([]byte, error) {
 	defer func(start time.Time) {
 		epochMetaTimer.Update(time.Since(start))
 	}(time.Now())
@@ -146,28 +146,21 @@ func (r *trieReader) epochMeta(path []byte) (*epochmeta.BranchNodeEpochMeta, err
 	if err != nil {
 		return nil, fmt.Errorf("resolve epoch meta err, path: %#x, err: %v", path, err)
 	}
-	if len(blob) == 0 {
-		return nil, nil
-	}
-	meta, err := epochmeta.DecodeFullNodeEpochMeta(blob)
-	if err != nil {
-		return nil, err
-	}
-	return meta, nil
+	return blob, nil
 }
 
 // accountMeta resolve account metadata
-func (r *trieReader) accountMeta() (types.MetaNoConsensus, error) {
+func (r *trieReader) accountMeta() ([]byte, error) {
 	defer func(start time.Time) {
 		accountMetaTimer.Update(time.Since(start))
 	}(time.Now())
 	if r.emReader == nil {
-		return types.EmptyMetaNoConsensus, errors.New("cannot resolve epoch meta without db for account")
+		return nil, errors.New("cannot resolve epoch meta without db for account")
 	}
 
 	blob, err := r.emReader.Get(r.owner, epochmeta.AccountMetadataPath)
 	if err != nil {
-		return types.EmptyMetaNoConsensus, fmt.Errorf("resolve epoch meta err for account, err: %v", err)
+		return nil, fmt.Errorf("resolve epoch meta err for account, err: %v", err)
 	}
-	return types.DecodeMetaNoConsensusFromRLPBytes(blob)
+	return blob, nil
 }
