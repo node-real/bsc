@@ -236,7 +236,7 @@ func (inspect *Inspector) ConcurrentTraversal(theTrie *Trie, theTrieTreeStat *Tr
 			}
 			if len(inspect.concurrentQueue)*2 < cap(inspect.concurrentQueue) {
 				inspect.wg.Add(1)
-				go inspect.SubConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, copyNewSlice(path, []byte{byte(idx)}))
+				go inspect.SubConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, copy2NewBytes(path, []byte{byte(idx)}))
 			} else {
 				inspect.ConcurrentTraversal(theTrie, theTrieTreeStat, child, height+1, append(path, byte(idx)))
 			}
