@@ -16,7 +16,8 @@ func ShrinkExpiredLeaf(writer ethdb.KeyValueWriter, reader ethdb.KeyValueReader,
 	case rawdb.PathScheme:
 		val := rawdb.ReadStorageSnapshot(reader, accountHash, storageHash)
 		if len(val) == 0 {
-			log.Warn("cannot find source snapshot?", "addr", accountHash, "path", storageHash)
+			log.Warn("cannot find source snapshot?", "addr", accountHash, "key", storageHash, "epoch", epoch)
+			return 0, nil
 		}
 		valWithEpoch := NewValueWithEpoch(epoch, nil)
 		enc, err := EncodeValueToRLPBytes(valWithEpoch)
