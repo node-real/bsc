@@ -287,7 +287,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		DirectBroadcast:        config.DirectBroadcast,
 		DisablePeerTxBroadcast: config.DisablePeerTxBroadcast,
 		PeerSet:                peers,
-		EnableStateExpiry:      config.StateExpiryCfg.Enable,
+		EnableStateExpiry:      config.StateExpiryCfg.EnableExpiry(),
 	}); err != nil {
 		return nil, err
 	}

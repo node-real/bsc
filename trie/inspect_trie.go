@@ -20,10 +20,6 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
-const (
-	DEFAULT_TRIEDBCACHE_SIZE = 1024 * 1024 * 1024
-)
-
 type Account struct {
 	Nonce    uint64
 	Balance  *big.Int

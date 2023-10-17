@@ -1245,20 +1245,19 @@ func (bc *BlockChain) Stop() {
 				log.Error("Dangling trie nodes after full cleanup")
 			}
 		}
-
-		epochMetaSnap := bc.triedb.EpochMetaSnapTree()
-		if epochMetaSnap != nil {
-			if err := epochMetaSnap.Journal(); err != nil {
-				log.Error("Failed to journal epochMetaSnapTree", "err", err)
-			}
-		}
-
-		// Flush the collected preimages to disk
-		if err := bc.stateCache.TrieDB().Close(); err != nil {
-			log.Error("Failed to close trie db", "err", err)
-		}
-		log.Info("Blockchain stopped")
 	}
+	epochMetaSnap := bc.triedb.EpochMetaSnapTree()
+	if epochMetaSnap != nil {
+		if err := epochMetaSnap.Journal(); err != nil {
+			log.Error("Failed to journal epochMetaSnapTree", "err", err)
+		}
+	}
+
+	// Close the trie database, release all the held resources as the last step.
+	if err := bc.triedb.Close(); err != nil {
+		log.Error("Failed to close trie database", "err", err)
+	}
+	log.Info("Blockchain stopped")
 }
 
 // StopInsert interrupts all insertion methods, causing them to return
