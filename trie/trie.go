@@ -1579,26 +1579,34 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpoch, pruneItemCh chan *NodeInfo) error {
 	switch n := n.(type) {
 	case *shortNode:
+		subPath := append(path, n.Key...)
 		key := common.Hash{}
-		_, ok := n.Val.(valueNode)
-		if ok {
-			key = common.BytesToHash(hexToKeybytes(append(path, n.Key...)))
+		_, isLeaf := n.Val.(valueNode)
+		if isLeaf {
+			key = common.BytesToHash(hexToKeybytes(subPath))
 		}
-		err := t.recursePruneExpiredNode(n.Val, append(path, n.Key...), epoch, pruneItemCh)
-		if err != nil {
-			return err
-		}
-		// prune child first
 		pruneItemCh <- &NodeInfo{
 			Addr:   t.owner,
 			Hash:   common.BytesToHash(n.flags.hash),
-			Path:   path,
+			Path:   renewBytes(path),
 			Key:    key,
 			Epoch:  epoch,
-			IsLeaf: ok,
+			IsLeaf: isLeaf,
+		}
+
+		err := t.recursePruneExpiredNode(n.Val, subPath, epoch, pruneItemCh)
+		if err != nil {
+			return err
 		}
 		return nil
 	case *fullNode:
+		pruneItemCh <- &NodeInfo{
+			Addr:     t.owner,
+			Hash:     common.BytesToHash(n.flags.hash),
+			Path:     renewBytes(path),
+			Epoch:    epoch,
+			IsBranch: true,
+		}
 		// recurse child, and except valueNode
 		for i := 0; i < BranchNodeLength-1; i++ {
 			err := t.recursePruneExpiredNode(n.Children[i], append(path, byte(i)), n.EpochMap[i], pruneItemCh)
@@ -1606,25 +1614,21 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 				return err
 			}
 		}
-		// prune child first
-		pruneItemCh <- &NodeInfo{
-			Addr:     t.owner,
-			Hash:     common.BytesToHash(n.flags.hash),
-			Path:     path,
-			Epoch:    epoch,
-			IsBranch: true,
-		}
 		return nil
 	case hashNode:
 		// hashNode is a index of trie node storage, need not prune.
-		resolve, err := t.resolveAndTrack(n, path)
+		rn, err := t.resolveAndTrack(n, path)
+		// if touch miss node, just skip
+		if _, ok := err.(*MissingNodeError); ok {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		if err = t.resolveEpochMetaAndTrack(resolve, epoch, path); err != nil {
+		if err = t.resolveEpochMetaAndTrack(rn, epoch, path); err != nil {
 			return err
 		}
-		return t.recursePruneExpiredNode(resolve, path, epoch, pruneItemCh)
+		return t.recursePruneExpiredNode(rn, path, epoch, pruneItemCh)
 	case valueNode:
 		// value node is not a single storage uint, so pass to prune.
 		return nil

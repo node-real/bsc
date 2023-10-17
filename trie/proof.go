@@ -919,7 +919,7 @@ func (m *MPTProofCache) VerifyProof() error {
 	prefix := m.RootKeyHex
 	for i := 0; i < len(m.cacheNodes); i++ {
 		if i-1 >= 0 {
-			prefix = copyNewSlice(prefix, m.cacheHexPath[i-1])
+			prefix = copy2NewBytes(prefix, m.cacheHexPath[i-1])
 		}
 		// prefix = append(prefix, m.cacheHexPath[i]...)
 		n1 := m.cacheNodes[i]
@@ -938,7 +938,7 @@ func (m *MPTProofCache) VerifyProof() error {
 		}
 		if merge {
 			i++
-			prefix = copyNewSlice(prefix, m.cacheHexPath[i-1])
+			prefix = copy2NewBytes(prefix, m.cacheHexPath[i-1])
 			nub.n2 = m.cacheNodes[i]
 			nub.n2PrefixKey = prefix
 		}
@@ -948,10 +948,16 @@ func (m *MPTProofCache) VerifyProof() error {
 	return nil
 }
 
-func copyNewSlice(s1, s2 []byte) []byte {
+func copy2NewBytes(s1, s2 []byte) []byte {
 	ret := make([]byte, len(s1)+len(s2))
 	copy(ret, s1)
 	copy(ret[len(s1):], s2)
+	return ret
+}
+
+func renewBytes(s []byte) []byte {
+	ret := make([]byte, len(s))
+	copy(ret, s)
 	return ret
 }
 

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultDiskLayerCacheSize = 100000
+	defaultDiskLayerCacheSize = 1024000
 )
 
 type diskLayer struct {
