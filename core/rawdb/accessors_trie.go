@@ -18,6 +18,7 @@ package rawdb
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -110,9 +111,14 @@ func ReadStorageTrieNode(db ethdb.KeyValueReader, accountHash common.Hash, path 
 	if err != nil {
 		return nil, common.Hash{}
 	}
+
+	raw, err := types.DecodeTypedTrieNodeRaw(data)
+	if err != nil {
+		panic(fmt.Errorf("ReadStorageTrieNode err, %v", err))
+	}
 	h := newHasher()
 	defer h.release()
-	return data, h.hash(data)
+	return data, h.hash(raw)
 }
 
 // HasStorageTrieNode checks the storage trie node presence with the provided

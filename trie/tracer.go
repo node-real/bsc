@@ -67,8 +67,8 @@ func (t *tracer) onRead(path []byte, val []byte) {
 }
 
 // onReadEpochMeta tracks the newly loaded trie epoch meta
-func (t *tracer) onReadEpochMeta(path string, val []byte) {
-	t.accessEpochMetaList[path] = val
+func (t *tracer) onReadEpochMeta(path []byte, val []byte) {
+	t.accessEpochMetaList[string(path)] = val
 }
 
 // onInsert tracks the newly inserted trie node. If it's already

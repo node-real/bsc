@@ -1,6 +1,7 @@
 package epochmeta
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -12,11 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-const (
-	AccountMetadataPath = "m"
-)
-
 var (
+	AccountMetadataPath   = []byte("m")
 	metaAccessMeter       = metrics.NewRegisteredMeter("epochmeta/access", nil)
 	metaHitDiffMeter      = metrics.NewRegisteredMeter("epochmeta/access/hit/diff", nil)
 	metaHitDiskCacheMeter = metrics.NewRegisteredMeter("epochmeta/access/hit/diskcache", nil)
@@ -89,4 +87,13 @@ func AccountMeta2Bytes(meta types.StateMeta) ([]byte, error) {
 		return []byte{}, nil
 	}
 	return meta.EncodeToRLPBytes()
+}
+
+// IsEpochMetaPath add some skip hash check rule
+func IsEpochMetaPath(path []byte) bool {
+	if bytes.Equal(AccountMetadataPath, path) {
+		return true
+	}
+
+	return false
 }

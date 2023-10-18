@@ -111,7 +111,7 @@ func (r *trieReader) node(path []byte, hash common.Hash) ([]byte, error) {
 		return nil, &MissingNodeError{Owner: r.owner, NodeHash: hash, Path: path}
 	}
 	blob, err := r.reader.Node(r.owner, path, hash)
-	if err != nil || len(blob) == 0 {
+	if err != nil || (!epochmeta.IsEpochMetaPath(path) && len(blob) == 0) {
 		return nil, &MissingNodeError{Owner: r.owner, NodeHash: hash, Path: path, err: err}
 	}
 	return blob, nil
@@ -158,7 +158,7 @@ func (r *trieReader) accountMeta() ([]byte, error) {
 		return nil, errors.New("cannot resolve epoch meta without db for account")
 	}
 
-	blob, err := r.emReader.Get(r.owner, epochmeta.AccountMetadataPath)
+	blob, err := r.emReader.Get(r.owner, string(epochmeta.AccountMetadataPath))
 	if err != nil {
 		return nil, fmt.Errorf("resolve epoch meta err for account, err: %v", err)
 	}

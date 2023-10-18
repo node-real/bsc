@@ -109,7 +109,7 @@ func (set *NodeSet) AddBranchNodeEpochMeta(path []byte, blob []byte) {
 
 // AddAccountMeta adds the provided account into set.
 func (set *NodeSet) AddAccountMeta(blob []byte) {
-	set.EpochMetas[epochmeta.AccountMetadataPath] = blob
+	set.EpochMetas[string(epochmeta.AccountMetadataPath)] = blob
 }
 
 // Merge adds a set of nodes into the set.
