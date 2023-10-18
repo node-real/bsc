@@ -17,6 +17,7 @@
 package trie
 
 import (
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -26,6 +27,27 @@ func nodeToBytes(n node) []byte {
 	result := w.ToBytes()
 	w.Flush()
 	return result
+}
+func nodeToBytesWithEpoch(n node, raw []byte) []byte {
+	switch n := n.(type) {
+	case *fullNode:
+		withEpoch := false
+		for i := 0; i < BranchNodeLength-1; i++ {
+			if n.EpochMap[i] > 0 {
+				withEpoch = true
+				break
+			}
+		}
+		if withEpoch {
+			tn := types.TrieBranchNodeWithEpoch{
+				EpochMap: n.EpochMap,
+				Blob:     raw,
+			}
+			rn := types.EncodeTypedTrieNode(&tn)
+			return rn
+		}
+	}
+	return raw
 }
 
 func (n *fullNode) encode(w rlp.EncoderBuffer) {

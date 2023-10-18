@@ -18,6 +18,7 @@ package pathdb
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -70,7 +71,7 @@ func (b *nodebuffer) node(owner common.Hash, path []byte, hash common.Hash) (*tr
 	if !ok {
 		return nil, nil
 	}
-	if n.Hash != hash {
+	if !epochmeta.IsEpochMetaPath(path) && n.Hash != hash {
 		dirtyFalseMeter.Mark(1)
 		log.Debug("Unexpected trie node in node buffer", "owner", owner, "path", path, "expect", hash, "got", n.Hash)
 		return nil, newUnexpectedNodeError("dirty", hash, n.Hash, owner, path, n.Blob)

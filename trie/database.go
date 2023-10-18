@@ -146,10 +146,12 @@ func NewDatabase(diskdb ethdb.Database, config *Config) *Database {
 	 * 2. Second, initialize the db according to the scheme already used by db
 	 * 3. Last, use the default scheme, namely hash scheme
 	 */
+	enableEpochMetaDB := false
 	if config.HashDB != nil {
 		if rawdb.ReadStateScheme(diskdb) == rawdb.PathScheme {
 			log.Warn("incompatible state scheme", "old", rawdb.PathScheme, "new", rawdb.HashScheme)
 		}
+		enableEpochMetaDB = true
 		db.backend = hashdb.New(diskdb, config.HashDB, mptResolver{})
 	} else if config.PathDB != nil {
 		if rawdb.ReadStateScheme(diskdb) == rawdb.HashScheme {
@@ -165,9 +167,10 @@ func NewDatabase(diskdb ethdb.Database, config *Config) *Database {
 		if config.HashDB == nil {
 			config.HashDB = hashdb.Defaults
 		}
+		enableEpochMetaDB = true
 		db.backend = hashdb.New(diskdb, config.HashDB, mptResolver{})
 	}
-	if config != nil && config.EnableStateExpiry {
+	if config.EnableStateExpiry && enableEpochMetaDB {
 		snapTree, err := epochmeta.NewEpochMetaSnapTree(diskdb, config.EpochMeta)
 		if err != nil {
 			panic(fmt.Sprintf("init SnapshotTree err: %v", err))
@@ -246,6 +249,14 @@ func (db *Database) CommitEpochMeta(root common.Hash) error {
 		}
 	}
 	return nil
+}
+
+func (db *Database) EnableExpiry() bool {
+	if db.config != nil {
+		return db.config.EnableStateExpiry
+	}
+
+	return false
 }
 
 // Size returns the storage size of dirty trie nodes in front of the persistent

@@ -19,6 +19,7 @@ package pathdb
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -179,7 +180,7 @@ func (dl *diskLayer) Node(owner common.Hash, path []byte, hash common.Hash) ([]b
 			defer h.release()
 
 			got := h.hash(blob)
-			if got == hash {
+			if epochmeta.IsEpochMetaPath(path) || got == hash {
 				cleanHitMeter.Mark(1)
 				cleanReadMeter.Mark(int64(len(blob)))
 				return blob, nil
@@ -199,7 +200,7 @@ func (dl *diskLayer) Node(owner common.Hash, path []byte, hash common.Hash) ([]b
 	} else {
 		nBlob, nHash = rawdb.ReadStorageTrieNode(dl.db.diskdb, owner, path)
 	}
-	if nHash != hash {
+	if !epochmeta.IsEpochMetaPath(path) && nHash != hash {
 		diskFalseMeter.Mark(1)
 		log.Debug("Unexpected trie node in disk", "owner", owner, "path", path, "expect", hash, "got", nHash)
 		return nil, newUnexpectedNodeError("disk", hash, nHash, owner, path, nBlob)

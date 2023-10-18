@@ -18,6 +18,7 @@ package pathdb
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -111,7 +112,7 @@ func (dl *diffLayer) node(owner common.Hash, path []byte, hash common.Hash, dept
 		if ok {
 			// If the trie node is not hash matched, or marked as removed,
 			// bubble up an error here. It shouldn't happen at all.
-			if n.Hash != hash {
+			if !epochmeta.IsEpochMetaPath(path) && n.Hash != hash {
 				dirtyFalseMeter.Mark(1)
 				log.Debug("Unexpected trie node in diff layer", "root", dl.root, "owner", owner, "path", path, "expect", hash, "got", n.Hash)
 				return nil, newUnexpectedNodeError("diff", hash, n.Hash, owner, path, n.Blob)

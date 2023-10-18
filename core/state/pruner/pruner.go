@@ -849,6 +849,9 @@ func asyncScanUnExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch ty
 // here are some issues when just delete it from hash-based storage, because it's shared kv in hbss
 // but it's ok for pbss.
 func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch types.StateEpoch, expireContractCh chan *snapshot.ContractItem, pruneExpiredInDisk chan *trie.NodeInfo) error {
+	defer func() {
+		close(pruneExpiredInDisk)
+	}()
 	var (
 		trieCount atomic.Uint64
 		start     = time.Now()
@@ -876,7 +879,6 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 		}
 	}
 	log.Info("Scan unexpired states", "trieNodes", trieCount.Load(), "elapsed", common.PrettyDuration(time.Since(start)))
-	close(pruneExpiredInDisk)
 	return nil
 }
 
@@ -922,8 +924,8 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 				}
 			}
 		}
-		// delete epoch meta
-		if info.IsBranch {
+		// delete epoch meta in HBSS
+		if info.IsBranch && rawdb.HashScheme == scheme {
 			val := rawdb.ReadEpochMetaPlainState(diskdb, addr, string(info.Path))
 			if len(val) == 0 && info.Epoch > types.StateEpoch0 {
 				log.Debug("cannot find source epochmeta?", "addr", addr, "path", info.Path, "hash", info.Hash, "epoch", info.Epoch)

@@ -162,7 +162,11 @@ func (db *Database) loadDiskLayer(r *rlp.Stream) (layer, error) {
 		subset := make(map[string]*trienode.Node)
 		for _, n := range entry.Nodes {
 			if len(n.Blob) > 0 {
-				subset[string(n.Path)] = trienode.New(crypto.Keccak256Hash(n.Blob), n.Blob)
+				raw, err := types.DecodeTypedTrieNodeRaw(n.Blob)
+				if err != nil {
+					return nil, err
+				}
+				subset[string(n.Path)] = trienode.New(crypto.Keccak256Hash(raw), n.Blob)
 			} else {
 				subset[string(n.Path)] = trienode.NewDeleted()
 			}
@@ -200,7 +204,11 @@ func (db *Database) loadDiffLayer(parent layer, r *rlp.Stream) (layer, error) {
 		subset := make(map[string]*trienode.Node)
 		for _, n := range entry.Nodes {
 			if len(n.Blob) > 0 {
-				subset[string(n.Path)] = trienode.New(crypto.Keccak256Hash(n.Blob), n.Blob)
+				raw, err := types.DecodeTypedTrieNodeRaw(n.Blob)
+				if err != nil {
+					return nil, err
+				}
+				subset[string(n.Path)] = trienode.New(crypto.Keccak256Hash(raw), n.Blob)
 			} else {
 				subset[string(n.Path)] = trienode.NewDeleted()
 			}
