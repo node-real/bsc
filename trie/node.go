@@ -213,10 +213,10 @@ func mustDecodeNode(hash, buf []byte) node {
 	return n
 }
 
-// mustDecodeNodeUnsafe is a wrapper of decodeNodeUnsafe and panic if any error is
+// mustDecodeNodeUnsafe is a wrapper of decodeTypedNodeUnsafe and panic if any error is
 // encountered.
 func mustDecodeNodeUnsafe(hash, buf []byte) node {
-	n, err := decodeNodeUnsafe(hash, buf)
+	n, err := decodeTypedNodeUnsafe(hash, buf)
 	if err != nil {
 		panic(fmt.Sprintf("node %x: %v", hash, err))
 	}
@@ -229,7 +229,30 @@ func mustDecodeNodeUnsafe(hash, buf []byte) node {
 // scenarios with low performance requirements and hard to determine whether the
 // byte slice be modified or not.
 func decodeNode(hash, buf []byte) (node, error) {
-	return decodeNodeUnsafe(hash, common.CopyBytes(buf))
+	return decodeTypedNodeUnsafe(hash, common.CopyBytes(buf))
+}
+
+func decodeTypedNodeUnsafe(hash, buf []byte) (node, error) {
+	// try decode typed node first
+	tn, err := types.DecodeTypedTrieNode(buf)
+	if err != nil {
+		return nil, err
+	}
+	switch tn := tn.(type) {
+	case types.TrieNodeRaw:
+		return decodeNodeUnsafe(hash, tn)
+	case *types.TrieBranchNodeWithEpoch:
+		rn, err := decodeNodeUnsafe(hash, tn.Blob)
+		if err != nil {
+			return nil, err
+		}
+		if rn, ok := rn.(*fullNode); ok {
+			rn.EpochMap = tn.EpochMap
+		}
+		return rn, nil
+	default:
+		return nil, types.ErrTypedNodeNotSupport
+	}
 }
 
 // decodeNodeUnsafe parses the RLP encoding of a trie node. The passed byte slice

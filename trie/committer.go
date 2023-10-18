@@ -32,15 +32,17 @@ type committer struct {
 	tracer            *tracer
 	collectLeaf       bool
 	enableStateExpiry bool
+	enableMetaDB      bool
 }
 
 // newCommitter creates a new committer or picks one from the pool.
-func newCommitter(nodeset *trienode.NodeSet, tracer *tracer, collectLeaf bool, enableStateExpiry bool) *committer {
+func newCommitter(nodeset *trienode.NodeSet, tracer *tracer, collectLeaf, enableStateExpiry, enableMetaDB bool) *committer {
 	return &committer{
 		nodes:             nodeset,
 		tracer:            tracer,
 		collectLeaf:       collectLeaf,
 		enableStateExpiry: enableStateExpiry,
+		enableMetaDB:      enableMetaDB,
 	}
 }
 
@@ -143,11 +145,14 @@ func (c *committer) store(path []byte, n node) node {
 	// Collect the dirty node to nodeset for return.
 	nhash := common.BytesToHash(hash)
 	blob := nodeToBytes(n)
+	if c.enableStateExpiry && !c.enableMetaDB {
+		blob = nodeToBytesWithEpoch(n, blob)
+	}
 	changed := c.tracer.checkNodeChanged(path, blob)
 	if changed {
 		c.nodes.AddNode(path, trienode.New(nhash, blob))
 	}
-	if c.enableStateExpiry {
+	if c.enableStateExpiry && c.enableMetaDB {
 		switch n := n.(type) {
 		case *fullNode:
 			metaBlob := epochmeta.BranchMeta2Bytes(epochmeta.NewBranchNodeEpochMeta(n.EpochMap))

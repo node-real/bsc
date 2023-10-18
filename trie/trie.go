@@ -67,6 +67,7 @@ type Trie struct {
 	currentEpoch types.StateEpoch
 	rootEpoch    types.StateEpoch
 	enableExpiry bool
+	enableMetaDB bool
 }
 
 // newFlag returns the cache flag value for a newly created node.
@@ -105,6 +106,7 @@ func New(id *ID, db *Database) (*Trie, error) {
 		reader:       reader,
 		tracer:       newTracer(),
 		enableExpiry: enableStateExpiry(id, db),
+		enableMetaDB: reader.emReader != nil,
 	}
 	// resolve root epoch
 	if trie.enableExpiry {
@@ -131,21 +133,17 @@ func New(id *ID, db *Database) (*Trie, error) {
 }
 
 func enableStateExpiry(id *ID, db *Database) bool {
-	if db.snapTree == nil {
-		return false
-	}
 	if id.Owner == (common.Hash{}) {
 		return false
 	}
-	return true
+
+	return db.EnableExpiry()
 }
 
 // NewEmpty is a shortcut to create empty tree. It's mostly used in tests.
 func NewEmpty(db *Database) *Trie {
 	tr, _ := New(TrieID(types.EmptyRootHash), db)
-	if db.snapTree != nil {
-		tr.enableExpiry = true
-	}
+	tr.enableExpiry = db.EnableExpiry()
 	return tr
 }
 
@@ -1051,23 +1049,25 @@ func (t *Trie) resolveEpochMeta(n node, epoch types.StateEpoch, prefix []byte) e
 	if !t.enableExpiry {
 		return nil
 	}
-	// 1. Check if the node is a full node
+
 	switch n := n.(type) {
 	case *shortNode:
 		n.setEpoch(epoch)
 		return nil
 	case *fullNode:
 		n.setEpoch(epoch)
-		enc, err := t.reader.epochMeta(prefix)
-		if err != nil {
-			return err
-		}
-		if len(enc) > 0 {
-			meta, err := epochmeta.DecodeFullNodeEpochMeta(enc)
+		if t.enableMetaDB {
+			enc, err := t.reader.epochMeta(prefix)
 			if err != nil {
 				return err
 			}
-			n.EpochMap = meta.EpochMap
+			if len(enc) > 0 {
+				meta, err := epochmeta.DecodeFullNodeEpochMeta(enc)
+				if err != nil {
+					return err
+				}
+				n.EpochMap = meta.EpochMap
+			}
 		}
 		return nil
 	case valueNode, hashNode, nil:
@@ -1090,17 +1090,19 @@ func (t *Trie) resolveEpochMetaAndTrack(n node, epoch types.StateEpoch, prefix [
 		return nil
 	case *fullNode:
 		n.setEpoch(epoch)
-		enc, err := t.reader.epochMeta(prefix)
-		if err != nil {
-			return err
-		}
-		t.tracer.onReadEpochMeta(string(prefix), enc)
-		if len(enc) > 0 {
-			meta, err := epochmeta.DecodeFullNodeEpochMeta(enc)
+		if t.enableMetaDB {
+			enc, err := t.reader.epochMeta(prefix)
 			if err != nil {
 				return err
 			}
-			n.EpochMap = meta.EpochMap
+			t.tracer.onReadEpochMeta(prefix, enc)
+			if len(enc) > 0 {
+				meta, err := epochmeta.DecodeFullNodeEpochMeta(enc)
+				if err != nil {
+					return err
+				}
+				n.EpochMap = meta.EpochMap
+			}
 		}
 		return nil
 	case valueNode, hashNode, nil:
@@ -1116,11 +1118,25 @@ func (t *Trie) resolveAccountMetaAndTrack() (types.MetaNoConsensus, error) {
 	if !t.enableExpiry {
 		return types.EmptyMetaNoConsensus, nil
 	}
-	enc, err := t.reader.accountMeta()
-	if err != nil {
-		return types.EmptyMetaNoConsensus, err
+	var (
+		enc []byte
+		err error
+	)
+
+	if t.enableMetaDB {
+		enc, err = t.reader.accountMeta()
+		if err != nil {
+			return types.EmptyMetaNoConsensus, err
+		}
+		t.tracer.onReadEpochMeta(epochmeta.AccountMetadataPath, enc)
+	} else {
+		enc, err = t.reader.node(epochmeta.AccountMetadataPath, types.EmptyRootHash)
+		if err != nil {
+			return types.EmptyMetaNoConsensus, err
+		}
+		t.tracer.onRead(epochmeta.AccountMetadataPath, enc)
 	}
-	t.tracer.onReadEpochMeta(epochmeta.AccountMetadataPath, enc)
+
 	if len(enc) > 0 {
 		return types.DecodeMetaNoConsensusFromRLPBytes(enc)
 	}
@@ -1162,9 +1178,10 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 		for _, path := range paths {
 			nodes.AddNode([]byte(path), trienode.NewDeleted())
 		}
-		paths = t.tracer.deletedBranchNodes()
-		for _, path := range paths {
-			nodes.AddBranchNodeEpochMeta([]byte(path), nil)
+		if t.enableExpiry && t.enableMetaDB {
+			for _, path := range t.tracer.deletedBranchNodes() {
+				nodes.AddBranchNodeEpochMeta([]byte(path), nil)
+			}
 		}
 		return types.EmptyRootHash, nodes, nil // case (b)
 	}
@@ -1184,20 +1201,27 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error) 
 	for _, path := range t.tracer.deletedNodes() {
 		nodes.AddNode([]byte(path), trienode.NewDeleted())
 	}
-	for _, path := range t.tracer.deletedBranchNodes() {
-		nodes.AddBranchNodeEpochMeta([]byte(path), nil)
-	}
 	// store state expiry account meta
 	if t.enableExpiry {
 		blob, err := epochmeta.AccountMeta2Bytes(types.NewMetaNoConsensus(t.rootEpoch))
 		if err != nil {
 			return common.Hash{}, nil, err
 		}
-		if t.tracer.checkEpochMetaChanged([]byte(epochmeta.AccountMetadataPath), blob) {
-			nodes.AddAccountMeta(blob)
+		if t.enableMetaDB {
+			for _, path := range t.tracer.deletedBranchNodes() {
+				nodes.AddBranchNodeEpochMeta([]byte(path), nil)
+			}
+			if t.rootEpoch > types.StateEpoch0 && t.tracer.checkEpochMetaChanged(epochmeta.AccountMetadataPath, blob) {
+				nodes.AddAccountMeta(blob)
+			}
+		} else {
+			// TODO(0xbundler): the account meta life cycle is same as account data, when delete?.
+			if t.rootEpoch > types.StateEpoch0 && t.tracer.checkNodeChanged(epochmeta.AccountMetadataPath, blob) {
+				nodes.AddNode(epochmeta.AccountMetadataPath, trienode.New(types.EmptyRootHash, blob))
+			}
 		}
 	}
-	t.root = newCommitter(nodes, t.tracer, collectLeaf, t.enableExpiry).Commit(t.root)
+	t.root = newCommitter(nodes, t.tracer, collectLeaf, t.enableExpiry, t.enableMetaDB).Commit(t.root)
 	return rootHash, nodes, nil
 }
 
@@ -1559,9 +1583,6 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 
 	case hashNode:
 		resolve, err := t.resolveAndTrack(n, path)
-		if _, ok := err.(*MissingNodeError); ok {
-			return nil
-		}
 		if err != nil {
 			return err
 		}
