@@ -151,10 +151,11 @@ type syncMemBatch struct {
 // newSyncMemBatch allocates a new memory-buffer for not-yet persisted trie nodes.
 func newSyncMemBatch() *syncMemBatch {
 	return &syncMemBatch{
-		nodes:   make(map[string][]byte),
-		hashes:  make(map[string]common.Hash),
-		deletes: make(map[string]struct{}),
-		codes:   make(map[common.Hash][]byte),
+		nodes:     make(map[string][]byte),
+		hashes:    make(map[string]common.Hash),
+		deletes:   make(map[string]struct{}),
+		codes:     make(map[common.Hash][]byte),
+		epochMaps: make(map[string][16]types.StateEpoch),
 	}
 }
 
