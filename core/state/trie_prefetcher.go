@@ -550,8 +550,6 @@ func (sf *subfetcher) loop() {
 			sf.tasks = nil
 			sf.lock.Unlock()
 
-			reviveKeys := make([]common.Hash, 0, len(tasks))
-			revivePaths := make([][]byte, 0, len(tasks))
 			// Prefetch any tasks until the loop is interrupted
 			for i, task := range tasks {
 				select {
@@ -577,22 +575,19 @@ func (sf *subfetcher) loop() {
 							_, err := sf.trie.GetStorage(sf.addr, task)
 							// handle expired state
 							if sf.expiryMeta.enableStateExpiry {
+								// TODO(0xbundler): revert to single fetch, because tasks is a channel
 								if exErr, match := err.(*trie2.ExpiredNodeError); match {
-									reviveKeys = append(reviveKeys, common.BytesToHash(task))
-									revivePaths = append(revivePaths, exErr.Path)
+									key := common.BytesToHash(task)
+									_, err = fetchExpiredStorageFromRemote(sf.expiryMeta, sf.addr, sf.root, sf.trie, exErr.Path, key)
+									if err != nil {
+										log.Error("subfetcher fetchExpiredStorageFromRemote err", "addr", sf.addr, "path", exErr.Path, "err", err)
+									}
 								}
 							}
 						}
 						sf.seen[string(task)] = struct{}{}
 					}
 					atomic.AddUint32(&sf.pendingSize, ^uint32(0)) // decrease
-				}
-			}
-
-			if len(reviveKeys) != 0 {
-				_, err = batchFetchExpiredFromRemote(sf.expiryMeta, sf.addr, sf.root, sf.trie, revivePaths, reviveKeys)
-				if err != nil {
-					log.Error("subfetcher batchFetchExpiredFromRemote err", "addr", sf.addr, "state", sf.state, "revivePaths", revivePaths, "reviveKeys", reviveKeys, "err", err)
 				}
 			}
 
