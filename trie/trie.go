@@ -110,6 +110,9 @@ func New(id *ID, db *Database) (*Trie, error) {
 	}
 	// resolve root epoch
 	if trie.enableExpiry {
+		if trie.enableMetaDB {
+			trie.tracer.enableTagEpochMeta()
+		}
 		if id.Root != (common.Hash{}) && id.Root != types.EmptyRootHash {
 			trie.root = hashNode(id.Root[:])
 			meta, err := trie.resolveAccountMetaAndTrack()
@@ -1028,6 +1031,13 @@ func (t *Trie) resolve(n node, prefix []byte, epoch types.StateEpoch) (node, err
 // node's original value. The rlp-encoded blob is preferred to be loaded from
 // database because it's easy to decode node while complex to encode node to blob.
 func (t *Trie) resolveAndTrack(n hashNode, prefix []byte) (node, error) {
+	if t.enableExpiry {
+		// when meet expired, the trie will skip the resolve path, but cache in tracer
+		blob, ok := t.tracer.cached(prefix)
+		if ok {
+			return mustDecodeNode(n, blob), nil
+		}
+	}
 	blob, err := t.reader.node(prefix, common.BytesToHash(n))
 	if err != nil {
 		return nil, err

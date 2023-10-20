@@ -19,6 +19,7 @@ package pathdb
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"sync"
 
@@ -127,7 +128,8 @@ func (dl *diskLayer) Node(owner common.Hash, path []byte, hash common.Hash) ([]b
 			h := newHasher()
 			defer h.release()
 
-			got := h.hash(blob)
+			raw, _ := types.DecodeTypedTrieNodeRaw(blob)
+			got := h.hash(raw)
 			if epochmeta.IsEpochMetaPath(path) || got == hash {
 				cleanHitMeter.Mark(1)
 				cleanReadMeter.Mark(int64(len(blob)))
