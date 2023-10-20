@@ -46,6 +46,7 @@ type tracer struct {
 	deleteEpochMetas    map[string]struct{} // record for epoch meta
 	accessList          map[string][]byte
 	accessEpochMetaList map[string][]byte
+	tagEpochMeta        bool
 }
 
 // newTracer initializes the tracer for capturing trie changes.
@@ -59,6 +60,10 @@ func newTracer() *tracer {
 	}
 }
 
+func (t *tracer) enableTagEpochMeta() {
+	t.tagEpochMeta = true
+}
+
 // onRead tracks the newly loaded trie node and caches the rlp-encoded
 // blob internally. Don't change the value outside of function since
 // it's not deep-copied.
@@ -68,6 +73,9 @@ func (t *tracer) onRead(path []byte, val []byte) {
 
 // onReadEpochMeta tracks the newly loaded trie epoch meta
 func (t *tracer) onReadEpochMeta(path []byte, val []byte) {
+	if !t.tagEpochMeta {
+		return
+	}
 	t.accessEpochMetaList[string(path)] = val
 }
 
@@ -84,6 +92,9 @@ func (t *tracer) onInsert(path []byte) {
 
 // onExpandToBranchNode tracks the newly inserted trie branch node.
 func (t *tracer) onExpandToBranchNode(path []byte) {
+	if !t.tagEpochMeta {
+		return
+	}
 	if _, present := t.deleteEpochMetas[string(path)]; present {
 		delete(t.deleteEpochMetas, string(path))
 	}
@@ -102,6 +113,9 @@ func (t *tracer) onDelete(path []byte) {
 
 // onDeleteBranchNode tracks the newly deleted trie branch node.
 func (t *tracer) onDeleteBranchNode(path []byte) {
+	if !t.tagEpochMeta {
+		return
+	}
 	t.deleteEpochMetas[string(path)] = struct{}{}
 }
 
@@ -144,6 +158,7 @@ func (t *tracer) copy() *tracer {
 		deleteEpochMetas:    deleteBranchNodes,
 		accessList:          accessList,
 		accessEpochMetaList: accessEpochMetaList,
+		tagEpochMeta:        t.tagEpochMeta,
 	}
 }
 
@@ -174,6 +189,12 @@ func (t *tracer) deletedBranchNodes() []string {
 		paths = append(paths, path)
 	}
 	return paths
+}
+
+// cached check if cache the node.
+func (t *tracer) cached(path []byte) ([]byte, bool) {
+	val, ok := t.accessList[string(path)]
+	return val, ok
 }
 
 // checkNodeChanged check if change for node.

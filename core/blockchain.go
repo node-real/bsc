@@ -184,6 +184,11 @@ func (c *CacheConfig) TriedbConfig() *trie.Config {
 			CleanCacheSize: c.TrieCleanLimit * 1024 * 1024,
 			DirtyCacheSize: c.TrieDirtyLimit * 1024 * 1024,
 		}
+		if config.EnableStateExpiry {
+			// state expiry need more cache for save epoch meta, but not exceed maxBuffer
+			config.PathDB.CleanCacheSize = 2 * config.PathDB.CleanCacheSize
+			config.PathDB.DirtyCacheSize = 2 * config.PathDB.DirtyCacheSize
+		}
 	}
 	return config
 }
