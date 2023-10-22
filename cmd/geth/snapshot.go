@@ -62,6 +62,7 @@ var (
 					utils.BloomFilterSizeFlag,
 					utils.TriesInMemoryFlag,
 					utils.StateExpiryEnableFlag,
+					utils.StateExpiryMaxThreadFlag,
 					configFileFlag,
 				}, utils.NetworkFlags, utils.DatabasePathFlags),
 				Description: `
@@ -450,6 +451,7 @@ func pruneState(ctx *cli.Context) error {
 		EnableStateExpiry: cfg.Eth.StateExpiryCfg.EnableExpiry(),
 		ChainConfig:       chainConfig,
 		CacheConfig:       cacheConfig,
+		MaxExpireThreads:  ctx.Uint64(utils.StateExpiryMaxThreadFlag.Name),
 	}
 	pruner, err := pruner.NewPruner(chaindb, prunerconfig, ctx.Uint64(utils.TriesInMemoryFlag.Name))
 	if err != nil {

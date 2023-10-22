@@ -27,7 +27,10 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"github.com/ethereum/go-ethereum/trie/trienode"
+	"runtime"
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -1523,8 +1526,81 @@ type NodeInfo struct {
 	IsBranch bool
 }
 
+type ScanTask struct {
+	itemCh        chan *NodeInfo
+	unexpiredStat *atomic.Uint64
+	expiredStat   *atomic.Uint64
+	record        *atomic.Uint64
+	findExpired   bool
+	maxThreads    uint64
+	wg            *sync.WaitGroup
+	reportDone    chan struct{}
+}
+
+func NewScanTask(itemCh chan *NodeInfo, maxThreads uint64, findExpired bool) *ScanTask {
+	return &ScanTask{
+		itemCh:        itemCh,
+		unexpiredStat: &atomic.Uint64{},
+		expiredStat:   &atomic.Uint64{},
+		record:        &atomic.Uint64{},
+		findExpired:   findExpired,
+		maxThreads:    maxThreads,
+		wg:            &sync.WaitGroup{},
+		reportDone:    make(chan struct{}),
+	}
+}
+
+func (st *ScanTask) Stat(expired bool) {
+	if expired {
+		st.expiredStat.Add(1)
+	} else {
+		st.unexpiredStat.Add(1)
+	}
+}
+
+func (st *ScanTask) ExpiredStat() uint64 {
+	return st.expiredStat.Load()
+}
+
+func (st *ScanTask) UnexpiredStat() uint64 {
+	return st.unexpiredStat.Load()
+}
+
+func (st *ScanTask) WaitThreads() {
+	st.wg.Wait()
+	close(st.reportDone)
+}
+
+func (st *ScanTask) Report(d time.Duration) {
+	start := time.Now()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			log.Info("Scan trie stats", "unexpired", st.UnexpiredStat(), "expired", st.ExpiredStat(), "go routine", runtime.NumGoroutine(), "elapsed", common.PrettyDuration(time.Since(start)))
+			timer.Reset(d)
+		case <-st.reportDone:
+			log.Info("Scan trie done", "unexpired", st.UnexpiredStat(), "expired", st.ExpiredStat(), "elapsed", common.PrettyDuration(time.Since(start)))
+			return
+		}
+	}
+}
+
+func (st *ScanTask) moreThread() bool {
+	total := st.expiredStat.Load() + st.unexpiredStat.Load()
+	record := st.record.Load()
+	// every increase 10000, will add a new tread to handle other trie path
+	if total-record > 10000 && uint64(runtime.NumGoroutine()) < st.maxThreads {
+		st.record.Store(total)
+		return true
+	}
+
+	return false
+}
+
 // ScanForPrune traverses the storage trie and prunes all expired or unexpired nodes.
-func (t *Trie) ScanForPrune(itemCh chan *NodeInfo, stats *atomic.Uint64, findExpired bool) error {
+func (t *Trie) ScanForPrune(st *ScanTask) error {
 
 	if !t.enableExpiry {
 		return nil
@@ -1535,10 +1611,10 @@ func (t *Trie) ScanForPrune(itemCh chan *NodeInfo, stats *atomic.Uint64, findExp
 	}
 
 	err := t.findExpiredSubTree(t.root, nil, t.getRootEpoch(), func(n node, path []byte, epoch types.StateEpoch) {
-		if pruneErr := t.recursePruneExpiredNode(n, path, epoch, itemCh); pruneErr != nil {
+		if pruneErr := t.recursePruneExpiredNode(n, path, epoch, st); pruneErr != nil {
 			log.Error("recursePruneExpiredNode err", "Path", path, "err", pruneErr)
 		}
-	}, stats, itemCh, findExpired)
+	}, st)
 	if err != nil {
 		return err
 	}
@@ -1546,12 +1622,12 @@ func (t *Trie) ScanForPrune(itemCh chan *NodeInfo, stats *atomic.Uint64, findExp
 	return nil
 }
 
-func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch), stats *atomic.Uint64, itemCh chan *NodeInfo, findExpired bool) error {
+func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, pruner func(n node, path []byte, epoch types.StateEpoch), st *ScanTask) error {
 	// Upon reaching expired node, it will recursively traverse downwards to all the child nodes
 	// and collect their hashes. Then, the corresponding key-value pairs will be deleted from the
 	// database by batches.
 	if t.epochExpired(n, epoch) {
-		if findExpired {
+		if st.findExpired {
 			pruner(n, path, epoch)
 		}
 		return nil
@@ -1559,32 +1635,28 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 
 	switch n := n.(type) {
 	case *shortNode:
-		if stats != nil {
-			stats.Add(1)
-		}
-		if !findExpired {
-			itemCh <- &NodeInfo{
+		st.Stat(false)
+		if !st.findExpired {
+			st.itemCh <- &NodeInfo{
 				Hash: common.BytesToHash(n.flags.hash),
 			}
 		}
-		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, stats, itemCh, findExpired)
+		err := t.findExpiredSubTree(n.Val, append(path, n.Key...), epoch, pruner, st)
 		if err != nil {
 			return err
 		}
 		return nil
 	case *fullNode:
-		if stats != nil {
-			stats.Add(1)
-		}
-		if !findExpired {
-			itemCh <- &NodeInfo{
+		st.Stat(false)
+		if !st.findExpired {
+			st.itemCh <- &NodeInfo{
 				Hash: common.BytesToHash(n.flags.hash),
 			}
 		}
 		var err error
 		// Go through every child and recursively delete expired nodes
 		for i, child := range n.Children {
-			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, stats, itemCh, findExpired)
+			err = t.findExpiredSubTree(child, append(path, byte(i)), n.GetChildEpoch(i), pruner, st)
 			if err != nil {
 				return err
 			}
@@ -1592,15 +1664,24 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		return nil
 
 	case hashNode:
-		resolve, err := t.resolveAndTrack(n, path)
+		resolve, err := t.resolveHash(n, path)
 		if err != nil {
 			return err
 		}
-		if err = t.resolveEpochMetaAndTrack(resolve, epoch, path); err != nil {
+		if err = t.resolveEpochMeta(resolve, epoch, path); err != nil {
 			return err
 		}
+		if st.moreThread() {
+			st.wg.Add(1)
+			path := common.CopyBytes(path)
+			go func() {
+				defer st.wg.Done()
+				t.findExpiredSubTree(resolve, path, epoch, pruner, st)
+			}()
+			return nil
+		}
 
-		return t.findExpiredSubTree(resolve, path, epoch, pruner, stats, itemCh, findExpired)
+		return t.findExpiredSubTree(resolve, path, epoch, pruner, st)
 	case valueNode:
 		return nil
 	case nil:
@@ -1610,40 +1691,46 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 	}
 }
 
-func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpoch, pruneItemCh chan *NodeInfo) error {
+func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpoch, st *ScanTask) error {
 	switch n := n.(type) {
 	case *shortNode:
+		st.Stat(true)
 		subPath := append(path, n.Key...)
 		key := common.Hash{}
 		_, isLeaf := n.Val.(valueNode)
 		if isLeaf {
 			key = common.BytesToHash(hexToKeybytes(subPath))
 		}
-		pruneItemCh <- &NodeInfo{
-			Addr:   t.owner,
-			Hash:   common.BytesToHash(n.flags.hash),
-			Path:   renewBytes(path),
-			Key:    key,
-			Epoch:  epoch,
-			IsLeaf: isLeaf,
+		if st.findExpired {
+			st.itemCh <- &NodeInfo{
+				Addr:   t.owner,
+				Hash:   common.BytesToHash(n.flags.hash),
+				Path:   renewBytes(path),
+				Key:    key,
+				Epoch:  epoch,
+				IsLeaf: isLeaf,
+			}
 		}
 
-		err := t.recursePruneExpiredNode(n.Val, subPath, epoch, pruneItemCh)
+		err := t.recursePruneExpiredNode(n.Val, subPath, epoch, st)
 		if err != nil {
 			return err
 		}
 		return nil
 	case *fullNode:
-		pruneItemCh <- &NodeInfo{
-			Addr:     t.owner,
-			Hash:     common.BytesToHash(n.flags.hash),
-			Path:     renewBytes(path),
-			Epoch:    epoch,
-			IsBranch: true,
+		st.Stat(true)
+		if st.findExpired {
+			st.itemCh <- &NodeInfo{
+				Addr:     t.owner,
+				Hash:     common.BytesToHash(n.flags.hash),
+				Path:     renewBytes(path),
+				Epoch:    epoch,
+				IsBranch: true,
+			}
 		}
 		// recurse child, and except valueNode
 		for i := 0; i < BranchNodeLength-1; i++ {
-			err := t.recursePruneExpiredNode(n.Children[i], append(path, byte(i)), n.EpochMap[i], pruneItemCh)
+			err := t.recursePruneExpiredNode(n.Children[i], append(path, byte(i)), n.EpochMap[i], st)
 			if err != nil {
 				return err
 			}
@@ -1651,7 +1738,7 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		return nil
 	case hashNode:
 		// hashNode is a index of trie node storage, need not prune.
-		rn, err := t.resolveAndTrack(n, path)
+		rn, err := t.resolveHash(n, path)
 		// if touch miss node, just skip
 		if _, ok := err.(*MissingNodeError); ok {
 			return nil
@@ -1659,10 +1746,19 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		if err != nil {
 			return err
 		}
-		if err = t.resolveEpochMetaAndTrack(rn, epoch, path); err != nil {
+		if err = t.resolveEpochMeta(rn, epoch, path); err != nil {
 			return err
 		}
-		return t.recursePruneExpiredNode(rn, path, epoch, pruneItemCh)
+		if st.moreThread() {
+			st.wg.Add(1)
+			path := common.CopyBytes(path)
+			go func() {
+				defer st.wg.Done()
+				t.recursePruneExpiredNode(rn, path, epoch, st)
+			}()
+			return nil
+		}
+		return t.recursePruneExpiredNode(rn, path, epoch, st)
 	case valueNode:
 		// value node is not a single storage uint, so pass to prune.
 		return nil

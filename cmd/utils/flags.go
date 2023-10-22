@@ -1152,6 +1152,12 @@ var (
 		Usage:    "if enable local revive",
 		Category: flags.StateExpiryCategory,
 	}
+	StateExpiryMaxThreadFlag = &cli.Uint64Flag{
+		Name:     "state-expiry.maxthread",
+		Usage:    "set state expiry maxthread in prune",
+		Value:    10000,
+		Category: flags.StateExpiryCategory,
+	}
 )
 
 func init() {
