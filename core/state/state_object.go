@@ -582,7 +582,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 		}
 		// reset trie as pending trie, will commit later
 		if tr != nil {
-			s.trie = s.db.db.CopyTrie(tr)
+			s.trie = tr
 		}
 	}
 	return tr, nil
@@ -839,8 +839,7 @@ func (s *stateObject) futureReviveState(key common.Hash) {
 
 // TODO(0xbundler): add hash key cache later
 func (s *stateObject) queryFromReviveState(reviveState map[string]common.Hash, key common.Hash) (common.Hash, bool) {
-	khash := crypto.HashData(s.db.hasher, key[:])
-	val, ok := reviveState[string(khash[:])]
+	val, ok := reviveState[string(crypto.Keccak256(key[:]))]
 	return val, ok
 }
 
