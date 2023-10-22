@@ -30,7 +30,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/tsdb/fileutil"
@@ -66,6 +65,8 @@ const (
 	rangeCompactionThreshold = 100000
 
 	FixedPrefixAndAddrSize = 33
+
+	defaultReportDuration = 60 * time.Second
 )
 
 // Config includes all the configurations for pruning.
@@ -75,6 +76,7 @@ type Config struct {
 	EnableStateExpiry bool
 	ChainConfig       *params.ChainConfig
 	CacheConfig       *core.CacheConfig
+	MaxExpireThreads  uint64
 }
 
 // Pruner is an offline tool to prune the stale state with the
@@ -114,7 +116,7 @@ func NewPruner(db ethdb.Database, config Config, triesInMemory uint64) (*Pruner,
 	}
 	// Offline pruning is only supported in legacy hash based scheme.
 	triedb := trie.NewDatabase(db, trie.HashDefaults)
-	log.Info("ChainConfig", "headBlock", headBlock.NumberU64(), "config", config.ChainConfig)
+	log.Info("ChainConfig", "headBlock", headBlock.NumberU64(), "config", config)
 
 	snapconfig := snapshot.Config{
 		CacheSize:  256,
@@ -201,7 +203,7 @@ func pruneAll(maindb ethdb.Database, g *core.Genesis) error {
 				)
 				eta = time.Duration(left/speed) * time.Millisecond
 			}
-			if time.Since(logged) > 8*time.Second {
+			if time.Since(logged) > defaultReportDuration {
 				log.Info("Pruning state data", "nodes", count, "size", size,
 					"elapsed", common.PrettyDuration(time.Since(pstart)), "eta", common.PrettyDuration(eta))
 				logged = time.Now()
@@ -309,7 +311,7 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 				)
 				eta = time.Duration(left/speed) * time.Millisecond
 			}
-			if time.Since(logged) > 8*time.Second {
+			if time.Since(logged) > defaultReportDuration {
 				log.Info("Pruning state data", "nodes", count, "size", size,
 					"elapsed", common.PrettyDuration(time.Since(pstart)), "eta", common.PrettyDuration(eta))
 				logged = time.Now()
@@ -733,7 +735,7 @@ func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
 	tasksWG.Add(2)
 	go func() {
 		defer tasksWG.Done()
-		rets[0] = asyncScanExpiredInTrie(trieDB, root, epoch, scanExpiredTrieCh, pruneExpiredInDiskCh)
+		rets[0] = asyncScanExpiredInTrie(trieDB, root, epoch, scanExpiredTrieCh, pruneExpiredInDiskCh, p.config.MaxExpireThreads)
 	}()
 	go func() {
 		defer tasksWG.Done()
@@ -783,7 +785,7 @@ func (p *Pruner) unExpiredBloomTag(trieDB *trie.Database, epoch types.StateEpoch
 	tasksWG.Add(2)
 	go func() {
 		defer tasksWG.Done()
-		rets[0] = asyncScanUnExpiredInTrie(trieDB, root, epoch, scanUnExpiredTrieCh, tagUnExpiredInBloomCh)
+		rets[0] = asyncScanUnExpiredInTrie(trieDB, root, epoch, scanUnExpiredTrieCh, tagUnExpiredInBloomCh, p.config.MaxExpireThreads)
 	}()
 	go func() {
 		defer tasksWG.Done()
@@ -804,7 +806,7 @@ func asyncTagUnExpiredInBloom(tagUnExpiredInBloomCh chan *trie.NodeInfo, bloom *
 	for info := range tagUnExpiredInBloomCh {
 		trieCount++
 		bloom.Add(stateBloomHasher(info.Hash[:]))
-		if time.Since(logged) > 8*time.Second {
+		if time.Since(logged) > defaultReportDuration {
 			log.Info("Tag unexpired states in bloom", "trieNodes", trieCount)
 			logged = time.Now()
 		}
@@ -813,12 +815,12 @@ func asyncTagUnExpiredInBloom(tagUnExpiredInBloomCh chan *trie.NodeInfo, bloom *
 	return nil
 }
 
-func asyncScanUnExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch types.StateEpoch, scanUnExpiredTrieCh chan *snapshot.ContractItem, tagUnExpiredInBloomCh chan *trie.NodeInfo) error {
-	var (
-		trieCount atomic.Uint64
-		start     = time.Now()
-		logged    = time.Now()
-	)
+func asyncScanUnExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch types.StateEpoch, scanUnExpiredTrieCh chan *snapshot.ContractItem, tagUnExpiredInBloomCh chan *trie.NodeInfo, maxThreads uint64) error {
+	defer func() {
+		close(tagUnExpiredInBloomCh)
+	}()
+	st := trie.NewScanTask(tagUnExpiredInBloomCh, maxThreads, false)
+	go st.Report(defaultReportDuration)
 	for item := range scanUnExpiredTrieCh {
 		log.Info("start scan trie unexpired state", "addrHash", item.Addr, "root", item.Root)
 		tr, err := trie.New(&trie.ID{
@@ -831,32 +833,24 @@ func asyncScanUnExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch ty
 			return err
 		}
 		tr.SetEpoch(epoch)
-		if err = tr.ScanForPrune(tagUnExpiredInBloomCh, &trieCount, false); err != nil {
+		if err = tr.ScanForPrune(st); err != nil {
 			log.Error("asyncScanExpiredInTrie, ScanForPrune err", "id", item, "err", err)
 			return err
 		}
-		if time.Since(logged) > 8*time.Second {
-			log.Info("Scan unexpired states", "trieNodes", trieCount.Load())
-			logged = time.Now()
-		}
 	}
-	log.Info("Scan unexpired states", "trieNodes", trieCount.Load(), "elapsed", common.PrettyDuration(time.Since(start)))
-	close(tagUnExpiredInBloomCh)
+	st.WaitThreads()
 	return nil
 }
 
 // asyncScanExpiredInTrie prune trie expired state
 // here are some issues when just delete it from hash-based storage, because it's shared kv in hbss
 // but it's ok for pbss.
-func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch types.StateEpoch, expireContractCh chan *snapshot.ContractItem, pruneExpiredInDisk chan *trie.NodeInfo) error {
+func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch types.StateEpoch, expireContractCh chan *snapshot.ContractItem, pruneExpiredInDisk chan *trie.NodeInfo, maxThreads uint64) error {
 	defer func() {
 		close(pruneExpiredInDisk)
 	}()
-	var (
-		trieCount atomic.Uint64
-		start     = time.Now()
-		logged    = time.Now()
-	)
+	st := trie.NewScanTask(pruneExpiredInDisk, maxThreads, true)
+	go st.Report(defaultReportDuration)
 	for item := range expireContractCh {
 		log.Debug("start scan trie expired state", "addrHash", item.Addr, "root", item.Root)
 		tr, err := trie.New(&trie.ID{
@@ -869,16 +863,12 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 			return err
 		}
 		tr.SetEpoch(epoch)
-		if err = tr.ScanForPrune(pruneExpiredInDisk, &trieCount, true); err != nil {
+		if err = tr.ScanForPrune(st); err != nil {
 			log.Error("asyncScanExpiredInTrie, ScanForPrune err", "id", item, "err", err)
 			return err
 		}
-		if time.Since(logged) > 8*time.Second {
-			log.Info("Scan unexpired states", "trieNodes", trieCount.Load())
-			logged = time.Now()
-		}
 	}
-	log.Info("Scan unexpired states", "trieNodes", trieCount.Load(), "elapsed", common.PrettyDuration(time.Since(start)))
+	st.WaitThreads()
 	return nil
 }
 
@@ -953,7 +943,7 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 			}
 			batch.Reset()
 		}
-		if time.Since(logged) > 8*time.Second {
+		if time.Since(logged) > defaultReportDuration {
 			log.Info("Pruning expired states", "items", itemCount, "trieNodes", trieCount, "trieSize", trieSize,
 				"SnapKV", snapCount, "SnapKVSize", snapSize, "EpochMeta", epochMetaCount,
 				"EpochMetaSize", epochMetaSize)
