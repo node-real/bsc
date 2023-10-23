@@ -144,9 +144,11 @@ func (c *committer) store(path []byte, n node) node {
 	}
 	// Collect the dirty node to nodeset for return.
 	nhash := common.BytesToHash(hash)
-	blob := nodeToBytes(n)
+	var blob []byte
 	if c.enableStateExpiry && !c.enableMetaDB {
-		blob = nodeToBytesWithEpoch(n, blob)
+		blob = nodeToBytesWithEpoch(n)
+	} else {
+		blob = nodeToBytes(n)
 	}
 	changed := c.tracer.checkNodeChanged(path, blob)
 	if changed {

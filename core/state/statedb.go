@@ -264,7 +264,7 @@ func (s *StateDB) InitStateExpiryFeature(config *types.StateExpiryConfig, remote
 		originalRoot:      s.originalRoot,
 		originalHash:      startAtBlockHash,
 	}
-	log.Debug("StateDB enable state expiry feature", "expectHeight", expectHeight, "startAtBlockHash", startAtBlockHash, "epoch", epoch)
+	//log.Debug("StateDB enable state expiry feature", "expectHeight", expectHeight, "startAtBlockHash", startAtBlockHash, "epoch", epoch)
 	return s
 }
 
