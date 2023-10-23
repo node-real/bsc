@@ -1,9 +1,10 @@
 package types
 
 import (
-	"bytes"
 	"errors"
+	"fmt"
 	"github.com/ethereum/go-ethereum/rlp"
+	"io"
 )
 
 const (
@@ -39,13 +40,54 @@ func (n *TrieBranchNodeWithEpoch) Type() uint8 {
 }
 
 func (n *TrieBranchNodeWithEpoch) EncodeToRLPBytes(buf *rlp.EncoderBuffer) {
-	rlp.Encode(buf, n)
+	offset := buf.List()
+	mapOffset := buf.List()
+	for _, item := range n.EpochMap {
+		if item == 0 {
+			buf.Write(rlp.EmptyString)
+		} else {
+			buf.WriteUint64(uint64(item))
+		}
+	}
+	buf.ListEnd(mapOffset)
+	buf.Write(n.Blob)
+	buf.ListEnd(offset)
 }
 
 func DecodeTrieBranchNodeWithEpoch(enc []byte) (*TrieBranchNodeWithEpoch, error) {
 	var n TrieBranchNodeWithEpoch
-	if err := rlp.DecodeBytes(enc, &n); err != nil {
-		return nil, err
+	if len(enc) == 0 {
+		return nil, io.ErrUnexpectedEOF
+	}
+	elems, _, err := rlp.SplitList(enc)
+	if err != nil {
+		return nil, fmt.Errorf("decode error: %v", err)
+	}
+
+	maps, rest, err := rlp.SplitList(elems)
+	if err != nil {
+		return nil, fmt.Errorf("decode epochmap error: %v", err)
+	}
+	for i := 0; i < len(n.EpochMap); i++ {
+		var c uint64
+		c, maps, err = rlp.SplitUint64(maps)
+		if err != nil {
+			return nil, fmt.Errorf("decode epochmap val error: %v", err)
+		}
+		n.EpochMap[i] = StateEpoch(c)
+	}
+
+	k, content, _, err := rlp.Split(rest)
+	if err != nil {
+		return nil, fmt.Errorf("decode raw error: %v", err)
+	}
+	switch k {
+	case rlp.String:
+		n.Blob = content
+	case rlp.List:
+		n.Blob = rest
+	default:
+		return nil, fmt.Errorf("decode wrong raw type error: %v", err)
 	}
 	return &n, nil
 }
@@ -54,15 +96,16 @@ func EncodeTypedTrieNode(val TypedTrieNode) []byte {
 	switch raw := val.(type) {
 	case TrieNodeRaw:
 		return raw
+	case *TrieBranchNodeWithEpoch:
+		// encode with type prefix
+		w := rlp.NewEncoderBuffer(nil)
+		w.Write([]byte{val.Type()})
+		val.EncodeToRLPBytes(&w)
+		result := w.ToBytes()
+		w.Flush()
+		return result
 	}
-	// encode with type prefix
-	buf := bytes.NewBuffer(make([]byte, 0, 40))
-	buf.WriteByte(val.Type())
-	encoder := rlp.NewEncoderBuffer(buf)
-	val.EncodeToRLPBytes(&encoder)
-	// it cannot be error here.
-	encoder.Flush()
-	return buf.Bytes()
+	return nil
 }
 
 func DecodeTypedTrieNode(enc []byte) (TypedTrieNode, error) {

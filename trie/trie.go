@@ -1530,9 +1530,8 @@ type ScanTask struct {
 	itemCh        chan *NodeInfo
 	unexpiredStat *atomic.Uint64
 	expiredStat   *atomic.Uint64
-	record        *atomic.Uint64
 	findExpired   bool
-	maxThreads    uint64
+	routineCh     chan struct{}
 	wg            *sync.WaitGroup
 	reportDone    chan struct{}
 }
@@ -1542,9 +1541,8 @@ func NewScanTask(itemCh chan *NodeInfo, maxThreads uint64, findExpired bool) *Sc
 		itemCh:        itemCh,
 		unexpiredStat: &atomic.Uint64{},
 		expiredStat:   &atomic.Uint64{},
-		record:        &atomic.Uint64{},
 		findExpired:   findExpired,
-		maxThreads:    maxThreads,
+		routineCh:     make(chan struct{}, maxThreads),
 		wg:            &sync.WaitGroup{},
 		reportDone:    make(chan struct{}),
 	}
@@ -1578,25 +1576,42 @@ func (st *ScanTask) Report(d time.Duration) {
 	for {
 		select {
 		case <-timer.C:
-			log.Info("Scan trie stats", "unexpired", st.UnexpiredStat(), "expired", st.ExpiredStat(), "go routine", runtime.NumGoroutine(), "elapsed", common.PrettyDuration(time.Since(start)))
+			log.Info("Scan trie stats", "total", st.TotalScan(), "unexpired", st.UnexpiredStat(), "expired", st.ExpiredStat(), "go routine", runtime.NumGoroutine(), "elapsed", common.PrettyDuration(time.Since(start)))
 			timer.Reset(d)
 		case <-st.reportDone:
-			log.Info("Scan trie done", "unexpired", st.UnexpiredStat(), "expired", st.ExpiredStat(), "elapsed", common.PrettyDuration(time.Since(start)))
+			log.Info("Scan trie done", "total", st.TotalScan(), "unexpired", st.UnexpiredStat(), "expired", st.ExpiredStat(), "elapsed", common.PrettyDuration(time.Since(start)))
 			return
 		}
 	}
 }
 
-func (st *ScanTask) moreThread() bool {
-	total := st.expiredStat.Load() + st.unexpiredStat.Load()
-	record := st.record.Load()
-	// every increase 10000, will add a new tread to handle other trie path
-	if total-record > 10000 && uint64(runtime.NumGoroutine()) < st.maxThreads {
-		st.record.Store(total)
-		return true
-	}
+func (st *ScanTask) Schedule(f func()) {
+	log.Debug("schedule", "total", st.TotalScan(), "go routine", runtime.NumGoroutine())
+	st.wg.Add(1)
+	go func() {
+		defer func() {
+			st.wg.Done()
+			select {
+			case <-st.routineCh:
+				log.Debug("task Schedule done", "routine", len(st.routineCh))
+			default:
+			}
+		}()
+		f()
+	}()
+}
 
-	return false
+func (st *ScanTask) TotalScan() uint64 {
+	return st.expiredStat.Load() + st.unexpiredStat.Load()
+}
+
+func (st *ScanTask) MoreThread() bool {
+	select {
+	case st.routineCh <- struct{}{}:
+		return true
+	default:
+		return false
+	}
 }
 
 // ScanForPrune traverses the storage trie and prunes all expired or unexpired nodes.
@@ -1671,16 +1686,15 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 		if err = t.resolveEpochMeta(resolve, epoch, path); err != nil {
 			return err
 		}
-		if st.moreThread() {
-			st.wg.Add(1)
+		if st.TotalScan()%1000 == 0 && st.MoreThread() {
 			path := common.CopyBytes(path)
-			go func() {
-				defer st.wg.Done()
-				t.findExpiredSubTree(resolve, path, epoch, pruner, st)
-			}()
+			st.Schedule(func() {
+				if err := t.findExpiredSubTree(resolve, path, epoch, pruner, st); err != nil {
+					log.Error("recursePruneExpiredNode err", "addr", t.owner, "path", path, "epoch", epoch, "err", err)
+				}
+			})
 			return nil
 		}
-
 		return t.findExpiredSubTree(resolve, path, epoch, pruner, st)
 	case valueNode:
 		return nil
@@ -1749,13 +1763,14 @@ func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpo
 		if err = t.resolveEpochMeta(rn, epoch, path); err != nil {
 			return err
 		}
-		if st.moreThread() {
-			st.wg.Add(1)
+
+		if st.TotalScan()%1000 == 0 && st.MoreThread() {
 			path := common.CopyBytes(path)
-			go func() {
-				defer st.wg.Done()
-				t.recursePruneExpiredNode(rn, path, epoch, st)
-			}()
+			st.Schedule(func() {
+				if err := t.recursePruneExpiredNode(rn, path, epoch, st); err != nil {
+					log.Error("recursePruneExpiredNode err", "addr", t.owner, "path", path, "epoch", epoch, "err", err)
+				}
+			})
 			return nil
 		}
 		return t.recursePruneExpiredNode(rn, path, epoch, st)

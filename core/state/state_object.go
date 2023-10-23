@@ -18,10 +18,8 @@ package state
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
 	"io"
 	"math/big"
@@ -319,7 +317,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-				log.Debug("GetCommittedState expired in trie", "addr", s.address, "key", key, "err", err)
+				//log.Debug("GetCommittedState expired in trie", "addr", s.address, "key", key, "err", err)
 				val, err = s.fetchExpiredFromRemote(enErr.Path, key, false)
 			}
 			// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
@@ -394,6 +392,19 @@ func (s *stateObject) finalise(prefetch bool) {
 		slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
 	}
 
+	// try prefetch future update state
+	for key := range s.pendingAccessedState {
+		if val, ok := s.dirtyStorage[key]; ok {
+			if val != s.originStorage[key] {
+				continue
+			}
+		}
+		if _, ok := s.pendingFutureReviveState[key]; ok {
+			continue
+		}
+		slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
+	}
+
 	if s.db.prefetcher != nil && prefetch && len(slotsToPrefetch) > 0 && s.data.Root != types.EmptyRootHash {
 		s.db.prefetcher.prefetch(s.addrHash, s.data.Root, s.address, slotsToPrefetch)
 	}
@@ -463,7 +474,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 			// it must hit in cache
 			value := s.GetState(key)
 			dirtyStorage[key] = common.TrimLeftZeroes(value[:])
-			log.Debug("updateTrie access state", "contract", s.address, "key", key, "epoch", s.db.Epoch())
+			//log.Debug("updateTrie access state", "contract", s.address, "key", key, "epoch", s.db.Epoch())
 		}
 	}
 
@@ -486,7 +497,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				if _, err = fetchExpiredStorageFromRemote(s.db.expiryMeta, s.address, s.data.Root, tr, enErr.Path, key); err != nil {
 					s.db.setError(fmt.Errorf("state object pendingFutureReviveState fetchExpiredStorageFromRemote err, contract: %v, key: %v, path: %v, err: %v", s.address, key, enErr.Path, err))
 				}
-				log.Debug("updateTrie pendingFutureReviveState", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
+				//log.Debug("updateTrie pendingFutureReviveState", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 			}
 		}
 		for key, value := range dirtyStorage {
@@ -494,13 +505,13 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				if err := tr.DeleteStorage(s.address, key[:]); err != nil {
 					s.db.setError(fmt.Errorf("state object update trie DeleteStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
-				log.Debug("updateTrie DeleteStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
+				//log.Debug("updateTrie DeleteStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 				s.db.StorageDeleted += 1
 			} else {
 				if err := tr.UpdateStorage(s.address, key[:], value); err != nil {
 					s.db.setError(fmt.Errorf("state object update trie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
-				log.Debug("updateTrie UpdateStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
+				//log.Debug("updateTrie UpdateStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 				s.db.StorageUpdated += 1
 			}
 			// Cache the items for preloading
@@ -539,7 +550,7 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				}
 			}
 			storage[khash] = snapshotVal // snapshotVal will be nil if it's deleted
-			log.Debug("updateTrie UpdateSnapShot", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", snapshotVal, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
+			//log.Debug("updateTrie UpdateSnapShot", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", snapshotVal, "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 
 			// Track the original value of slot only if it's mutated first time
 			prev := s.originStorage[key]
@@ -906,11 +917,11 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, erro
 	// if found value not been pruned, just return, local revive later
 	if s.db.EnableLocalRevive() && len(val.GetVal()) > 0 {
 		s.futureReviveState(key)
-		log.Debug("getExpirySnapStorage GetVal", "addr", s.address, "key", key, "val", hex.EncodeToString(val.GetVal()))
+		//log.Debug("getExpirySnapStorage GetVal", "addr", s.address, "key", key, "val", hex.EncodeToString(val.GetVal()))
 		return val.GetVal(), nil, nil
 	}
 
-	log.Debug("GetCommittedState expired in snapshot", "addr", s.address, "key", key, "val", val, "enc", enc, "err", err)
+	//log.Debug("GetCommittedState expired in snapshot", "addr", s.address, "key", key, "val", val, "enc", enc, "err", err)
 	// handle from remoteDB, if got err just setError, or return to revert in consensus version.
 	valRaw, err := s.fetchExpiredFromRemote(nil, key, true)
 	if err != nil {

@@ -62,11 +62,13 @@ const (
 	// rangeCompactionThreshold is the minimal deleted entry number for
 	// triggering range compaction. It's a quite arbitrary number but just
 	// to avoid triggering range compaction because of small deletion.
-	rangeCompactionThreshold = 100000
+	rangeCompactionThreshold = 1000000
 
 	FixedPrefixAndAddrSize = 33
 
 	defaultReportDuration = 60 * time.Second
+
+	defaultChannelSize = 200000
 )
 
 // Config includes all the configurations for pruning.
@@ -727,8 +729,8 @@ func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
 	}
 
 	var (
-		scanExpiredTrieCh    = make(chan *snapshot.ContractItem, 100000)
-		pruneExpiredInDiskCh = make(chan *trie.NodeInfo, 100000)
+		scanExpiredTrieCh    = make(chan *snapshot.ContractItem, defaultChannelSize)
+		pruneExpiredInDiskCh = make(chan *trie.NodeInfo, defaultChannelSize)
 		rets                 = make([]error, 3)
 		tasksWG              sync.WaitGroup
 	)
@@ -771,8 +773,8 @@ func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
 
 func (p *Pruner) unExpiredBloomTag(trieDB *trie.Database, epoch types.StateEpoch, root common.Hash) (*bloomfilter.Filter, error) {
 	var (
-		scanUnExpiredTrieCh   = make(chan *snapshot.ContractItem, 100000)
-		tagUnExpiredInBloomCh = make(chan *trie.NodeInfo, 100000)
+		scanUnExpiredTrieCh   = make(chan *snapshot.ContractItem, defaultChannelSize)
+		tagUnExpiredInBloomCh = make(chan *trie.NodeInfo, defaultChannelSize)
 		rets                  = make([]error, 3)
 		tasksWG               sync.WaitGroup
 	)
@@ -833,6 +835,14 @@ func asyncScanUnExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch ty
 			return err
 		}
 		tr.SetEpoch(epoch)
+		if st.MoreThread() {
+			st.Schedule(func() {
+				if err = tr.ScanForPrune(st); err != nil {
+					log.Error("asyncScanExpiredInTrie, ScanForPrune err", "id", item, "err", err)
+				}
+			})
+			continue
+		}
 		if err = tr.ScanForPrune(st); err != nil {
 			log.Error("asyncScanExpiredInTrie, ScanForPrune err", "id", item, "err", err)
 			return err

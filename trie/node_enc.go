@@ -28,7 +28,8 @@ func nodeToBytes(n node) []byte {
 	w.Flush()
 	return result
 }
-func nodeToBytesWithEpoch(n node, raw []byte) []byte {
+
+func nodeToBytesWithEpoch(n node) []byte {
 	switch n := n.(type) {
 	case *fullNode:
 		withEpoch := false
@@ -39,15 +40,26 @@ func nodeToBytesWithEpoch(n node, raw []byte) []byte {
 			}
 		}
 		if withEpoch {
-			tn := types.TrieBranchNodeWithEpoch{
-				EpochMap: n.EpochMap,
-				Blob:     raw,
+			w := rlp.NewEncoderBuffer(nil)
+			w.Write([]byte{types.TrieBranchNodeWithEpochType})
+			offset := w.List()
+			mapOffset := w.List()
+			for _, item := range n.EpochMap {
+				if item == 0 {
+					w.Write(rlp.EmptyString)
+				} else {
+					w.WriteUint64(uint64(item))
+				}
 			}
-			rn := types.EncodeTypedTrieNode(&tn)
-			return rn
+			w.ListEnd(mapOffset)
+			n.encode(w)
+			w.ListEnd(offset)
+			result := w.ToBytes()
+			w.Flush()
+			return result
 		}
 	}
-	return raw
+	return nodeToBytes(n)
 }
 
 func (n *fullNode) encode(w rlp.EncoderBuffer) {
