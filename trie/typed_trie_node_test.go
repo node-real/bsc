@@ -3,7 +3,6 @@ package trie
 import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"testing"
@@ -11,6 +10,7 @@ import (
 
 var (
 	fullNode1 = fullNode{
+		EpochMap: randomEpochMap(),
 		Children: [17]node{
 			&shortNode{
 				Key: common.FromHex("0x2e2"),
@@ -25,6 +25,7 @@ var (
 		},
 	}
 	fullNode2 = fullNode{
+		EpochMap: randomEpochMap(),
 		Children: [17]node{
 			hashNode(common.FromHex("0xac51f786e6cee2f4575d19789c1e7ae91da54f2138f415c0f95f127c2893eff9")),
 			hashNode(common.FromHex("0x83254958a3640af7a740dfcb32a02edfa1224e0ef65c28b1ff60c0b17eacb5d1")),
@@ -55,45 +56,39 @@ func TestSimpleTypedNode_Encode_Decode(t *testing.T) {
 			err: true,
 		},
 		{
-			n: types.TrieNodeRaw(encodeNode(&shortNode1)),
+			n: types.TrieNodeRaw(nodeToBytes(&shortNode1)),
 		},
 		{
-			n: types.TrieNodeRaw(encodeNode(&shortNode2)),
+			n: types.TrieNodeRaw(nodeToBytes(&shortNode2)),
 		},
 		{
-			n: types.TrieNodeRaw(encodeNode(&fullNode1)),
+			n: types.TrieNodeRaw(nodeToBytes(&fullNode1)),
 		},
 		{
-			n: types.TrieNodeRaw(encodeNode(&fullNode2)),
+			n: types.TrieNodeRaw(nodeToBytes(&fullNode2)),
 		},
 		{
 			n: &types.TrieBranchNodeWithEpoch{
-				EpochMap: randomEpochMap(),
-				Blob:     common.FromHex("0x2465176C461AfB316ebc773C61fAEe85A6515DAA"),
+				EpochMap: fullNode1.EpochMap,
+				Blob:     nodeToBytes(&fullNode1),
+			},
+		},
+		{
+			n: &types.TrieBranchNodeWithEpoch{
+				EpochMap: fullNode2.EpochMap,
+				Blob:     nodeToBytes(&fullNode2),
 			},
 		},
 		{
 			n: &types.TrieBranchNodeWithEpoch{
 				EpochMap: randomEpochMap(),
-				Blob:     encodeNode(&fullNode1),
+				Blob:     nodeToBytes(&shortNode1),
 			},
 		},
 		{
 			n: &types.TrieBranchNodeWithEpoch{
 				EpochMap: randomEpochMap(),
-				Blob:     encodeNode(&fullNode2),
-			},
-		},
-		{
-			n: &types.TrieBranchNodeWithEpoch{
-				EpochMap: randomEpochMap(),
-				Blob:     encodeNode(&shortNode1),
-			},
-		},
-		{
-			n: &types.TrieBranchNodeWithEpoch{
-				EpochMap: randomEpochMap(),
-				Blob:     encodeNode(&shortNode2),
+				Blob:     nodeToBytes(&shortNode2),
 			},
 		},
 	}
@@ -111,10 +106,34 @@ func TestSimpleTypedNode_Encode_Decode(t *testing.T) {
 	}
 }
 
-func encodeNode(n node) []byte {
-	buf := rlp.NewEncoderBuffer(nil)
-	n.encode(buf)
-	return buf.ToBytes()
+func TestNode2Bytes_Encode(t *testing.T) {
+	tests := []struct {
+		tn  types.TypedTrieNode
+		n   node
+		err bool
+	}{
+		{
+			tn: &types.TrieBranchNodeWithEpoch{
+				EpochMap: fullNode1.EpochMap,
+				Blob:     nodeToBytes(&fullNode1),
+			},
+			n: &fullNode1,
+		},
+		{
+			tn: &types.TrieBranchNodeWithEpoch{
+				EpochMap: fullNode2.EpochMap,
+				Blob:     nodeToBytes(&fullNode2),
+			},
+			n: &fullNode2,
+		},
+	}
+
+	for i, item := range tests {
+		enc1 := nodeToBytesWithEpoch(item.n)
+		enc2 := types.EncodeTypedTrieNode(item.tn)
+		t.Log(common.Bytes2Hex(enc1), common.Bytes2Hex(enc2))
+		assert.Equal(t, enc2, enc1, i)
+	}
 }
 
 func randomEpochMap() [16]types.StateEpoch {
