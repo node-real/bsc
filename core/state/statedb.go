@@ -51,10 +51,13 @@ const (
 )
 
 var (
-	getCommittedStorageMeter       = metrics.NewRegisteredMeter("state/contract/committed", nil)
-	getCommittedStorageSnapMeter   = metrics.NewRegisteredMeter("state/contract/committed/snap", nil)
-	getCommittedStorageTrieMeter   = metrics.NewRegisteredMeter("state/contract/committed/trie", nil)
-	getCommittedStorageRemoteMeter = metrics.NewRegisteredMeter("state/contract/committed/remote", nil)
+	getCommittedStorageMeter                   = metrics.NewRegisteredMeter("state/contract/committed", nil)
+	getCommittedStorageSnapMeter               = metrics.NewRegisteredMeter("state/contract/committed/snap", nil)
+	getCommittedStorageTrieMeter               = metrics.NewRegisteredMeter("state/contract/committed/trie", nil)
+	getCommittedStorageExpiredMeter            = metrics.NewRegisteredMeter("state/contract/committed/expired", nil)
+	getCommittedStorageExpiredLocalReviveMeter = metrics.NewRegisteredMeter("state/contract/committed/expired/localrevive", nil)
+	getCommittedStorageUnexpiredMeter          = metrics.NewRegisteredMeter("state/contract/committed/unexpired", nil)
+	getCommittedStorageRemoteMeter             = metrics.NewRegisteredMeter("state/contract/committed/remote", nil)
 )
 
 type revision struct {
