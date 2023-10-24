@@ -319,11 +319,12 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			if enErr, ok := err.(*trie.ExpiredNodeError); ok {
 				//log.Debug("GetCommittedState expired in trie", "addr", s.address, "key", key, "err", err)
 				val, err = s.fetchExpiredFromRemote(enErr.Path, key, false)
+				getCommittedStorageExpiredMeter.Mark(1)
+			} else if err != nil {
+				getCommittedStorageUnexpiredMeter.Mark(1)
+				// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
+				//s.originStorageEpoch[key] = epoch
 			}
-			// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
-			//if err != nil {
-			//	s.originStorageEpoch[key] = epoch
-			//}
 		}
 		if err != nil {
 			s.db.setError(fmt.Errorf("state object get storage err, contract: %v, key: %v, err: %v", s.address, key, err))
@@ -911,12 +912,15 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, erro
 
 	s.originStorageEpoch[key] = val.GetEpoch()
 	if !types.EpochExpired(val.GetEpoch(), s.db.Epoch()) {
+		getCommittedStorageUnexpiredMeter.Mark(1)
 		return val.GetVal(), nil, nil
 	}
 
+	getCommittedStorageExpiredMeter.Mark(1)
 	// if found value not been pruned, just return, local revive later
 	if s.db.EnableLocalRevive() && len(val.GetVal()) > 0 {
 		s.futureReviveState(key)
+		getCommittedStorageExpiredLocalReviveMeter.Mark(1)
 		//log.Debug("getExpirySnapStorage GetVal", "addr", s.address, "key", key, "val", hex.EncodeToString(val.GetVal()))
 		return val.GetVal(), nil, nil
 	}
