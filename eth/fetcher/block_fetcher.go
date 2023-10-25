@@ -203,6 +203,9 @@ type BlockFetcher struct {
 	fetchingHook       func([]common.Hash)               // Method to call upon starting a block (eth/61) or header (eth/62) fetch
 	completingHook     func([]common.Hash)               // Method to call upon starting a block body fetch (eth/62)
 	importedHook       func(*types.Header, *types.Block) // Method to call upon successful header or block import (both eth/61 and eth/62)
+
+	// state expiry
+	expiryConfig *types.StateExpiryConfig
 }
 
 // NewBlockFetcher creates a block fetcher to retrieve blocks based on hash announcements.
@@ -383,6 +386,14 @@ func (f *BlockFetcher) loop() {
 				f.forgetBlock(hash)
 				continue
 			}
+
+			if f.expiryConfig.EnableRemote() {
+				if keep, _ := f.expiryConfig.ShouldKeep1EpochBehind(number, height); keep {
+					log.Debug("BlockFetcher EnableRemote wait remote more blocks", "remoteHeight", number, "localHeight", height, "config", f.expiryConfig)
+					break
+				}
+			}
+
 			if f.light {
 				f.importHeaders(op)
 			} else {
@@ -993,4 +1004,8 @@ func (f *BlockFetcher) forgetBlock(hash common.Hash) {
 		}
 		delete(f.queued, hash)
 	}
+}
+
+func (f *BlockFetcher) InitExpiryConfig(config *types.StateExpiryConfig) {
+	f.expiryConfig = config
 }

@@ -1118,6 +1118,10 @@ var (
 		RemoteDBFlag,
 		HttpHeaderFlag,
 	}
+	StateExpiryBaseFlags = []cli.Flag{
+		StateExpiryEnableFlag,
+		StateExpiryEnableRemoteModeFlag,
+	}
 )
 
 var (
@@ -1156,6 +1160,12 @@ var (
 		Name:     "state-expiry.maxthread",
 		Usage:    "set state expiry maxthread in prune",
 		Value:    10000,
+		Category: flags.StateExpiryCategory,
+	}
+	StateExpiryEnableRemoteModeFlag = &cli.BoolFlag{
+		Name:     "state-expiry.remotemode",
+		Usage:    "set state expiry in remotemode",
+		Value:    false,
 		Category: flags.StateExpiryCategory,
 	}
 )
@@ -2572,6 +2582,9 @@ func ParseStateExpiryConfig(ctx *cli.Context, disk ethdb.Database, scheme string
 	newCfg := &types.StateExpiryConfig{StateScheme: scheme}
 	if ctx.IsSet(StateExpiryEnableFlag.Name) {
 		newCfg.Enable = ctx.Bool(StateExpiryEnableFlag.Name)
+	}
+	if ctx.IsSet(StateExpiryEnableRemoteModeFlag.Name) {
+		newCfg.EnableRemoteMode = ctx.Bool(StateExpiryEnableRemoteModeFlag.Name)
 	}
 	if ctx.IsSet(StateExpiryFullStateEndpointFlag.Name) {
 		newCfg.FullStateEndpoint = ctx.String(StateExpiryFullStateEndpointFlag.Name)
