@@ -260,7 +260,7 @@ func (s *StateDB) InitStateExpiryFeature(config *types.StateExpiryConfig, remote
 	}
 	epoch := types.GetStateEpoch(config, expectHeight)
 	s.expiryMeta = &stateExpiryMeta{
-		enableStateExpiry: config.Enable,
+		enableStateExpiry: config.EnableExpiry(),
 		enableLocalRevive: config.EnableLocalRevive,
 		fullStateDB:       remote,
 		epoch:             epoch,
