@@ -123,7 +123,7 @@ type handlerConfig struct {
 	DirectBroadcast        bool
 	DisablePeerTxBroadcast bool
 	PeerSet                *peerSet
-	EnableStateExpiry      bool
+	expiryConfig           *types.StateExpiryConfig
 }
 
 type handler struct {
@@ -135,7 +135,7 @@ type handler struct {
 	acceptTxs       atomic.Bool // Flag whether we're considered synchronised (enables transaction processing)
 	directBroadcast bool
 
-	enableStateExpiry bool
+	expiryConfig *types.StateExpiryConfig
 
 	database             ethdb.Database
 	txpool               txPool
@@ -199,7 +199,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		peersPerIP:             make(map[string]int),
 		requiredBlocks:         config.RequiredBlocks,
 		directBroadcast:        config.DirectBroadcast,
-		enableStateExpiry:      config.EnableStateExpiry,
+		expiryConfig:           config.expiryConfig,
 		quitSync:               make(chan struct{}),
 		handlerDoneCh:          make(chan struct{}),
 		handlerStartCh:         make(chan struct{}),
@@ -253,7 +253,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		downloadOptions = append(downloadOptions, success)
 	*/
 
-	h.downloader = downloader.NewWithExpiry(config.Database, h.eventMux, h.chain, nil, config.EnableStateExpiry, h.removePeer, downloadOptions...)
+	h.downloader = downloader.NewWithExpiry(config.Database, h.eventMux, h.chain, nil, config.expiryConfig, h.removePeer, downloadOptions...)
 
 	// Construct the fetcher (short sync)
 	validator := func(header *types.Header) error {
@@ -339,6 +339,9 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	}
 	h.blockFetcher = fetcher.NewBlockFetcher(false, nil, h.chain.GetBlockByHash, validator, h.BroadcastBlock,
 		heighter, finalizeHeighter, nil, inserter, h.removePeer)
+	if config.expiryConfig != nil {
+		h.blockFetcher.InitExpiryConfig(config.expiryConfig)
+	}
 
 	fetchTx := func(peer string, hashes []common.Hash) error {
 		p := h.peers.peer(peer)

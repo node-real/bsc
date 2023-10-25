@@ -50,7 +50,7 @@ var (
 		Name:      "removedb",
 		Usage:     "Remove blockchain and state databases",
 		ArgsUsage: "",
-		Flags:     flags.Merge(utils.DatabasePathFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
+		Flags:     flags.Merge(utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: `
 Remove blockchain and state databases`,
 	}
@@ -86,8 +86,7 @@ Remove blockchain and state databases`,
 		ArgsUsage: "<prefix> <start>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Usage:       "Inspect the storage size for each type of data in the database",
 		Description: `This commands iterates the entire database. If the optional 'prefix' and 'start' arguments are provided, then the iteration is limited to the given subset of data.`,
 	}
@@ -97,8 +96,7 @@ Remove blockchain and state databases`,
 		ArgsUsage: "<blocknum> <jobnum>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.DatabasePathFlags),
+		}, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Usage:       "Inspect the MPT tree of the account and contract.",
 		Description: `This commands iterates the entrie WorldState.`,
 	}
@@ -106,7 +104,7 @@ Remove blockchain and state databases`,
 		Action:    checkStateContent,
 		Name:      "check-state-content",
 		ArgsUsage: "<start (optional)>",
-		Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
+		Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Usage:     "Verify that state data is cryptographically correct",
 		Description: `This command iterates the entire database for 32-byte keys, looking for rlp-encoded trie nodes.
 For each trie node encountered, it checks that the key corresponds to the keccak256(value). If this is not true, this indicates
@@ -157,8 +155,7 @@ a data corruption.`,
 		Usage:  "Print leveldb statistics",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 	}
 	dbCompactCmd = &cli.Command{
 		Action: dbCompact,
@@ -168,8 +165,7 @@ a data corruption.`,
 			utils.SyncModeFlag,
 			utils.CacheFlag,
 			utils.CacheDatabaseFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: `This command performs a database compaction. 
 WARNING: This operation may take a very long time to finish, and may cause database
 corruption if it is aborted during execution'!`,
@@ -181,8 +177,7 @@ corruption if it is aborted during execution'!`,
 		ArgsUsage: "<hex-encoded key>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: "This command looks up the specified database key from the database.",
 	}
 	dbDeleteCmd = &cli.Command{
@@ -192,8 +187,7 @@ corruption if it is aborted during execution'!`,
 		ArgsUsage: "<hex-encoded key>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: `This command deletes the specified database key from the database. 
 WARNING: This is a low-level operation which may cause database corruption!`,
 	}
@@ -204,8 +198,7 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		ArgsUsage: "<hex-encoded key> <hex-encoded value>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: `This command sets a given database key to the given value. 
 WARNING: This is a low-level operation which may cause database corruption!`,
 	}
@@ -217,8 +210,7 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
 			utils.StateSchemeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: "This command looks up the specified database key from the database.",
 	}
 	dbDumpFreezerIndex = &cli.Command{
@@ -228,8 +220,7 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		ArgsUsage: "<freezer-type> <table-type> <start (int)> <end (int)>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: "This command displays information about the freezer index.",
 	}
 	dbImportCmd = &cli.Command{
@@ -239,8 +230,7 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		ArgsUsage: "<dumpfile> <start (optional)",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: "The import command imports the specific chain data from an RLP encoded stream.",
 	}
 	dbExportCmd = &cli.Command{
@@ -250,8 +240,7 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		ArgsUsage: "<type> <dumpfile>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: "Exports the specified chain data to an RLP encoded stream, optionally gzip-compressed.",
 	}
 	dbMetadataCmd = &cli.Command{
@@ -260,17 +249,16 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		Usage:  "Shows metadata about the chain status.",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
-			utils.StateExpiryEnableFlag,
-		}, utils.NetworkFlags, utils.DatabasePathFlags),
+		}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 		Description: "Shows metadata about the chain status.",
 	}
 	ancientInspectCmd = &cli.Command{
 		Action: ancientInspect,
 		Name:   "inspect-reserved-oldest-blocks",
-		Flags: []cli.Flag{
-			utils.DataDirFlag,
-			utils.StateExpiryEnableFlag,
-		},
+		Flags: flags.Merge(
+			[]cli.Flag{utils.DataDirFlag},
+			utils.StateExpiryBaseFlags,
+		),
 		Usage: "Inspect the ancientStore information",
 		Description: `This commands will read current offset from kvdb, which is the current offset and starting BlockNumber
 of ancientStore, will also displays the reserved number of blocks in ancientStore `,

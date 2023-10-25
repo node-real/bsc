@@ -22,13 +22,23 @@ type StateExpiryConfig struct {
 	StateEpoch2Block  uint64
 	StateEpochPeriod  uint64
 	EnableLocalRevive bool
+	EnableRemoteMode  bool // when enable remoteDB mode, it will register specific RPC for partial proof and keep sync behind for safety proof
 }
 
+// EnableExpiry when enable remote mode, it just check param
 func (s *StateExpiryConfig) EnableExpiry() bool {
 	if s == nil {
 		return false
 	}
-	return s.Enable
+	return s.Enable && !s.EnableRemoteMode
+}
+
+// EnableRemote when enable remote mode, it just check param
+func (s *StateExpiryConfig) EnableRemote() bool {
+	if s == nil {
+		return false
+	}
+	return s.Enable && s.EnableRemoteMode
 }
 
 func (s *StateExpiryConfig) Validation() error {
@@ -63,6 +73,9 @@ func (s *StateExpiryConfig) CheckCompatible(newCfg *StateExpiryConfig) error {
 	if s.Enable && !newCfg.Enable {
 		return errors.New("disable state expiry is dangerous after enabled, expired state may pruned")
 	}
+	if s.EnableRemoteMode && !newCfg.EnableRemoteMode {
+		return errors.New("disable state expiry  EnableRemoteMode is dangerous after enabled")
+	}
 
 	if err := s.CheckStateEpochCompatible(newCfg.StateEpoch1Block, newCfg.StateEpoch2Block, newCfg.StateEpochPeriod); err != nil {
 		return err
@@ -96,8 +109,40 @@ func (s *StateExpiryConfig) CheckStateEpochCompatible(StateEpoch1Block, StateEpo
 
 func (s *StateExpiryConfig) String() string {
 	if !s.Enable {
-		return "State Expiry Disable"
+		return "State Expiry Disable."
 	}
-	return fmt.Sprintf("Enable State Expiry, RemoteEndpoint: %v, StateEpoch: [%v|%v|%v], StateScheme: %v, PruneLevel: %v, EnableLocalRevive: %v",
+	if s.Enable && s.EnableRemoteMode {
+		return "State Expiry Enable in RemoteMode, it will not expired any state."
+	}
+	return fmt.Sprintf("Enable State Expiry, RemoteEndpoint: %v, StateEpoch: [%v|%v|%v], StateScheme: %v, PruneLevel: %v, EnableLocalRevive: %v.",
 		s.FullStateEndpoint, s.StateEpoch1Block, s.StateEpoch2Block, s.StateEpochPeriod, s.StateScheme, s.PruneLevel, s.EnableLocalRevive)
+}
+
+// ShouldKeep1EpochBehind when enable state expiry, keep remoteDB behind the latest only 1 epoch blocks
+func (s *StateExpiryConfig) ShouldKeep1EpochBehind(remote uint64, local uint64) (bool, uint64) {
+	if !s.EnableRemoteMode {
+		return false, remote
+	}
+	if remote <= local {
+		return false, remote
+	}
+
+	// if in epoch0, just sync
+	if remote < s.StateEpoch1Block {
+		return false, remote
+	}
+
+	// if in epoch1, behind StateEpoch2Block-StateEpoch1Block
+	if remote < s.StateEpoch2Block {
+		if remote-(s.StateEpoch2Block-s.StateEpoch1Block) <= local {
+			return true, 0
+		}
+		return false, remote - (s.StateEpoch2Block - s.StateEpoch1Block)
+	}
+
+	// if in >= epoch2, behind StateEpochPeriod
+	if remote-s.StateEpochPeriod <= local {
+		return true, 0
+	}
+	return false, remote - s.StateEpochPeriod
 }

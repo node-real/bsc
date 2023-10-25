@@ -61,10 +61,9 @@ var (
 				Flags: flags.Merge([]cli.Flag{
 					utils.BloomFilterSizeFlag,
 					utils.TriesInMemoryFlag,
-					utils.StateExpiryEnableFlag,
 					utils.StateExpiryMaxThreadFlag,
 					configFileFlag,
-				}, utils.NetworkFlags, utils.DatabasePathFlags),
+				}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 geth snapshot prune-state <state-root>
 will prune historical state data with the help of the state snapshot.
@@ -82,14 +81,13 @@ WARNING: it's only supported in hash mode(--state.scheme=hash)".
 				Usage:    "Prune block data offline",
 				Action:   pruneBlock,
 				Category: "MISCELLANEOUS COMMANDS",
-				Flags: []cli.Flag{
+				Flags: flags.Merge([]cli.Flag{
 					utils.DataDirFlag,
 					utils.AncientFlag,
 					utils.BlockAmountReserved,
 					utils.TriesInMemoryFlag,
 					utils.CheckSnapshotWithMPT,
-					utils.StateExpiryEnableFlag,
-				},
+				}, utils.StateExpiryBaseFlags),
 				Description: `
 geth offline prune-block for block data in ancientdb.
 The amount of blocks expected for remaining after prune can be specified via block-amount-reserved in this command,
@@ -109,8 +107,7 @@ so it's very necessary to do block data prune, this feature will handle it.
 				Action:    verifyState,
 				Flags: flags.Merge([]cli.Flag{
 					utils.StateSchemeFlag,
-					utils.StateExpiryEnableFlag,
-				}, utils.NetworkFlags, utils.DatabasePathFlags),
+				}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 geth snapshot verify-state <state-root>
 will traverse the whole accounts and storages set based on the specified
@@ -125,11 +122,10 @@ In other words, this command does the snapshot to trie conversion.
 				ArgsUsage: "<genesisPath>",
 				Action:    pruneAllState,
 				Category:  "MISCELLANEOUS COMMANDS",
-				Flags: []cli.Flag{
+				Flags: flags.Merge([]cli.Flag{
 					utils.DataDirFlag,
 					utils.AncientFlag,
-					utils.StateExpiryEnableFlag,
-				},
+				}, utils.StateExpiryBaseFlags),
 				Description: `
 will prune all historical trie state data except genesis block.
 All trie nodes will be deleted from the database. 
@@ -147,7 +143,7 @@ the trie clean cache with default directory will be deleted.
 				Usage:     "Check that there is no 'dangling' snap storage",
 				ArgsUsage: "<root>",
 				Action:    checkDanglingStorage,
-				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
+				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 geth snapshot check-dangling-storage <state-root> traverses the snap storage 
 data, and verifies that all snapshot storage data has a corresponding account. 
@@ -158,7 +154,7 @@ data, and verifies that all snapshot storage data has a corresponding account.
 				Usage:     "Check all snapshot layers for the a specific account",
 				ArgsUsage: "<address | hash>",
 				Action:    checkAccount,
-				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, []cli.Flag{utils.StateExpiryEnableFlag}),
+				Flags:     flags.Merge(utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 geth snapshot inspect-account <address | hash> checks all snapshot layers and prints out
 information about the specified address. 
@@ -171,8 +167,7 @@ information about the specified address.
 				Action:    traverseState,
 				Flags: flags.Merge([]cli.Flag{
 					utils.StateSchemeFlag,
-					utils.StateExpiryEnableFlag,
-				}, utils.NetworkFlags, utils.DatabasePathFlags),
+				}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 geth snapshot traverse-state <state-root>
 will traverse the whole state from the given state root and will abort if any
@@ -189,8 +184,7 @@ It's also usable without snapshot enabled.
 				Action:    traverseRawState,
 				Flags: flags.Merge([]cli.Flag{
 					utils.StateSchemeFlag,
-					utils.StateExpiryEnableFlag,
-				}, utils.NetworkFlags, utils.DatabasePathFlags),
+				}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 geth snapshot traverse-rawstate <state-root>
 will traverse the whole state from the given root and will abort if any referenced
@@ -213,8 +207,7 @@ It's also usable without snapshot enabled.
 					utils.DumpLimitFlag,
 					utils.TriesInMemoryFlag,
 					utils.StateSchemeFlag,
-					utils.StateExpiryEnableFlag,
-				}, utils.NetworkFlags, utils.DatabasePathFlags),
+				}, utils.NetworkFlags, utils.DatabasePathFlags, utils.StateExpiryBaseFlags),
 				Description: `
 This command is semantically equivalent to 'geth dump', but uses the snapshots
 as the backend data source, making this command a lot faster. 

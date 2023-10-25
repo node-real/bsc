@@ -103,6 +103,9 @@ type Downloader struct {
 
 	stateDB ethdb.Database // Database to state sync into (and deduplicate via)
 
+	// state expiry
+	expiryConfig *types.StateExpiryConfig
+
 	// Statistics
 	syncStatsChainOrigin uint64       // Origin block number where syncing started at
 	syncStatsChainHeight uint64       // Highest block number known when syncing started
@@ -130,8 +133,6 @@ type Downloader struct {
 
 	SnapSyncer     *snap.Syncer // TODO(karalabe): make private! hack for now
 	stateSyncStart chan *stateSync
-
-	enableStateExpiry bool
 
 	// Cancellation and termination
 	cancelPeer string         // Identifier of the peer currently being used as the master (cancel on drop)
@@ -241,24 +242,24 @@ func New(stateDb ethdb.Database, mux *event.TypeMux, chain BlockChain, lightchai
 	return dl
 }
 
-func NewWithExpiry(stateDb ethdb.Database, mux *event.TypeMux, chain BlockChain, lightchain LightChain, enableStateExpiry bool, dropPeer peerDropFn, options ...DownloadOption) *Downloader {
+func NewWithExpiry(stateDb ethdb.Database, mux *event.TypeMux, chain BlockChain, lightchain LightChain, expiryConfig *types.StateExpiryConfig, dropPeer peerDropFn, options ...DownloadOption) *Downloader {
 	if lightchain == nil {
 		lightchain = chain
 	}
 	dl := &Downloader{
-		stateDB:           stateDb,
-		mux:               mux,
-		queue:             newQueue(blockCacheMaxItems, blockCacheInitialItems),
-		peers:             newPeerSet(),
-		blockchain:        chain,
-		lightchain:        lightchain,
-		dropPeer:          dropPeer,
-		enableStateExpiry: enableStateExpiry,
-		headerProcCh:      make(chan *headerTask, 1),
-		quitCh:            make(chan struct{}),
-		SnapSyncer:        snap.NewSyncerWithStateExpiry(stateDb, chain.TrieDB().Scheme(), enableStateExpiry),
-		stateSyncStart:    make(chan *stateSync),
-		syncStartBlock:    chain.CurrentSnapBlock().Number.Uint64(),
+		stateDB:        stateDb,
+		mux:            mux,
+		queue:          newQueue(blockCacheMaxItems, blockCacheInitialItems),
+		peers:          newPeerSet(),
+		blockchain:     chain,
+		lightchain:     lightchain,
+		dropPeer:       dropPeer,
+		expiryConfig:   expiryConfig,
+		headerProcCh:   make(chan *headerTask, 1),
+		quitCh:         make(chan struct{}),
+		SnapSyncer:     snap.NewSyncerWithStateExpiry(stateDb, chain.TrieDB().Scheme(), expiryConfig.EnableExpiry()),
+		stateSyncStart: make(chan *stateSync),
+		syncStartBlock: chain.CurrentSnapBlock().Number.Uint64(),
 	}
 
 	go dl.stateFetcher()
@@ -524,6 +525,15 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td, ttd *
 		localHeight = d.lightchain.CurrentHeader().Number.Uint64()
 	}
 
+	if d.expiryConfig.EnableRemote() {
+		var keep bool
+		keep, remoteHeight = d.expiryConfig.ShouldKeep1EpochBehind(remoteHeight, localHeight)
+		log.Debug("EnableRemote wait remote more blocks", "remoteHeight", remoteHeader.Number, "request", remoteHeight, "localHeight", localHeight, "config", d.expiryConfig)
+		if keep {
+			return errCanceled
+		}
+	}
+
 	origin, err := d.findAncestor(p, localHeight, remoteHeader)
 	if err != nil {
 		return err
@@ -611,9 +621,9 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td, ttd *
 	}
 
 	fetchers := []func() error{
-		func() error { return d.fetchHeaders(p, origin+1, remoteHeader.Number.Uint64()) }, // Headers are always retrieved
-		func() error { return d.fetchBodies(origin+1, beaconMode) },                       // Bodies are retrieved during normal and snap sync
-		func() error { return d.fetchReceipts(origin+1, beaconMode) },                     // Receipts are retrieved during snap sync
+		func() error { return d.fetchHeaders(p, origin+1, remoteHeight) }, // Headers are always retrieved
+		func() error { return d.fetchBodies(origin+1, beaconMode) },       // Bodies are retrieved during normal and snap sync
+		func() error { return d.fetchReceipts(origin+1, beaconMode) },     // Receipts are retrieved during snap sync
 		func() error { return d.processHeaders(origin+1, td, ttd, beaconMode) },
 	}
 	if mode == SnapSync {
@@ -1199,6 +1209,15 @@ func (d *Downloader) fetchHeaders(p *peerConnection, from uint64, head uint64) e
 				return errCanceled
 			}
 			from += uint64(len(headers))
+			// if EnableRemote, just return if ahead the head
+			if d.expiryConfig.EnableRemote() && from > head {
+				select {
+				case d.headerProcCh <- nil:
+					return nil
+				case <-d.cancelCh:
+					return errCanceled
+				}
+			}
 		}
 		// If we're still skeleton filling snap sync, check pivot staleness
 		// before continuing to the next skeleton filling
