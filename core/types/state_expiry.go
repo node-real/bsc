@@ -22,7 +22,7 @@ type StateExpiryConfig struct {
 	StateEpoch2Block  uint64
 	StateEpochPeriod  uint64
 	EnableLocalRevive bool
-	EnableRemoteMode  bool // when enable remoteDB mode, it will register specific RPC for partial proof and keep sync behind for safety proof
+	EnableRemoteMode  bool `rlp:"optional"` // when enable remoteDB mode, it will register specific RPC for partial proof and keep sync behind for safety proof
 }
 
 // EnableExpiry when enable remote mode, it just check param

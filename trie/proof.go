@@ -57,7 +57,7 @@ func (t *Trie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
 	}
 	for len(key) > 0 && tn != nil {
 		if t.enableExpiry && t.epochExpired(tn, nodeEpoch) {
-			return NewExpiredNodeError(prefix, nodeEpoch)
+			return NewExpiredNodeError(prefix, nodeEpoch, tn)
 		}
 		switch n := tn.(type) {
 		case *shortNode:
