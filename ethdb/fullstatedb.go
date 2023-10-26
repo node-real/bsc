@@ -93,15 +93,16 @@ func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, accoun
 	if err != nil {
 		return nil, fmt.Errorf("failed to get storage revive proof, err: %v, remote's block number: %v", err, result.BlockNum)
 	}
-
-	proofs := result.StorageProof
+	if len(result.Err) > 0 {
+		return nil, fmt.Errorf("failed to get storage revive proof, err: %v, remote's block number: %v", result.Err, result.BlockNum)
+	}
 
 	// add to cache
-	for _, proof := range proofs {
+	for _, proof := range result.StorageProof {
 		f.cache.Add(ProofCacheKey(account, root, proof.PrefixKey, proof.Key), proof)
 	}
 
-	ret = append(ret, proofs...)
+	ret = append(ret, result.StorageProof...)
 	return ret, err
 }
 

@@ -260,7 +260,7 @@ func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode no
 
 func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.StateEpoch, updateEpoch bool) (value []byte, newnode node, didResolve bool, err error) {
 	if t.epochExpired(origNode, epoch) {
-		return nil, nil, false, NewExpiredNodeError(key[:pos], epoch)
+		return nil, nil, false, NewExpiredNodeError(key[:pos], epoch, origNode)
 	}
 	switch n := (origNode).(type) {
 	case nil:
@@ -596,7 +596,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 
 func (t *Trie) insertWithEpoch(n node, prefix, key []byte, value node, epoch types.StateEpoch) (bool, node, error) {
 	if t.epochExpired(n, epoch) {
-		return false, nil, NewExpiredNodeError(prefix, epoch)
+		return false, nil, NewExpiredNodeError(prefix, epoch, n)
 	}
 
 	if len(key) == 0 {
@@ -865,7 +865,7 @@ func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
 
 func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoch) (bool, node, error) {
 	if t.epochExpired(n, epoch) {
-		return false, nil, NewExpiredNodeError(prefix, epoch)
+		return false, nil, NewExpiredNodeError(prefix, epoch, n)
 	}
 
 	switch n := n.(type) {
@@ -1352,7 +1352,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 	}
 
 	if isExpired {
-		return nil, false, NewExpiredNodeError(key[:pos], epoch)
+		return nil, false, NewExpiredNodeError(key[:pos], epoch, n)
 	}
 
 	switch n := n.(type) {

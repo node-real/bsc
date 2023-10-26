@@ -71,15 +71,17 @@ func (e *ReviveNotExpiredError) Error() string {
 type ExpiredNodeError struct {
 	Path  []byte // hex-encoded path to the expired node
 	Epoch types.StateEpoch
+	Node  node
 }
 
-func NewExpiredNodeError(path []byte, epoch types.StateEpoch) error {
+func NewExpiredNodeError(path []byte, epoch types.StateEpoch, n node) error {
 	return &ExpiredNodeError{
 		Path:  path,
 		Epoch: epoch,
+		Node:  n,
 	}
 }
 
 func (err *ExpiredNodeError) Error() string {
-	return fmt.Sprintf("expired trie node, path: %v, epoch: %v", err.Path, err.Epoch)
+	return fmt.Sprintf("expired trie node, path: %v, epoch: %v, node: %v", err.Path, err.Epoch, err.Node.fstring(""))
 }
