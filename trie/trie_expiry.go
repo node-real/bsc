@@ -30,7 +30,13 @@ func (t *Trie) tryLocalRevive(origNode node, key []byte, pos int, epoch types.St
 		return n, n, expired, nil
 	case *shortNode:
 		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
-			// key not found in trie
+			// key not found in trie, but just revive for expand
+			if t.renewNode(epoch, false, expired) {
+				n = n.copy()
+				n.setEpoch(t.currentEpoch)
+				n.flags = t.newFlag()
+				return nil, n, true, nil
+			}
 			return nil, n, false, nil
 		}
 		value, newnode, didResolve, err := t.tryLocalRevive(n.Val, key, pos+len(n.Key), epoch)
