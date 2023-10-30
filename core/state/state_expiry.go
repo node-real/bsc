@@ -41,9 +41,6 @@ func fetchExpiredStorageFromRemote(meta *stateExpiryMeta, addr common.Address, r
 		// if there need revive expired state, try to revive locally, when the node is not being pruned, just renew the epoch
 		val, err := tr.TryLocalRevive(addr, key.Bytes())
 		//log.Debug("fetchExpiredStorageFromRemote TryLocalRevive", "addr", addr, "key", key, "val", val, "err", err)
-		if _, ok := err.(*trie.MissingNodeError); !ok {
-			return nil, err
-		}
 		switch err.(type) {
 		case *trie.MissingNodeError:
 			// cannot revive locally, request from remote
@@ -86,9 +83,6 @@ func batchFetchExpiredFromRemote(expiryMeta *stateExpiryMeta, addr common.Addres
 		for i, key := range keys {
 			val, err := tr.TryLocalRevive(addr, key.Bytes())
 			//log.Debug("fetchExpiredStorageFromRemote TryLocalRevive", "addr", addr, "key", key, "val", val, "err", err)
-			if _, ok := err.(*trie.MissingNodeError); !ok {
-				return nil, err
-			}
 			switch err.(type) {
 			case *trie.MissingNodeError:
 				expiredKeys = append(expiredKeys, key)

@@ -500,6 +500,24 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				}
 				//log.Debug("updateTrie pendingFutureReviveState", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 			}
+			// TODO(0xbundler): find some trie node with wrong epoch, temporary add get op, will fix later
+			//for key, val := range dirtyStorage {
+			//	_, err = tr.GetStorage(s.address, key.Bytes())
+			//	if err == nil {
+			//		continue
+			//	}
+			//	log.Error("EnableExpire GetStorage error", "addr", s.address, "key", key, "val", val, "origin", s.originStorage[key], "err", err)
+			//	enErr, ok := err.(*trie.ExpiredNodeError)
+			//	if !ok {
+			//		s.db.setError(fmt.Errorf("state object dirtyStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
+			//		continue
+			//	}
+			//	if _, err = fetchExpiredStorageFromRemote(s.db.expiryMeta, s.address, s.data.Root, tr, enErr.Path, key); err != nil {
+			//		log.Error("EnableExpire GetStorage fetchExpiredStorageFromRemote error", "addr", s.address, "key", key, "val", val, "origin", s.originStorage[key], "err", err)
+			//		s.db.setError(fmt.Errorf("state object dirtyStorage fetchExpiredStorageFromRemote err, contract: %v, key: %v, path: %v, err: %v", s.address, key, enErr.Path, err))
+			//	}
+			//	//log.Debug("updateTrie dirtyStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "tr.epoch", tr.Epoch(), "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
+			//}
 		}
 		for key, value := range dirtyStorage {
 			if len(value) == 0 {
