@@ -85,3 +85,17 @@ func NewExpiredNodeError(path []byte, epoch types.StateEpoch, n node) error {
 func (err *ExpiredNodeError) Error() string {
 	return fmt.Sprintf("expired trie node, path: %v, epoch: %v, node: %v", err.Path, err.Epoch, err.Node.fstring(""))
 }
+
+func ParseExpiredNodeErr(err error) ([]byte, bool) {
+	var path []byte
+	switch enErr := err.(type) {
+	case *ExpiredNodeError:
+		path = enErr.Path
+	case *MissingNodeError: // when meet MissingNodeError, try revive or fail
+		path = enErr.Path
+	default:
+		return nil, false
+	}
+
+	return path, true
+}
