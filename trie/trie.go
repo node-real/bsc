@@ -314,38 +314,29 @@ func (t *Trie) getWithEpoch(origNode node, key []byte, pos int, epoch types.Stat
 	}
 }
 
-// updateChildNodeEpoch traverses the trie and update the node epoch for each accessed trie node.
+// refreshNubEpoch traverses the trie and update the node epoch for each accessed trie node.
 // Under an expiry scheme where a hash node is accessed, its parent node's epoch will not be updated.
-func (t *Trie) updateChildNodeEpoch(origNode node, key []byte, pos int, epoch types.StateEpoch) (newnode node, updateEpoch bool, err error) {
+func refreshNubEpoch(origNode node, epoch types.StateEpoch) node {
 	switch n := (origNode).(type) {
 	case nil:
-		return nil, false, nil
+		return nil
 	case valueNode:
-		return n, true, nil
+		return n
 	case *shortNode:
-		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
-			return n, false, nil
-		}
-		newnode, updateEpoch, err = t.updateChildNodeEpoch(n.Val, key, pos+len(n.Key), epoch)
-		if err == nil && updateEpoch {
-			n = n.copy()
-			n.Val = newnode
-			n.setEpoch(t.currentEpoch)
-			n.flags = t.newFlag()
-		}
-		return n, true, err
+		n.Val = refreshNubEpoch(n.Val, epoch)
+		n.setEpoch(epoch)
+		n.flags = nodeFlag{dirty: true}
+		return n
 	case *fullNode:
-		newnode, updateEpoch, err = t.updateChildNodeEpoch(n.Children[key[pos]], key, pos+1, epoch)
-		if err == nil && updateEpoch {
-			n = n.copy()
-			n.Children[key[pos]] = newnode
-			n.setEpoch(t.currentEpoch)
-			n.UpdateChildEpoch(int(key[pos]), t.currentEpoch)
-			n.flags = t.newFlag()
+		for i := 0; i < BranchNodeLength-1; i++ {
+			n.Children[i] = refreshNubEpoch(n.Children[i], epoch)
+			n.UpdateChildEpoch(i, epoch)
 		}
-		return n, true, err
+		n.setEpoch(epoch)
+		n.flags = nodeFlag{dirty: true}
+		return n
 	case hashNode:
-		return n, false, err
+		return n
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
 	}
@@ -954,6 +945,7 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 				// shortNode{..., shortNode{...}}.  Since the entry
 				// might not be loaded yet, resolve it just for this
 				// check.
+				// Attention: if Children[pos] has pruned, just fetch from remote
 				cnode, err := t.resolve(n.Children[pos], append(prefix, byte(pos)), n.GetChildEpoch(pos))
 				if err != nil {
 					return false, nil, err
@@ -1280,6 +1272,7 @@ func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, erro
 	for _, nub := range proof {
 		rootExpired := types.EpochExpired(t.getRootEpoch(), t.currentEpoch)
 		newNode, didRevive, err := t.tryRevive(t.root, key, nub.n1PrefixKey, *nub, 0, t.currentEpoch, rootExpired)
+		//log.Debug("tryRevive", "key", key, "nub.n1PrefixKey", nub.n1PrefixKey, "nub", nub, "err", err)
 		if _, ok := err.(*ReviveNotExpiredError); ok {
 			reviveNotExpiredMeter.Mark(1)
 			continue
@@ -1297,6 +1290,7 @@ func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, erro
 	return successNubs, nil
 }
 
+// tryRevive it just revive from targetPrefixKey
 func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProofNub, pos int, epoch types.StateEpoch, isExpired bool) (node, bool, error) {
 
 	if pos > len(targetPrefixKey) {
@@ -1304,9 +1298,8 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 	}
 
 	if pos == len(targetPrefixKey) {
-
-		if !isExpired {
-			return nil, false, NewReviveNotExpiredErr(key[:pos], epoch)
+		if !t.isExpiredNode(n, targetPrefixKey, epoch, isExpired) {
+			return nil, false, NewReviveNotExpiredErr(targetPrefixKey[:pos], epoch)
 		}
 		hn, ok := n.(hashNode)
 		if !ok {
@@ -1323,39 +1316,20 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 			if !ok {
 				return nil, false, fmt.Errorf("invalid node type")
 			}
-			tryUpdateNodeEpoch(nub.n2, t.currentEpoch)
-			newnode, _, err := t.updateChildNodeEpoch(nub.n2, key, pos+len(n1.Key), t.currentEpoch)
-			if err != nil {
-				return nil, false, fmt.Errorf("update child node epoch while reviving failed, err: %v", err)
-			}
-			n1 = n1.copy()
-			n1.Val = newnode
-			n1.flags = t.newFlag()
-			tryUpdateNodeEpoch(n1, t.currentEpoch)
-			renew, _, err := t.updateChildNodeEpoch(n1, key, pos, t.currentEpoch)
-			if err != nil {
-				return nil, false, fmt.Errorf("update child node epoch while reviving failed, err: %v", err)
-			}
-			return renew, true, nil
+			n1.Val = nub.n2
+			return refreshNubEpoch(n1, t.currentEpoch), true, nil
 		}
-
-		tryUpdateNodeEpoch(nub.n1, t.currentEpoch)
-		newnode, _, err := t.updateChildNodeEpoch(nub.n1, key, pos, t.currentEpoch)
-		if err != nil {
-			return nil, false, fmt.Errorf("update child node epoch while reviving failed, err: %v", err)
-		}
-
-		return newnode, true, nil
+		return refreshNubEpoch(nub.n1, t.currentEpoch), true, nil
 	}
 
 	if isExpired {
-		return nil, false, NewExpiredNodeError(key[:pos], epoch, n)
+		return nil, false, NewExpiredNodeError(targetPrefixKey[:pos], epoch, n)
 	}
 
 	switch n := n.(type) {
 	case *shortNode:
-		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
-			return nil, false, fmt.Errorf("key %v not found", key)
+		if len(targetPrefixKey)-pos < len(n.Key) || !bytes.Equal(n.Key, targetPrefixKey[pos:pos+len(n.Key)]) {
+			return nil, false, fmt.Errorf("key %v not found", targetPrefixKey)
 		}
 		newNode, didRevive, err := t.tryRevive(n.Val, key, targetPrefixKey, nub, pos+len(n.Key), epoch, isExpired)
 		if didRevive && err == nil {
@@ -1366,7 +1340,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 		}
 		return n, didRevive, err
 	case *fullNode:
-		childIndex := int(key[pos])
+		childIndex := int(targetPrefixKey[pos])
 		isExpired, _ := n.ChildExpired(nil, childIndex, t.currentEpoch)
 		newNode, didRevive, err := t.tryRevive(n.Children[childIndex], key, targetPrefixKey, nub, pos+1, epoch, isExpired)
 		if didRevive && err == nil {
@@ -1384,11 +1358,11 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 
 		return n, didRevive, err
 	case hashNode:
-		child, err := t.resolveAndTrack(n, key[:pos])
+		child, err := t.resolveAndTrack(n, targetPrefixKey[:pos])
 		if err != nil {
 			return nil, false, err
 		}
-		if err = t.resolveEpochMetaAndTrack(child, epoch, key[:pos]); err != nil {
+		if err = t.resolveEpochMetaAndTrack(child, epoch, targetPrefixKey[:pos]); err != nil {
 			return nil, false, err
 		}
 
@@ -1414,15 +1388,6 @@ func (t *Trie) ExpireByPrefix(prefixKeyHex []byte) error {
 		return err
 	}
 	return nil
-}
-
-func tryUpdateNodeEpoch(origin node, epoch types.StateEpoch) {
-	switch n := origin.(type) {
-	case *shortNode:
-		n.setEpoch(epoch)
-	case *fullNode:
-		n.setEpoch(epoch)
-	}
 }
 
 func (t *Trie) expireByPrefix(n node, prefixKeyHex []byte) (node, bool, error) {
@@ -1787,4 +1752,19 @@ func (t *Trie) UpdateRootEpoch(epoch types.StateEpoch) {
 
 func (t *Trie) UpdateCurrentEpoch(epoch types.StateEpoch) {
 	t.currentEpoch = epoch
+}
+
+// isExpiredNode check if expired or missed, it may prune by old state snap
+func (t *Trie) isExpiredNode(n node, targetPrefixKey []byte, epoch types.StateEpoch, expired bool) bool {
+	if expired {
+		return true
+	}
+
+	// check if there miss the trie node
+	_, err := t.resolve(n, targetPrefixKey, epoch)
+	if _, ok := err.(*MissingNodeError); ok {
+		return true
+	}
+
+	return false
 }

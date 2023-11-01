@@ -445,8 +445,8 @@ func ServiceGetStorageRangesQuery(chain *core.BlockChain, req *GetStorageRangesP
 			}
 			proof := light.NewNodeSet()
 			if err := stTrie.Prove(origin[:], proof); err != nil {
-				if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-					err := reviveAndGetProof(chain.FullStateDB(), stTrie, req.Root, common.BytesToAddress(account[:]), acc.Root, enErr.Path, origin, proof)
+				if path, ok := trie.ParseExpiredNodeErr(err); ok {
+					err := reviveAndGetProof(chain.FullStateDB(), stTrie, req.Root, common.BytesToAddress(account[:]), acc.Root, path, origin, proof)
 					if err != nil {
 						log.Warn("Failed to prove storage range", "origin", origin, "err", err)
 						return nil, nil
@@ -455,8 +455,8 @@ func ServiceGetStorageRangesQuery(chain *core.BlockChain, req *GetStorageRangesP
 			}
 			if last != (common.Hash{}) {
 				if err := stTrie.Prove(last[:], proof); err != nil {
-					if enErr, ok := err.(*trie.ExpiredNodeError); ok {
-						err := reviveAndGetProof(chain.FullStateDB(), stTrie, req.Root, common.BytesToAddress(account[:]), acc.Root, enErr.Path, last, proof)
+					if path, ok := trie.ParseExpiredNodeErr(err); ok {
+						err := reviveAndGetProof(chain.FullStateDB(), stTrie, req.Root, common.BytesToAddress(account[:]), acc.Root, path, last, proof)
 						if err != nil {
 							log.Warn("Failed to prove storage range", "origin", origin, "err", err)
 							return nil, nil
