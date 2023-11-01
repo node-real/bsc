@@ -576,11 +576,11 @@ func (sf *subfetcher) loop() {
 							// handle expired state
 							if sf.expiryMeta.enableStateExpiry {
 								// TODO(0xbundler): revert to single fetch, because tasks is a channel
-								if exErr, match := err.(*trie2.ExpiredNodeError); match {
+								if path, match := trie2.ParseExpiredNodeErr(err); match {
 									key := common.BytesToHash(task)
-									_, err = fetchExpiredStorageFromRemote(sf.expiryMeta, sf.addr, sf.root, sf.trie, exErr.Path, key)
+									_, err = tryReviveState(sf.expiryMeta, sf.addr, sf.root, sf.trie, path, key, false)
 									if err != nil {
-										log.Error("subfetcher fetchExpiredStorageFromRemote err", "addr", sf.addr, "path", exErr.Path, "err", err)
+										log.Error("subfetcher tryReviveState err", "addr", sf.addr, "path", path, "err", err)
 									}
 								}
 							}

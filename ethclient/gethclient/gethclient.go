@@ -140,7 +140,7 @@ func (ec *Client) GetStorageReviveProof(ctx context.Context, stateRoot common.Ha
 
 	return &types.ReviveResult{
 		StorageProof: res.StorageProof,
-		BlockNum:     res.BlockNum,
+		BlockNum:     uint64(res.BlockNum),
 	}, err
 }
 
