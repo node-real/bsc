@@ -1,11 +1,12 @@
 package trie
 
 import (
+	"math/rand"
+	"testing"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/assert"
-	"math/rand"
-	"testing"
 )
 
 var (

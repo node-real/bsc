@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/rlp"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -130,6 +132,7 @@ func hash(states map[common.Hash][]byte) (common.Hash, []byte) {
 	if len(input) == 0 {
 		return types.EmptyRootHash, nil
 	}
+	input, _ = rlp.EncodeToBytes(input)
 	return crypto.Keccak256Hash(input), input
 }
 

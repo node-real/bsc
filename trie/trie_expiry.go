@@ -3,6 +3,7 @@ package trie
 import (
 	"bytes"
 	"fmt"
+
 	"github.com/ethereum/go-ethereum/core/types"
 )
 

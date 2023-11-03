@@ -21,10 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core"
 
 	"github.com/prometheus/tsdb/fileutil"
 

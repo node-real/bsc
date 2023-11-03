@@ -1,8 +1,9 @@
 package epochmeta
 
 import (
-	"github.com/ethereum/go-ethereum/core/types"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
@@ -12,17 +13,12 @@ import (
 const hashLen = len(common.Hash{})
 
 var (
-	blockRoot0   = makeHash("b0")
-	blockRoot1   = makeHash("b1")
-	blockRoot2   = makeHash("b2")
-	blockRoot3   = makeHash("b3")
-	storageRoot0 = makeHash("s0")
-	storageRoot1 = makeHash("s1")
-	storageRoot2 = makeHash("s2")
-	storageRoot3 = makeHash("s3")
-	contract1    = makeHash("c1")
-	contract2    = makeHash("c2")
-	contract3    = makeHash("c3")
+	blockRoot0 = makeHash("b0")
+	blockRoot1 = makeHash("b1")
+	blockRoot2 = makeHash("b2")
+	contract1  = makeHash("c1")
+	contract2  = makeHash("c2")
+	contract3  = makeHash("c3")
 )
 
 func TestEpochMetaDiffLayer_whenGenesis(t *testing.T) {

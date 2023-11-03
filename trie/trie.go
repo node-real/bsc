@@ -21,16 +21,17 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"github.com/ethereum/go-ethereum/trie/trienode"
-	"runtime"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 var (
@@ -997,7 +998,6 @@ func (t *Trie) deleteWithEpoch(n node, prefix, key []byte, epoch types.StateEpoc
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v (%v)", n, n, key))
 	}
-
 }
 
 func concat(s1 []byte, s2 ...byte) []byte {
@@ -1295,7 +1295,6 @@ func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, erro
 
 // tryRevive it just revive from targetPrefixKey
 func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProofNub, pos int, epoch types.StateEpoch, isExpired bool) (node, bool, error) {
-
 	if pos > len(targetPrefixKey) {
 		return nil, false, fmt.Errorf("target revive node not found")
 	}
@@ -1581,7 +1580,6 @@ func (st *ScanTask) MoreThread() bool {
 
 // ScanForPrune traverses the storage trie and prunes all expired or unexpired nodes.
 func (t *Trie) ScanForPrune(st *ScanTask) error {
-
 	if !t.enableExpiry {
 		return nil
 	}

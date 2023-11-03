@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+
 	"github.com/ethereum/go-ethereum/rlp"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -37,7 +38,6 @@ import (
 // nodes of the longest existing prefix of the key (at least the root node), ending
 // with the node that proves the absence of the key.
 func (t *Trie) Prove(key []byte, proofDb ethdb.KeyValueWriter) error {
-
 	var nodeEpoch types.StateEpoch
 
 	// Short circuit if the trie is already committed and not usable.
@@ -201,7 +201,6 @@ func (t *Trie) traverseNodes(tn node, prefixKey, suffixKey []byte, nodes *[]node
 }
 
 func (t *Trie) ProveByPath(key []byte, prefixKeyHex []byte, proofDb ethdb.KeyValueWriter) error {
-
 	if t.committed {
 		return ErrCommitted
 	}

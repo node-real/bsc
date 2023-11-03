@@ -582,7 +582,6 @@ func testGenerateWithExtraAccounts(t *testing.T, scheme string) {
 		rawdb.WriteStorageSnapshot(helper.diskdb, key, hashData([]byte("b-key-2")), val)
 		val, _ = rlp.EncodeToBytes([]byte("b-val-3"))
 		rawdb.WriteStorageSnapshot(helper.diskdb, key, hashData([]byte("b-key-3")), val)
-
 	}
 	root := helper.Commit()
 

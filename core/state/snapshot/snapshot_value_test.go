@@ -2,16 +2,16 @@ package snapshot
 
 import (
 	"encoding/hex"
+	"testing"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 var (
-	val, _  = hex.DecodeString("0000f9eef0150e074b32e3b3b6d34d2534222292e3953019a41d714d135763a6")
-	hash, _ = hex.DecodeString("2b6fad2e1335b0b4debd3de01c91f3f45d2b88465ff42ae2c53900f2f702101d")
+	val, _ = hex.DecodeString("0000f9eef0150e074b32e3b3b6d34d2534222292e3953019a41d714d135763a6")
 )
 
 func TestRawValueEncode(t *testing.T) {

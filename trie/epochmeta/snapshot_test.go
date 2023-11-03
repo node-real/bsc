@@ -1,11 +1,12 @@
 package epochmeta
 
 import (
-	"github.com/ethereum/go-ethereum/ethdb/memorydb"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"strconv"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEpochMetaDiffLayer_capDiffLayers(t *testing.T) {

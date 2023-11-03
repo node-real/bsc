@@ -18,15 +18,15 @@
 package state
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"math/big"
 	"runtime"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/ethdb"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/gopool"
@@ -1827,16 +1827,6 @@ func (s *StateDB) Commit(block uint64, failPostCommitFunc func(), postCommitFunc
 	s.stateObjectsDirty = make(map[common.Address]struct{})
 	s.stateObjectsDestruct = make(map[common.Address]*types.StateAccount)
 	return root, diffLayer, nil
-}
-
-func stringfyEpochMeta(meta map[common.Hash]map[string][]byte) string {
-	buf := bytes.NewBuffer(nil)
-	for hash, m := range meta {
-		for k, v := range m {
-			buf.WriteString(fmt.Sprintf("%v: %v|%v, ", hash, []byte(k), common.Bytes2Hex(v)))
-		}
-	}
-	return buf.String()
 }
 
 func (s *StateDB) SnapToDiffLayer() ([]common.Address, []types.DiffAccount, []types.DiffStorage) {
