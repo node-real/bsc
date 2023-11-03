@@ -1038,7 +1038,6 @@ func TestRevive(t *testing.T) {
 }
 
 func TestReviveCustom(t *testing.T) {
-
 	data := map[string]string{
 		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
 		"defg": "E", "defh": "F", "degh": "G", "degi": "H",
@@ -1083,7 +1082,6 @@ func TestReviveCustom(t *testing.T) {
 
 // TestReviveBadProof tests that a trie cannot be revived from a bad proof
 func TestReviveBadProof(t *testing.T) {
-
 	dataA := map[string]string{
 		"abcd": "A", "abce": "B", "abde": "C", "abdf": "D",
 		"defg": "E", "defh": "F", "degh": "G", "degi": "H",

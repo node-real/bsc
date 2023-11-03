@@ -3,6 +3,7 @@ package snapshot
 import (
 	"bytes"
 	"errors"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 )

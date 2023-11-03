@@ -19,9 +19,10 @@ package pathdb
 import (
 	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie/epochmeta"
-	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/ethereum/go-ethereum/common"

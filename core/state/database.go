@@ -19,8 +19,9 @@ package state
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"time"
+
+	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/lru"

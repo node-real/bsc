@@ -22,8 +22,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/params"
-	bloomfilter "github.com/holiman/bloomfilter/v2"
 	"math"
 	"math/big"
 	"os"
@@ -31,6 +29,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/params"
+	bloomfilter "github.com/holiman/bloomfilter/v2"
 
 	"github.com/prometheus/tsdb/fileutil"
 
@@ -683,7 +684,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 
 	// find target header
 	header := p.chainHeader
-	for header != nil && header.Number.Uint64() >= 0 && header.Root != root {
+	for header != nil && header.Root != root {
 		header = rawdb.ReadHeader(p.db, header.ParentHash, header.Number.Uint64()-1)
 	}
 	if header == nil || header.Root != root {

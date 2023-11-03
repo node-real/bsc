@@ -21,10 +21,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/metrics"
 	"math/big"
 	"strings"
 	"time"
+
+	"github.com/ethereum/go-ethereum/metrics"
 
 	"github.com/davecgh/go-spew/spew"
 

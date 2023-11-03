@@ -19,9 +19,10 @@ package trie
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"math/big"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
 	"math/big"
 	"os"
 	"runtime"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -32,7 +33,6 @@ type Inspector struct {
 	trie            *Trie // traverse trie
 	blocknum        uint64
 	root            node               // root of triedb
-	num             uint64             // block number
 	result          *TotalTrieTreeStat // inspector result
 	totalNum        uint64
 	concurrentQueue chan struct{}
@@ -206,7 +206,6 @@ func (inspect *Inspector) SubConcurrentTraversal(theTrie *Trie, theTrieTreeStat 
 	inspect.ConcurrentTraversal(theTrie, theTrieTreeStat, theNode, height, path)
 	<-inspect.concurrentQueue
 	inspect.wg.Done()
-	return
 }
 
 func (inspect *Inspector) ConcurrentTraversal(theTrie *Trie, theTrieTreeStat *TrieTreeStat, theNode node, height uint32, path []byte) {
@@ -274,7 +273,6 @@ func (inspect *Inspector) ConcurrentTraversal(theTrie *Trie, theTrieTreeStat *Tr
 		panic(errors.New("Invalid node type to traverse."))
 	}
 	theTrieTreeStat.AtomicAdd(theNode, height)
-	return
 }
 
 func (inspect *Inspector) DisplayResult() {
@@ -312,6 +310,5 @@ func (inspect *Inspector) DisplayResult() {
 		}
 		stat, _ := inspect.result.theTrieTreeStats.Get(cntHash[1])
 		stat.Display(cntHash[1], "ContractTrie")
-		i++
 	}
 }

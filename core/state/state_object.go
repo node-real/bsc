@@ -19,12 +19,13 @@ package state
 import (
 	"bytes"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/state/snapshot"
-	"github.com/ethereum/go-ethereum/trie"
 	"io"
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core/state/snapshot"
+	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -334,22 +335,6 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	}
 	s.setOriginStorage(key, value)
 	return value
-}
-
-// needLoadFromTrie If not found in snap when EnableExpire(), need check insert duplication from trie.
-func (s *stateObject) needLoadFromTrie(err error, sv snapshot.SnapValue) bool {
-	if s.db.snap == nil {
-		return true
-	}
-	if !s.db.EnableExpire() {
-		return err != nil
-	}
-
-	if err != nil || sv == nil {
-		return true
-	}
-
-	return false
 }
 
 // SetState updates a value in account storage.
