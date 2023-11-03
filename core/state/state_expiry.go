@@ -160,18 +160,8 @@ func ReviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 		innerProofs = append(innerProofs, common.FromHex(p))
 	}
 
-	proofCache := trie.MPTProofCache{
-		MPTProof: trie.MPTProof{
-			RootKeyHex: prefixKey,
-			Proof:      innerProofs,
-		},
-	}
-
-	if err := proofCache.VerifyProof(); err != nil {
-		return nil, err
-	}
-
-	nubs, err := tr.TryRevive(key, proofCache.CacheNubs())
+	mptProof := trie.NewMPTProof(prefixKey, innerProofs)
+	ret, err := tr.TryRevive(key, mptProof)
 	if err != nil {
 		return nil, err
 	}
@@ -181,15 +171,5 @@ func ReviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 		return nil, err
 	}
 
-	ret := make(map[string][]byte)
-	for _, nub := range nubs {
-		kvs, err := nub.ResolveKV()
-		if err != nil {
-			return nil, err
-		}
-		for k, v := range kvs {
-			ret[k] = v
-		}
-	}
 	return ret, nil
 }

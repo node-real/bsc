@@ -1267,30 +1267,50 @@ func (t *Trie) Owner() common.Hash {
 // ReviveTrie performs full or partial revive and returns a list of successful
 // nubs. ReviveTrie does not guarantee that a value will be revived completely,
 // if the proof is not fully valid.
-func (t *Trie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
-	key = keybytesToHex(key)
-	successNubs := make([]*MPTProofNub, 0, len(proof))
-	reviveMeter.Mark(int64(len(proof)))
-	// Revive trie with each proof nub
-	for _, nub := range proof {
-		rootExpired := types.EpochExpired(t.getRootEpoch(), t.currentEpoch)
-		newNode, didRevive, err := t.tryRevive(t.root, key, nub.n1PrefixKey, *nub, 0, t.currentEpoch, rootExpired)
-		//log.Debug("tryRevive", "key", key, "nub.n1PrefixKey", nub.n1PrefixKey, "nub", nub, "err", err)
-		if _, ok := err.(*ReviveNotExpiredError); ok {
-			reviveNotExpiredMeter.Mark(1)
-			continue
-		}
-		if err != nil {
-			reviveErrMeter.Mark(1)
-			return nil, err
-		}
-		if didRevive {
-			successNubs = append(successNubs, nub)
-			t.root = newNode
-			t.rootEpoch = t.currentEpoch
-		}
+func (t *Trie) TryRevive(key []byte, proof TrieProof) (map[string][]byte, error) {
+	err := proof.VerifyProof()
+	if err != nil {
+		return nil, err
 	}
-	return successNubs, nil
+
+	resultMap := make(map[string][]byte)
+	key = keybytesToHex(key)
+	switch proof := proof.(type) {
+	case *MPTProof:
+		successNubs := make([]*MPTProofNub, 0, len(proof.cacheNubs))
+		reviveMeter.Mark(int64(len(proof.cacheNubs)))
+		// Revive trie with each proof nub
+		for _, nub := range proof.cacheNubs {
+			rootExpired := types.EpochExpired(t.getRootEpoch(), t.currentEpoch)
+			newNode, didRevive, err := t.tryRevive(t.root, key, nub.n1PrefixKey, *nub, 0, t.currentEpoch, rootExpired)
+			//log.Debug("tryRevive", "key", key, "nub.n1PrefixKey", nub.n1PrefixKey, "nub", nub, "err", err)
+			if _, ok := err.(*ReviveNotExpiredError); ok {
+				reviveNotExpiredMeter.Mark(1)
+				continue
+			}
+			if err != nil {
+				reviveErrMeter.Mark(1)
+				return nil, err
+			}
+			if didRevive {
+				successNubs = append(successNubs, nub)
+				t.root = newNode
+				t.rootEpoch = t.currentEpoch
+			}
+		}
+		for _, nub := range successNubs {
+			kvs, err := nub.ResolveKV()
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range kvs {
+				resultMap[k] = v
+			}
+		}
+	default:
+		panic(fmt.Sprintf("invalid proof type: %T", proof))
+	}
+	return resultMap, nil
 }
 
 // tryRevive it just revive from targetPrefixKey

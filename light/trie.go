@@ -260,7 +260,7 @@ func (t *odrTrie) ProveByPath(key []byte, path []byte, proofDb ethdb.KeyValueWri
 	return errors.New("not implemented, needs client/server interface split")
 }
 
-func (t *odrTrie) TryRevive(key []byte, proof []*trie.MPTProofNub) ([]*trie.MPTProofNub, error) {
+func (t *odrTrie) TryRevive(key []byte, proof trie.TrieProof) (map[string][]byte, error) {
 	return nil, errors.New("not implemented, needs client/server interface split")
 }
 

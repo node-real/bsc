@@ -1014,12 +1014,10 @@ func TestRevive(t *testing.T) {
 			// Expire trie
 			trie.ExpireByPrefix(prefixKey)
 
-			proofCache := makeRawMPTProofCache(prefixKey, proof)
-			err = proofCache.VerifyProof()
-			assert.NoError(t, err)
+			mptProof := NewMPTProof(prefixKey, proof)
 
 			// Revive trie
-			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			// Verifiy value exists after revive
@@ -1058,12 +1056,10 @@ func TestReviveCustom(t *testing.T) {
 
 			trie.ExpireByPrefix(prefixKey)
 
-			proofCache := makeRawMPTProofCache(prefixKey, proofList)
-			err = proofCache.VerifyProof()
-			assert.NoError(t, err)
+			mptProof := NewMPTProof(prefixKey, proofList)
 
 			// Revive trie
-			_, err = trie.TryRevive(key, proofCache.cacheNubs)
+			_, err = trie.TryRevive(prefixKey, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			res, err := trie.Get(key)
@@ -1103,15 +1099,10 @@ func TestReviveBadProof(t *testing.T) {
 	// Expire trie A
 	trieA.ExpireByPrefix(nil)
 
-	// Construct MPTProofCache
-	proofCache := makeRawMPTProofCache(nil, proofB)
-
-	// VerifyProof
-	err = proofCache.VerifyProof()
-	assert.NoError(t, err)
+	mptProof := NewMPTProof(nil, proofB)
 
 	// Revive trie
-	_, err = trieA.TryRevive([]byte("abcd"), proofCache.cacheNubs)
+	_, err = trieA.TryRevive([]byte("abcd"), mptProof)
 	assert.Error(t, err)
 
 	// Verify value does exists after revive
@@ -1138,12 +1129,10 @@ func TestReviveBadProofAfterUpdate(t *testing.T) {
 			// Expire trie
 			trie.ExpireByPrefix(prefixKey)
 
-			proofCache := makeRawMPTProofCache(prefixKey, proof)
-			err = proofCache.VerifyProof()
-			assert.NoError(t, err)
+			mptProof := NewMPTProof(prefixKey, proof)
 
 			// Revive trie
-			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			// Verify value exists after revive
@@ -1156,7 +1145,7 @@ func TestReviveBadProofAfterUpdate(t *testing.T) {
 			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 			assert.Equal(t, []byte("new value"), v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
 
-			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			v, err = trie.Get(key)
@@ -1188,15 +1177,10 @@ func TestPartialReviveFullProof(t *testing.T) {
 	err = trie.ExpireByPrefix([]byte{6, 1})
 	assert.NoError(t, err)
 
-	// Construct MPTProofCache
-	proofCache := makeRawMPTProofCache(nil, proof)
-
-	// Verify proof
-	err = proofCache.VerifyProof()
-	assert.NoError(t, err)
+	mptProof := NewMPTProof(nil, proof)
 
 	// Revive trie
-	_, err = trie.TryRevive(key, proofCache.cacheNubs)
+	_, err = trie.TryRevive(key, mptProof)
 	assert.NoError(t, err)
 
 	// Validate trie
@@ -1436,14 +1420,5 @@ func TestDecodeNode(t *testing.T) {
 		prng.Read(hash)
 		prng.Read(elems)
 		decodeNode(hash, elems)
-	}
-}
-
-func makeRawMPTProofCache(rootKeyHex []byte, proof [][]byte) MPTProofCache {
-	return MPTProofCache{
-		MPTProof: MPTProof{
-			RootKeyHex: rootKeyHex,
-			Proof:      proof,
-		},
 	}
 }
