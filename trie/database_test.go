@@ -17,8 +17,10 @@
 package trie
 
 import (
+	"fmt"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/trie/triedb/pathdb"
 )
@@ -31,5 +33,20 @@ func newTestDatabase(diskdb ethdb.Database, scheme string) *Database {
 	} else {
 		db.backend = pathdb.New(diskdb, &pathdb.Config{}) // disable clean/dirty cache
 	}
+	return db
+}
+
+func newTestDatabaseWithExpiry(diskdb ethdb.Database, scheme string) *Database {
+	db := prepare(diskdb, &Config{EnableStateExpiry: true, EpochMeta: epochmeta.Defaults})
+	if scheme == rawdb.HashScheme {
+		db.backend = hashdb.New(diskdb, &hashdb.Config{}, mptResolver{})
+	} else {
+		db.backend = pathdb.New(diskdb, &pathdb.Config{}) // disable clean/dirty cache
+	}
+	snapTree, err := epochmeta.NewEpochMetaSnapTree(diskdb, db.config.EpochMeta)
+	if err != nil {
+		panic(fmt.Sprintf("init SnapshotTree err: %v", err))
+	}
+	db.snapTree = snapTree
 	return db
 }

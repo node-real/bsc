@@ -1325,7 +1325,7 @@ func (t *Trie) tryRevive(n node, key []byte, targetPrefixKey []byte, nub MPTProo
 		}
 		hn, ok := n.(hashNode)
 		if !ok {
-			return nil, false, fmt.Errorf("not match hashNode stub")
+			return nil, false, fmt.Errorf("cannot revive non-hash node")
 		}
 
 		cachedHash, _ := nub.n1.cache()
