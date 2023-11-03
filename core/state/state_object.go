@@ -337,22 +337,6 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	return value
 }
 
-// needLoadFromTrie If not found in snap when EnableExpire(), need check insert duplication from trie.
-func (s *stateObject) needLoadFromTrie(err error, sv snapshot.SnapValue) bool {
-	if s.db.snap == nil {
-		return true
-	}
-	if !s.db.EnableExpire() {
-		return err != nil
-	}
-
-	if err != nil || sv == nil {
-		return true
-	}
-
-	return false
-}
-
 // SetState updates a value in account storage.
 func (s *stateObject) SetState(key, value common.Hash) {
 	// If the new value is the same as old, don't set

@@ -18,6 +18,7 @@ package trie
 
 import (
 	"bytes"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -95,9 +96,7 @@ func (t *tracer) onExpandToBranchNode(path []byte) {
 	if !t.tagEpochMeta {
 		return
 	}
-	if _, present := t.deleteEpochMetas[string(path)]; present {
-		delete(t.deleteEpochMetas, string(path))
-	}
+	delete(t.deleteEpochMetas, string(path))
 }
 
 // onDelete tracks the newly deleted trie node. If it's already

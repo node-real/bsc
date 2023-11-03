@@ -18,8 +18,9 @@ package pathdb
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"time"
+
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/ethereum/go-ethereum/common"

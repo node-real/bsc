@@ -23,8 +23,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 	"math"
 	"math/big"
 	"net"
@@ -36,6 +34,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
 
 	"github.com/fatih/structs"
 	pcsclite "github.com/gballet/go-libpcsclite"

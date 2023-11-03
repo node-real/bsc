@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rlp"
-	bloomfilter "github.com/holiman/bloomfilter/v2"
 	"math"
 	"math/big"
 	"math/rand"
 	"sync"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
+	bloomfilter "github.com/holiman/bloomfilter/v2"
 )
 
 const (

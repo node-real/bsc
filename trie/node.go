@@ -89,14 +89,6 @@ func (n *shortNode) setEpoch(epoch types.StateEpoch) {
 	n.epoch = epoch
 }
 
-func (n *fullNode) getEpoch() types.StateEpoch {
-	return n.epoch
-}
-
-func (n *shortNode) getEpoch() types.StateEpoch {
-	return n.epoch
-}
-
 func (n *fullNode) GetChildEpoch(index int) types.StateEpoch {
 	if index < 16 {
 		return n.EpochMap[index]

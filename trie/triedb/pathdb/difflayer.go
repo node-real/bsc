@@ -18,8 +18,9 @@ package pathdb
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/trie/epochmeta"
 	"sync"
+
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"

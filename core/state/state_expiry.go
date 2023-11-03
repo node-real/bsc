@@ -3,13 +3,14 @@ package state
 import (
 	"bytes"
 	"fmt"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie"
-	"time"
 )
 
 var (
@@ -103,7 +104,6 @@ func batchFetchExpiredFromRemote(expiryMeta *stateExpiryMeta, addr common.Addres
 		for i, key := range expiredKeys {
 			keysStr[i] = common.Bytes2Hex(key[:])
 		}
-
 	} else {
 		for i, prefix := range prefixKeys {
 			prefixKeysStr[i] = common.Bytes2Hex(prefix)

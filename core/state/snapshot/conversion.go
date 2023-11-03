@@ -142,7 +142,7 @@ func TraverseContractTrie(snaptree *Tree, root common.Hash, pruneExpiredTrieCh c
 	// Start to feed leaves
 	for acctIt.Next() {
 		// Fetch the next account and process it concurrently
-		account, err = types.FullAccount(acctIt.(AccountIterator).Account())
+		account, err = types.FullAccount(acctIt.Account())
 		if err != nil {
 			break
 		}

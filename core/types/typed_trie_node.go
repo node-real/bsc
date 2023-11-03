@@ -3,8 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/rlp"
 	"io"
+
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 const (

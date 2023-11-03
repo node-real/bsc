@@ -3,9 +3,10 @@ package epochmeta
 import (
 	"bytes"
 	"fmt"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/rlp"
 
@@ -91,9 +92,5 @@ func AccountMeta2Bytes(meta types.StateMeta) ([]byte, error) {
 
 // IsEpochMetaPath add some skip hash check rule
 func IsEpochMetaPath(path []byte) bool {
-	if bytes.Equal(AccountMetadataPath, path) {
-		return true
-	}
-
-	return false
+	return bytes.Equal(AccountMetadataPath, path)
 }

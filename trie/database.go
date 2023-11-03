@@ -18,6 +18,7 @@ package trie
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 

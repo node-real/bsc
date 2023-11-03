@@ -3,8 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/log"
 )
 
 const (

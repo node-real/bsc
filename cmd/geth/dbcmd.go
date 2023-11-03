@@ -429,6 +429,9 @@ func inspectTrie(ctx *cli.Context) error {
 			return err
 		}
 		theInspect, err := trie.NewInspector(trieDB, theTrie, blockNumber, jobnum)
+		if err != nil {
+			return err
+		}
 		theInspect.Run()
 		theInspect.DisplayResult()
 	}

@@ -130,7 +130,7 @@ func (ec *Client) GetProof(ctx context.Context, account common.Address, keys []s
 func (ec *Client) GetStorageReviveProof(ctx context.Context, stateRoot common.Hash, account common.Address, root common.Hash, keys []string, prefixKeys []string) (*types.ReviveResult, error) {
 	type reviveResult struct {
 		StorageProof []types.ReviveStorageProof `json:"storageProof"`
-		BlockNum     hexutil.Uint64             `json:"blockNum"`
+		BlockNum     uint64                     `json:"blockNum"`
 	}
 
 	var err error
@@ -140,7 +140,7 @@ func (ec *Client) GetStorageReviveProof(ctx context.Context, stateRoot common.Ha
 
 	return &types.ReviveResult{
 		StorageProof: res.StorageProof,
-		BlockNum:     uint64(res.BlockNum),
+		BlockNum:     res.BlockNum,
 	}, err
 }
 
