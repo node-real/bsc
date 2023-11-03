@@ -96,7 +96,7 @@ func (t *EmptyTrie) ProveByPath(key []byte, path []byte, proofDb ethdb.KeyValueW
 	return nil
 }
 
-func (t *EmptyTrie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub, error) {
+func (t *EmptyTrie) TryRevive(key []byte, proof TrieProof) (map[string][]byte, error) {
 	return nil, nil
 }
 

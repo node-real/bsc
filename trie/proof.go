@@ -758,108 +758,13 @@ func get(tn node, key []byte, skipResolved bool) ([]byte, node) {
 	}
 }
 
+type TrieProof interface {
+	VerifyProof() error
+}
+
 type MPTProof struct {
 	RootKeyHex []byte   // prefix key in nibbles format, max 65 bytes. TODO: optimize witness size
 	Proof      [][]byte // list of RLP-encoded nodes
-}
-
-type MPTProofNub struct {
-	n1PrefixKey []byte // n1's prefix hex key, max 64bytes
-	n1          node
-	n2PrefixKey []byte // n2's prefix hex key, max 64bytes
-	n2          node
-}
-
-// ResolveKV revive state could revive KV from fullNode[0-15] or fullNode[16] or shortNode.Val, return KVs for cache & snap
-func (m *MPTProofNub) ResolveKV() (map[string][]byte, error) {
-	kvMap := make(map[string][]byte)
-	if err := resolveKV(m.n1, m.n1PrefixKey, kvMap); err != nil {
-		return nil, err
-	}
-	if err := resolveKV(m.n2, m.n2PrefixKey, kvMap); err != nil {
-		return nil, err
-	}
-
-	return kvMap, nil
-}
-
-func (m *MPTProofNub) GetValue() []byte {
-	if val := getNubValue(m.n1, m.n1PrefixKey); val != nil {
-		return val
-	}
-
-	if val := getNubValue(m.n2, m.n2PrefixKey); val != nil {
-		return val
-	}
-
-	return nil
-}
-
-func (m *MPTProofNub) String() string {
-	buf := bytes.NewBuffer(nil)
-	buf.WriteString("n1: ")
-	buf.WriteString(hex.EncodeToString(m.n1PrefixKey))
-	buf.WriteString(", n1proof: ")
-	if m.n1 != nil {
-		buf.WriteString(m.n1.fstring(""))
-	}
-	buf.WriteString(", n2: ")
-	buf.WriteString(hex.EncodeToString(m.n2PrefixKey))
-	buf.WriteString(", n2proof: ")
-	if m.n2 != nil {
-		buf.WriteString(m.n2.fstring(""))
-	}
-	return buf.String()
-}
-
-func getNubValue(origin node, prefixKey []byte) []byte {
-	switch n := origin.(type) {
-	case nil, hashNode:
-		return nil
-	case valueNode:
-		_, content, _, _ := rlp.Split(n)
-		return content
-	case *shortNode:
-		return getNubValue(n.Val, append(prefixKey, n.Key...))
-	case *fullNode:
-		for i := 0; i < BranchNodeLength-1; i++ {
-			if val := getNubValue(n.Children[i], append(prefixKey, byte(i))); val != nil {
-				return val
-			}
-		}
-		return getNubValue(n.Children[BranchNodeLength-1], prefixKey)
-	default:
-		panic(fmt.Sprintf("invalid node: %v", origin))
-	}
-}
-
-func resolveKV(origin node, prefixKey []byte, kvWriter map[string][]byte) error {
-	switch n := origin.(type) {
-	case nil, hashNode:
-		return nil
-	case valueNode:
-		_, content, _, err := rlp.Split(n)
-		if err != nil {
-			return err
-		}
-		kvWriter[string(hexToKeybytes(prefixKey))] = content
-		return nil
-	case *shortNode:
-		return resolveKV(n.Val, append(prefixKey, n.Key...), kvWriter)
-	case *fullNode:
-		for i := 0; i < BranchNodeLength-1; i++ {
-			if err := resolveKV(n.Children[i], append(prefixKey, byte(i)), kvWriter); err != nil {
-				return err
-			}
-		}
-		return resolveKV(n.Children[BranchNodeLength-1], prefixKey, kvWriter)
-	default:
-		panic(fmt.Sprintf("invalid node: %v", origin))
-	}
-}
-
-type MPTProofCache struct {
-	MPTProof
 
 	cacheHexPath [][]byte       // cache path for performance
 	cacheHashes  [][]byte       // cache hash for performance
@@ -867,12 +772,14 @@ type MPTProofCache struct {
 	cacheNubs    []*MPTProofNub // cache proof nubs to check revive duplicate
 }
 
-// VerifyProof verify proof in MPT witness
-// 1. calculate hash
-// 2. decode trie node
-// 3. verify partial merkle proof of the witness
-// 4. split to partial witness
-func (m *MPTProofCache) VerifyProof() error {
+func NewMPTProof(rootKeyHex []byte, proof [][]byte) *MPTProof {
+	return &MPTProof{
+		RootKeyHex: rootKeyHex,
+		Proof:      proof,
+	}
+}
+
+func (m *MPTProof) VerifyProof() error {
 	m.cacheHashes = make([][]byte, len(m.Proof))
 	m.cacheNodes = make([]node, len(m.Proof))
 	m.cacheHexPath = make([][]byte, len(m.Proof))
@@ -947,6 +854,114 @@ func (m *MPTProofCache) VerifyProof() error {
 	return nil
 }
 
+func (m *MPTProof) CacheNubs() []*MPTProofNub {
+	return m.cacheNubs
+}
+
+type MPTProofNub struct {
+	n1PrefixKey []byte // n1's prefix hex key, max 64bytes
+	n1          node
+	n2PrefixKey []byte // n2's prefix hex key, max 64bytes
+	n2          node
+}
+
+// ResolveKV revive state could revive KV from fullNode[0-15] or fullNode[16] or shortNode.Val, return KVs for cache & snap
+func (m *MPTProofNub) ResolveKV() (map[string][]byte, error) {
+	kvMap := make(map[string][]byte)
+	if err := resolveKV(m.n1, common.CopyBytes(m.n1PrefixKey), kvMap); err != nil {
+		return nil, err
+	}
+	if err := resolveKV(m.n2, common.CopyBytes(m.n2PrefixKey), kvMap); err != nil {
+		return nil, err
+	}
+
+	return kvMap, nil
+}
+
+func (m *MPTProofNub) GetValue() []byte {
+	if val := getNubValue(m.n1, m.n1PrefixKey); val != nil {
+		return val
+	}
+
+	if val := getNubValue(m.n2, m.n2PrefixKey); val != nil {
+		return val
+	}
+
+	return nil
+}
+
+func (m *MPTProofNub) String() string {
+	buf := bytes.NewBuffer(nil)
+	buf.WriteString("n1: ")
+	buf.WriteString(hex.EncodeToString(m.n1PrefixKey))
+	buf.WriteString(", n1proof: ")
+	if m.n1 != nil {
+		buf.WriteString(m.n1.fstring(""))
+	}
+	buf.WriteString(", n2: ")
+	buf.WriteString(hex.EncodeToString(m.n2PrefixKey))
+	buf.WriteString(", n2proof: ")
+	if m.n2 != nil {
+		buf.WriteString(m.n2.fstring(""))
+	}
+	return buf.String()
+}
+
+func (m *MPTProofNub) DeepCopy() *MPTProofNub {
+	return &MPTProofNub{
+		n1PrefixKey: m.n1PrefixKey,
+		n1:          m.n1,
+		n2PrefixKey: m.n2PrefixKey,
+		n2:          m.n2,
+	}
+}
+
+func getNubValue(origin node, prefixKey []byte) []byte {
+	switch n := origin.(type) {
+	case nil, hashNode:
+		return nil
+	case valueNode:
+		_, content, _, _ := rlp.Split(n)
+		return content
+	case *shortNode:
+		return getNubValue(n.Val, append(prefixKey, n.Key...))
+	case *fullNode:
+		for i := 0; i < BranchNodeLength-1; i++ {
+			if val := getNubValue(n.Children[i], append(prefixKey, byte(i))); val != nil {
+				return val
+			}
+		}
+		return getNubValue(n.Children[BranchNodeLength-1], prefixKey)
+	default:
+		panic(fmt.Sprintf("invalid node: %v", origin))
+	}
+}
+
+func resolveKV(origin node, prefixKey []byte, kvWriter map[string][]byte) error {
+	switch n := origin.(type) {
+	case nil, hashNode:
+		return nil
+	case valueNode:
+		_, content, _, err := rlp.Split(n)
+		if err != nil {
+			return err
+		}
+		kvWriter[string(hexToKeybytes(prefixKey))] = content
+		return nil
+	case *shortNode:
+		return resolveKV(n.Val, append(prefixKey, n.Key...), kvWriter)
+	case *fullNode:
+		for i := 0; i < BranchNodeLength-1; i++ {
+			if err := resolveKV(n.Children[i], append(prefixKey, byte(i)), kvWriter); err != nil {
+				return err
+			}
+		}
+		return resolveKV(n.Children[BranchNodeLength-1], prefixKey, kvWriter)
+	default:
+		panic(fmt.Sprintf("invalid node: %v", origin))
+	}
+}
+
 func copy2NewBytes(s1, s2 []byte) []byte {
 	ret := make([]byte, len(s1)+len(s2))
 	copy(ret, s1)
@@ -958,10 +973,6 @@ func renewBytes(s []byte) []byte {
 	ret := make([]byte, len(s))
 	copy(ret, s)
 	return ret
-}
-
-func (m *MPTProofCache) CacheNubs() []*MPTProofNub {
-	return m.cacheNubs
 }
 
 // mergeNextNode check short node must with child in same nub

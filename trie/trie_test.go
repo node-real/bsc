@@ -363,7 +363,111 @@ func TestRandomCases(t *testing.T) {
 		{op: 1, key: common.Hex2Bytes("980c393656413a15c8da01978ed9f89feb80b502f58f2d640e3a2f5f7a99a7018f1b573befd92053ac6f78fca4a87268"), value: common.Hex2Bytes("")}, // step 24
 		{op: 1, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("")},                                                                                               // step 25
 	}
-	runRandTest(rt)
+	passed := runRandTest(rt)
+	if !passed {
+		var err error
+		var step int
+		for i := range rt {
+			if rt[i].err != nil {
+				err = rt[i].err
+				step = i
+			}
+		}
+		t.Fatalf("failed random cases, step: %v, err: %v", step, err)
+	}
+}
+
+func TestRandomCasesLocalRevive(t *testing.T) {
+	var rt = []randTestStep{
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                       // step 0
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                       // step 1
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000002")}, // step 2
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 2, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("")}, // step 3
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                         // step 4
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                         // step 5
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                         // step 6
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                         // step 7
+		{op: 0, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("0000000000000008")}, // step 8
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000009")},   // step 9
+		{op: 2, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("")},                                                                                       // step 10
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                         // step 11
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                         // step 12
+		{op: 0, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("000000000000000d")},                                                                       // step 13
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                         // step 14
+		{op: 1, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("")},                 // step 15
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                         // step 16
+		{op: 0, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("0000000000000011")}, // step 17
+		{op: 5, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                         // step 18
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                                 // step 19
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000014")},           // step 20
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000015")},           // step 21
+		{op: 0, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("0000000000000016")},         // step 22
+		{op: 5, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},                                                                                                 // step 23
+		{op: 1, key: common.Hex2Bytes("980c393656413a15c8da01978ed9f89feb80b502f58f2d640e3a2f5f7a99a7018f1b573befd92053ac6f78fca4a87268"), value: common.Hex2Bytes("")}, // step 24
+		{op: 1, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("")},                                                                                               // step 25
+	}
+	passed := runRandTestLocalRevive(rt)
+	if !passed {
+		var err error
+		var step int
+		for i := range rt {
+			if rt[i].err != nil {
+				err = rt[i].err
+				step = i
+			}
+		}
+		t.Fatalf("failed random cases with expiry, step: %v, err: %v", step, err)
+	}
+}
+
+func TestRandomCasesWithRemoteDb(t *testing.T) {
+	var rt = []randTestStep{
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000002")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 2, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("")},
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 0, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("0000000000000008")},
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000009")},
+		{op: 2, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("")},
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 0, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("000000000000000d")},
+		{op: 6, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 1, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("")},
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 0, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("0000000000000011")},
+		{op: 3, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000014")},
+		{op: 0, key: common.Hex2Bytes("d51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd"), value: common.Hex2Bytes("0000000000000015")},
+		{op: 9, key: common.Hex2Bytes(""), value: common.Hex2Bytes("")},
+		{op: 0, key: common.Hex2Bytes("c2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e"), value: common.Hex2Bytes("0000000000000016")},
+		{op: 1, key: common.Hex2Bytes("980c393656413a15c8da01978ed9f89feb80b502f58f2d640e3a2f5f7a99a7018f1b573befd92053ac6f78fca4a87268"), value: common.Hex2Bytes("")},
+		{op: 1, key: common.Hex2Bytes("fd"), value: common.Hex2Bytes("")},
+	}
+	passed := runRandTestWithRemoteDb(rt)
+	if !passed {
+		var err error
+		var step int
+		for i := range rt {
+			if rt[i].err != nil {
+				err = rt[i].err
+				step = i
+			}
+		}
+		t.Fatalf("failed random cases with expiry, step: %v err: %v", step, err)
+	}
 }
 
 // randTest performs random trie operations.
@@ -378,15 +482,16 @@ type randTestStep struct {
 }
 
 const (
-	opUpdate = iota
-	opDelete
-	opGet
-	opHash
-	opCommit
-	opItercheckhash
-	opNodeDiff
-	opProve
-	opMax // boundary value, not an actual op
+	opUpdate        = iota // 0
+	opDelete               // 1
+	opGet                  // 2
+	opHash                 // 3
+	opCommit               // 4
+	opItercheckhash        // 5
+	opNodeDiff             // 6
+	opProve                // 7
+	opMax                  // 8 boundary value, not an actual op
+	opMakeExpired          // 9
 )
 
 func (randTest) Generate(r *rand.Rand, size int) reflect.Value {
@@ -594,8 +699,398 @@ func runRandTest(rt randTest) bool {
 	return true
 }
 
+func runRandTestLocalRevive(rt randTest) bool {
+	var scheme = rawdb.HashScheme
+	if rand.Intn(2) == 0 {
+		scheme = rawdb.PathScheme
+	}
+	var (
+		origin   = types.EmptyRootHash
+		triedb   = newTestDatabaseWithExpiry(rawdb.NewMemoryDatabase(), scheme)
+		tr       = NewEmpty(triedb)
+		values   = make(map[string]string) // tracks content of the trie
+		origTrie = NewEmpty(triedb)
+	)
+	for i, step := range rt {
+		// fmt.Printf("{op: %d, key: common.Hex2Bytes(\"%x\"), value: common.Hex2Bytes(\"%x\")}, // step %d\n",
+		// 	step.op, step.key, step.value, i)
+
+		switch step.op {
+		case opUpdate:
+			err := tr.Update(step.key, step.value)
+			if err != nil {
+				if expErr, ok := err.(*ExpiredNodeError); ok {
+					if _, tErr := tr.TryLocalRevive(expErr.Path); tErr != nil {
+						rt[i].err = fmt.Errorf("failed for reviving key %v path %v err %v", step.key, expErr.Path, tErr)
+						return false
+					}
+				} else {
+					rt[i].err = fmt.Errorf("failed for updating key %v err %v", step.key, err)
+					return false
+				}
+			}
+			values[string(step.key)] = string(step.value)
+		case opDelete:
+			err := tr.Delete(step.key)
+			if err != nil {
+				if expErr, ok := err.(*ExpiredNodeError); ok {
+					if _, tErr := tr.TryLocalRevive(expErr.Path); tErr != nil {
+						rt[i].err = fmt.Errorf("failed for reviving key %v path %v err %v", step.key, expErr.Path, tErr)
+						return false
+					}
+				} else {
+					rt[i].err = fmt.Errorf("failed for deleting key %v err %v", step.key, err)
+					return false
+				}
+			}
+			delete(values, string(step.key))
+		case opGet:
+			v, err := tr.Get(step.key)
+			if err != nil {
+				if expErr, ok := err.(*ExpiredNodeError); ok {
+					if _, tErr := tr.TryLocalRevive(expErr.Path); tErr != nil {
+						rt[i].err = fmt.Errorf("failed for reviving key %v path %v err %v", step.key, expErr.Path, tErr)
+						return false
+					}
+				} else {
+					rt[i].err = fmt.Errorf("failed for retrieving key %v err %v", step.key, err)
+					return false
+				}
+			}
+			want := values[string(step.key)]
+			if string(v) != want {
+				rt[i].err = fmt.Errorf("mismatch for key %#x, got %#x want %#x", step.key, v, want)
+			}
+		case opProve:
+			hash := tr.Hash()
+			if hash == types.EmptyRootHash {
+				continue
+			}
+			proofDb := rawdb.NewMemoryDatabase()
+			err := tr.Prove(step.key, proofDb)
+			if err != nil {
+				rt[i].err = fmt.Errorf("failed for proving key %#x, %v", step.key, err)
+			}
+			_, err = VerifyProof(hash, step.key, proofDb)
+			if err != nil {
+				rt[i].err = fmt.Errorf("failed for verifying key %#x, %v", step.key, err)
+			}
+		case opHash:
+			tr.Hash()
+		case opCommit:
+			root, nodes, _ := tr.Commit(true)
+			if nodes != nil {
+				triedb.Update(root, origin, 0, trienode.NewWithNodeSet(nodes), nil)
+			}
+			newtr, err := New(TrieID(root), triedb)
+			if err != nil {
+				rt[i].err = err
+				return false
+			}
+			if nodes != nil {
+				if err := verifyAccessList(origTrie, newtr, nodes); err != nil {
+					rt[i].err = err
+					return false
+				}
+			}
+			tr = newtr
+			origTrie = tr.Copy()
+			origin = root
+		case opItercheckhash:
+			checktr := NewEmpty(triedb)
+			it := NewIterator(tr.MustNodeIterator(nil))
+			for it.Next() {
+				checktr.MustUpdate(it.Key, it.Value)
+			}
+			if tr.Hash() != checktr.Hash() {
+				rt[i].err = fmt.Errorf("hash mismatch in opItercheckhash")
+			}
+		case opNodeDiff:
+			var (
+				origIter = origTrie.MustNodeIterator(nil)
+				curIter  = tr.MustNodeIterator(nil)
+				origSeen = make(map[string]struct{})
+				curSeen  = make(map[string]struct{})
+			)
+			for origIter.Next(true) {
+				if origIter.Leaf() {
+					continue
+				}
+				origSeen[string(origIter.Path())] = struct{}{}
+			}
+			for curIter.Next(true) {
+				if curIter.Leaf() {
+					continue
+				}
+				curSeen[string(curIter.Path())] = struct{}{}
+			}
+			var (
+				insertExp = make(map[string]struct{})
+				deleteExp = make(map[string]struct{})
+			)
+			for path := range curSeen {
+				_, present := origSeen[path]
+				if !present {
+					insertExp[path] = struct{}{}
+				}
+			}
+			for path := range origSeen {
+				_, present := curSeen[path]
+				if !present {
+					deleteExp[path] = struct{}{}
+				}
+			}
+			if len(insertExp) != len(tr.tracer.inserts) {
+				rt[i].err = fmt.Errorf("insert set mismatch")
+			}
+			if len(deleteExp) != len(tr.tracer.deletes) {
+				rt[i].err = fmt.Errorf("delete set mismatch")
+			}
+			for insert := range tr.tracer.inserts {
+				if _, present := insertExp[insert]; !present {
+					rt[i].err = fmt.Errorf("missing inserted node")
+				}
+			}
+			for del := range tr.tracer.deletes {
+				if _, present := deleteExp[del]; !present {
+					rt[i].err = fmt.Errorf("missing deleted node")
+				}
+			}
+		case opMakeExpired:
+			tr.SetEpoch(tr.currentEpoch + 1)
+		}
+		// Abort the test on error.
+		if rt[i].err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func runRandTestWithRemoteDb(rt randTest) bool {
+	var scheme = rawdb.HashScheme
+	if rand.Intn(2) == 0 {
+		scheme = rawdb.PathScheme
+	}
+	var (
+		// Node with expiry
+		originExpiry   = types.EmptyRootHash
+		trieDbExpiry   = newTestDatabaseWithExpiry(rawdb.NewMemoryDatabase(), scheme)
+		trExpiry       = NewEmpty(trieDbExpiry)
+		valuesExpiry   = make(map[string]string) // tracks content of the trie
+		origTrieExpiry = NewEmpty(trieDbExpiry)
+
+		// Node with no expiry
+		trieDbNoExpiry = newTestDatabase(rawdb.NewMemoryDatabase(), scheme)
+		trNoExpiry     = NewEmpty(trieDbNoExpiry)
+		valuesNoExpiry = make(map[string]string) // tracks content of the trie
+	)
+
+	for i, step := range rt {
+		switch step.op {
+		case opUpdate:
+			err := trExpiry.Update(step.key, step.value)
+			if err != nil {
+				if expErr, ok := err.(*ExpiredNodeError); ok {
+					var proof proofList
+					err = trNoExpiry.ProveByPath(step.key, expErr.Path, &proof)
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for proving key %#x, %v", step.key, err)
+						return false
+					}
+
+					err = trExpiry.ExpireByPrefix(expErr.Path)
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for expiring key %#x, %v", step.key, err)
+						return false
+					}
+
+					_, err = trExpiry.TryRevive(step.key, NewMPTProof(expErr.Path, proof))
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for reviving key %#x, %v", step.key, err)
+						return false
+					}
+				} else {
+					rt[i].err = fmt.Errorf("failed for updating key %v err %v", step.key, err)
+					return false
+				}
+			}
+			valuesExpiry[string(step.key)] = string(step.value)
+
+			trNoExpiry.MustUpdate(step.key, step.value)
+			valuesNoExpiry[string(step.key)] = string(step.value)
+		case opDelete:
+			err := trExpiry.Delete(step.key)
+			if err != nil {
+				if expErr, ok := err.(*ExpiredNodeError); ok {
+					var proof proofList
+					err = trNoExpiry.ProveByPath(step.key, expErr.Path, &proof)
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for proving key %#x, %v", step.key, err)
+						return false
+					}
+
+					err = trExpiry.ExpireByPrefix(expErr.Path)
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for expiring key %#x, %v", step.key, err)
+						return false
+					}
+
+					_, err = trExpiry.TryRevive(step.key, NewMPTProof(expErr.Path, proof))
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for reviving key %#x, %v", step.key, err)
+						return false
+					}
+				} else {
+					rt[i].err = fmt.Errorf("failed for deleting key %v err %v", step.key, err)
+					return false
+				}
+			}
+			delete(valuesExpiry, string(step.key))
+
+			trNoExpiry.MustDelete(step.key)
+			delete(valuesNoExpiry, string(step.key))
+		case opGet:
+			v, err := trExpiry.Get(step.key)
+			if err != nil {
+				if expErr, ok := err.(*ExpiredNodeError); ok {
+					var proof proofList
+					err = trNoExpiry.ProveByPath(step.key, expErr.Path, &proof)
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for proving key %#x, %v", step.key, err)
+						return false
+					}
+
+					err = trExpiry.ExpireByPrefix(expErr.Path)
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for expiring key %#x, %v", step.key, err)
+						return false
+					}
+
+					_, err = trExpiry.TryRevive(step.key, NewMPTProof(expErr.Path, proof))
+					if err != nil {
+						rt[i].err = fmt.Errorf("failed for reviving key %#x, %v", step.key, err)
+						return false
+					}
+				} else {
+					rt[i].err = fmt.Errorf("failed for retrieving key %v err %v", step.key, err)
+					return false
+				}
+			}
+			want := valuesExpiry[string(step.key)]
+			if string(v) != want {
+				rt[i].err = fmt.Errorf("mismatch for key %#x, got %#x want %#x", step.key, v, want)
+			}
+
+			v = trNoExpiry.MustGet(step.key)
+			want = valuesNoExpiry[string(step.key)]
+			if string(v) != want {
+				rt[i].err = fmt.Errorf("mismatch for key %#x, got %#x want %#x", step.key, v, want)
+			}
+		case opHash:
+			trExpiry.Hash()
+			trNoExpiry.Hash()
+		case opCommit:
+			root, nodes, _ := trExpiry.Commit(true)
+			if nodes != nil {
+				trieDbExpiry.Update(root, originExpiry, 0, trienode.NewWithNodeSet(nodes), nil)
+			}
+			newtr, err := New(TrieID(root), trieDbExpiry)
+			if err != nil {
+				rt[i].err = err
+				return false
+			}
+			if nodes != nil {
+				if err := verifyAccessList(origTrieExpiry, newtr, nodes); err != nil {
+					rt[i].err = err
+					return false
+				}
+			}
+			trExpiry = newtr
+			origTrieExpiry = trExpiry.Copy()
+			originExpiry = root
+		case opNodeDiff:
+			var (
+				origIter = origTrieExpiry.MustNodeIterator(nil)
+				curIter  = trExpiry.MustNodeIterator(nil)
+				origSeen = make(map[string]struct{})
+				curSeen  = make(map[string]struct{})
+			)
+			for origIter.Next(true) {
+				if origIter.Leaf() {
+					continue
+				}
+				origSeen[string(origIter.Path())] = struct{}{}
+			}
+			for curIter.Next(true) {
+				if curIter.Leaf() {
+					continue
+				}
+				curSeen[string(curIter.Path())] = struct{}{}
+			}
+			var (
+				insertExp = make(map[string]struct{})
+				deleteExp = make(map[string]struct{})
+			)
+			for path := range curSeen {
+				_, present := origSeen[path]
+				if !present {
+					insertExp[path] = struct{}{}
+				}
+			}
+			for path := range origSeen {
+				_, present := curSeen[path]
+				if !present {
+					deleteExp[path] = struct{}{}
+				}
+			}
+			if len(insertExp) != len(trExpiry.tracer.inserts) {
+				rt[i].err = fmt.Errorf("insert set mismatch")
+			}
+			if len(deleteExp) != len(trExpiry.tracer.deletes) {
+				rt[i].err = fmt.Errorf("delete set mismatch")
+			}
+			for insert := range trExpiry.tracer.inserts {
+				if _, present := insertExp[insert]; !present {
+					rt[i].err = fmt.Errorf("missing inserted node")
+				}
+			}
+			for del := range trExpiry.tracer.deletes {
+				if _, present := deleteExp[del]; !present {
+					rt[i].err = fmt.Errorf("missing deleted node")
+				}
+			}
+		case opMakeExpired:
+			trExpiry.SetEpoch(trExpiry.currentEpoch + 2)
+		}
+		// Abort the test on error.
+		if rt[i].err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func TestRandom(t *testing.T) {
 	if err := quick.Check(runRandTest, nil); err != nil {
+		if cerr, ok := err.(*quick.CheckError); ok {
+			t.Fatalf("random test iteration %d failed: %s", cerr.Count, spew.Sdump(cerr.In))
+		}
+		t.Fatal(err)
+	}
+}
+
+func TestRandomLocalRevive(t *testing.T) {
+	if err := quick.Check(runRandTestLocalRevive, nil); err != nil {
+		if cerr, ok := err.(*quick.CheckError); ok {
+			t.Fatalf("random test iteration %d failed: %s", cerr.Count, spew.Sdump(cerr.In))
+		}
+		t.Fatal(err)
+	}
+}
+
+func TestRandomWithRemoteDb(t *testing.T) {
+	if err := quick.Check(runRandTestWithRemoteDb, nil); err != nil {
 		if cerr, ok := err.(*quick.CheckError); ok {
 			t.Fatalf("random test iteration %d failed: %s", cerr.Count, spew.Sdump(cerr.In))
 		}
@@ -1014,12 +1509,10 @@ func TestRevive(t *testing.T) {
 			// Expire trie
 			trie.ExpireByPrefix(prefixKey)
 
-			proofCache := makeRawMPTProofCache(prefixKey, proof)
-			err = proofCache.VerifyProof()
-			assert.NoError(t, err)
+			mptProof := NewMPTProof(prefixKey, proof)
 
 			// Revive trie
-			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			// Verifiy value exists after revive
@@ -1058,12 +1551,10 @@ func TestReviveCustom(t *testing.T) {
 
 			trie.ExpireByPrefix(prefixKey)
 
-			proofCache := makeRawMPTProofCache(prefixKey, proofList)
-			err = proofCache.VerifyProof()
-			assert.NoError(t, err)
+			mptProof := NewMPTProof(prefixKey, proofList)
 
 			// Revive trie
-			_, err = trie.TryRevive(key, proofCache.cacheNubs)
+			_, err = trie.TryRevive(prefixKey, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			res, err := trie.Get(key)
@@ -1103,15 +1594,10 @@ func TestReviveBadProof(t *testing.T) {
 	// Expire trie A
 	trieA.ExpireByPrefix(nil)
 
-	// Construct MPTProofCache
-	proofCache := makeRawMPTProofCache(nil, proofB)
-
-	// VerifyProof
-	err = proofCache.VerifyProof()
-	assert.NoError(t, err)
+	mptProof := NewMPTProof(nil, proofB)
 
 	// Revive trie
-	_, err = trieA.TryRevive([]byte("abcd"), proofCache.cacheNubs)
+	_, err = trieA.TryRevive([]byte("abcd"), mptProof)
 	assert.Error(t, err)
 
 	// Verify value does exists after revive
@@ -1138,12 +1624,10 @@ func TestReviveBadProofAfterUpdate(t *testing.T) {
 			// Expire trie
 			trie.ExpireByPrefix(prefixKey)
 
-			proofCache := makeRawMPTProofCache(prefixKey, proof)
-			err = proofCache.VerifyProof()
-			assert.NoError(t, err)
+			mptProof := NewMPTProof(prefixKey, proof)
 
 			// Revive trie
-			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			// Verify value exists after revive
@@ -1156,7 +1640,7 @@ func TestReviveBadProofAfterUpdate(t *testing.T) {
 			assert.NoError(t, err, "Get failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 			assert.Equal(t, []byte("new value"), v, "value mismatch, got %x, exp %x, key %x, prefixKey %x", v, val, key, prefixKey)
 
-			_, err = trie.TryRevive(key, proofCache.CacheNubs())
+			_, err = trie.TryRevive(key, mptProof)
 			assert.NoError(t, err, "TryRevive failed, key %x, prefixKey %x, val %x", key, prefixKey, val)
 
 			v, err = trie.Get(key)
@@ -1188,15 +1672,10 @@ func TestPartialReviveFullProof(t *testing.T) {
 	err = trie.ExpireByPrefix([]byte{6, 1})
 	assert.NoError(t, err)
 
-	// Construct MPTProofCache
-	proofCache := makeRawMPTProofCache(nil, proof)
-
-	// Verify proof
-	err = proofCache.VerifyProof()
-	assert.NoError(t, err)
+	mptProof := NewMPTProof(nil, proof)
 
 	// Revive trie
-	_, err = trie.TryRevive(key, proofCache.cacheNubs)
+	_, err = trie.TryRevive(key, mptProof)
 	assert.NoError(t, err)
 
 	// Validate trie
@@ -1436,14 +1915,5 @@ func TestDecodeNode(t *testing.T) {
 		prng.Read(hash)
 		prng.Read(elems)
 		decodeNode(hash, elems)
-	}
-}
-
-func makeRawMPTProofCache(rootKeyHex []byte, proof [][]byte) MPTProofCache {
-	return MPTProofCache{
-		MPTProof: MPTProof{
-			RootKeyHex: rootKeyHex,
-			Proof:      proof,
-		},
 	}
 }
