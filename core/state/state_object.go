@@ -249,10 +249,6 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		return value
 	}
 
-	if value, cached := s.originStorage[key]; cached {
-		return value
-	}
-
 	// If the object was destructed in *this* block (and potentially resurrected),
 	// the storage has been cleared out, and we should *not* consult the previous
 	// database about any storage values. The only possible alternatives are:
@@ -321,7 +317,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 				//log.Debug("GetCommittedState expired in trie", "addr", s.address, "key", key, "err", err)
 				val, err = s.tryReviveState(path, key, false)
 				getCommittedStorageExpiredMeter.Mark(1)
-			} else if err != nil {
+			} else if err == nil {
 				getCommittedStorageUnexpiredMeter.Mark(1)
 				// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
 				//s.originStorageEpoch[key] = epoch
@@ -520,7 +516,13 @@ func (s *stateObject) updateTrie() (Trie, error) {
 				//log.Debug("updateTrie DeleteStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "err", err, "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
 				s.db.StorageDeleted += 1
 			} else {
-				if err := tr.UpdateStorage(s.address, key[:], value); err != nil {
+				err := tr.UpdateStorage(s.address, key[:], value)
+				if path, ok := trie.ParseExpiredNodeErr(err); ok {
+					touchExpiredStorage[key] = value
+					if _, err = tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true); err != nil {
+						s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, err))
+					}
+				} else if err != nil {
 					s.db.setError(fmt.Errorf("updateTrie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
 				}
 				//log.Debug("updateTrie UpdateStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "err", err, "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
@@ -929,7 +931,6 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, erro
 
 	if val == nil {
 		// record access empty kv, try touch in updateTrie for duplication
-		//log.Debug("getExpirySnapStorage nil val", "addr", s.address, "key", key, "val", val)
 		s.futureReviveState(key)
 		return nil, nil, nil
 	}
@@ -945,7 +946,6 @@ func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, erro
 	if s.db.EnableLocalRevive() && len(val.GetVal()) > 0 {
 		s.futureReviveState(key)
 		getCommittedStorageExpiredLocalReviveMeter.Mark(1)
-		//log.Debug("getExpirySnapStorage GetVal", "addr", s.address, "key", key, "val", hex.EncodeToString(val.GetVal()))
 		return val.GetVal(), nil, nil
 	}
 
