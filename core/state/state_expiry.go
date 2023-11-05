@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -44,13 +46,12 @@ func tryReviveState(meta *stateExpiryMeta, addr common.Address, root common.Hash
 	if meta.enableLocalRevive && !force {
 		// if there need revive expired state, try to revive locally, when the node is not being pruned, just renew the epoch
 		val, err := tr.TryLocalRevive(addr, key.Bytes())
-		//log.Debug("tryReviveState TryLocalRevive", "addr", addr, "key", key, "val", val, "err", err)
 		switch err.(type) {
 		case *trie.MissingNodeError:
 			// cannot revive locally, request from remote
 		case nil:
 			reviveFromLocalMeter.Mark(1)
-			return map[string][]byte{key.String(): val}, nil
+			return map[string][]byte{string(crypto.Keccak256(key[:])): val}, nil
 		default:
 			return nil, err
 		}
@@ -59,7 +60,6 @@ func tryReviveState(meta *stateExpiryMeta, addr common.Address, root common.Hash
 	reviveFromRemoteMeter.Mark(1)
 	// cannot revive locally, fetch remote proof
 	proofs, err := meta.fullStateDB.GetStorageReviveProof(meta.originalRoot, addr, root, []string{common.Bytes2Hex(prefixKey)}, []string{common.Bytes2Hex(key[:])})
-	//log.Debug("tryReviveState GetStorageReviveProof", "addr", addr, "key", key, "proofs", len(proofs), "err", err)
 	if err != nil {
 		return nil, err
 	}

@@ -314,6 +314,10 @@ func (it *nodeIterator) peek(descend bool) (*nodeIteratorState, *int, []byte, er
 	// Initialize the iterator if we've just started.
 	if len(it.stack) == 0 {
 		state, err := it.init()
+		// if enableExpiry, may pass missed node, just return
+		if _, missed := err.(*MissingNodeError); missed && it.trie.enableExpiry {
+			return nil, nil, nil, errIteratorEnd
+		}
 		return state, nil, nil, err
 	}
 	if !descend {
@@ -330,7 +334,13 @@ func (it *nodeIterator) peek(descend bool) (*nodeIteratorState, *int, []byte, er
 		}
 		state, path, ok := it.nextChild(parent, ancestor)
 		if ok {
-			if err := state.resolve(it, path); err != nil {
+			err := state.resolve(it, path)
+			// if enableExpiry, may pass missed node, continue next
+			if _, missed := err.(*MissingNodeError); missed && it.trie.enableExpiry {
+				parent.index++
+				continue
+			}
+			if err != nil {
 				return parent, &parent.index, path, err
 			}
 			return state, &parent.index, path, nil
@@ -347,6 +357,10 @@ func (it *nodeIterator) peekSeek(seekKey []byte) (*nodeIteratorState, *int, []by
 	// Initialize the iterator if we've just started.
 	if len(it.stack) == 0 {
 		state, err := it.init()
+		// if enableExpiry, may pass missed node, just return
+		if _, missed := err.(*MissingNodeError); missed && it.trie.enableExpiry {
+			return nil, nil, nil, errIteratorEnd
+		}
 		return state, nil, nil, err
 	}
 	if !bytes.HasPrefix(seekKey, it.path) {
@@ -363,7 +377,13 @@ func (it *nodeIterator) peekSeek(seekKey []byte) (*nodeIteratorState, *int, []by
 		}
 		state, path, ok := it.nextChildAt(parent, ancestor, seekKey)
 		if ok {
-			if err := state.resolve(it, path); err != nil {
+			err := state.resolve(it, path)
+			// if enableExpiry, may pass missed node, continue next
+			if _, missed := err.(*MissingNodeError); missed && it.trie.enableExpiry {
+				parent.index++
+				continue
+			}
+			if err != nil {
 				return parent, &parent.index, path, err
 			}
 			return state, &parent.index, path, nil
