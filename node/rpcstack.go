@@ -393,9 +393,7 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, jwtSe
 	if len(jwtSecret) != 0 {
 		handler = newJWTHandler(jwtSecret, handler)
 	}
-	//TODO(0xbundler): temporary disable state expiry ver gzip
-	//return newGzipHandler(handler)
-	return handler
+	return newGzipHandler(handler)
 }
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
