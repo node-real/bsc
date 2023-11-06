@@ -49,6 +49,10 @@ type LesApiBackend struct {
 	gpo                 *gasprice.Oracle
 }
 
+func (b *LesApiBackend) StorageTrieAt(stateRoot common.Hash, addr common.Address) (state.Trie, error) {
+	panic("implement me")
+}
+
 func (b *LesApiBackend) ChainConfig() *params.ChainConfig {
 	return b.eth.chainConfig
 }

@@ -344,6 +344,10 @@ type testBackend struct {
 	pending *types.Block
 }
 
+func (b *testBackend) StorageTrieAt(stateRoot common.Hash, addr common.Address) (state.Trie, error) {
+	panic("implement me")
+}
+
 func newTestBackend(t *testing.T, n int, gspec *core.Genesis, generator func(i int, b *core.BlockGen)) *testBackend {
 	var (
 		engine      = ethash.NewFaker()
