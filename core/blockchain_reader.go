@@ -17,7 +17,10 @@
 package core
 
 import (
+	"fmt"
 	"math/big"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -360,6 +363,24 @@ func (bc *BlockChain) StateAt(startAtRoot common.Hash, startAtBlockHash common.H
 		sdb.InitStateExpiryFeature(bc.stateExpiryCfg, bc.fullStateDB, startAtBlockHash, expectHeight)
 	}
 	return sdb, err
+}
+
+// StorageTrieAt returns a target block storage trie.
+func (bc *BlockChain) StorageTrieAt(startAtRoot common.Hash, addr common.Address) (state.Trie, error) {
+	if bc.snaps == nil {
+		return nil, fmt.Errorf("StorageTrieAt snaps is nil, root: %v, addr: %v", startAtRoot, addr)
+	}
+	snap := bc.snaps.Snapshot(startAtRoot)
+	if snap == nil {
+		return nil, fmt.Errorf("cannot open snap to find target storage trie, root: %v, addr: %v", startAtRoot, addr)
+	}
+
+	account, err := snap.Account(crypto.Keccak256Hash(addr[:]))
+	if err != nil {
+		return nil, err
+	}
+
+	return bc.stateCache.OpenStorageTrie(startAtRoot, addr, common.BytesToHash(account.Root))
 }
 
 // Config retrieves the chain's fork configuration.

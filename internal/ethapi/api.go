@@ -57,8 +57,16 @@ import (
 )
 
 const (
-	UnHealthyTimeout = 5 * time.Second
-	APICache         = 10000
+	UnHealthyTimeout                   = 5 * time.Second
+	GetStorageProofRetCacheDefaultSize = 200000
+	GetStorageProofTrieDefaultSize     = 100000
+)
+
+var (
+	getProofTrieCacheHitMeter  = metrics.NewRegisteredMeter("ethapi/getstorageproof/trie/hit", nil)
+	getProofTrieCacheMissMeter = metrics.NewRegisteredMeter("ethapi/getstorageproof/trie/miss", nil)
+	getProofRetCacheHitMeter   = metrics.NewRegisteredMeter("ethapi/getstorageproof/ret/hit", nil)
+	getProofRetCacheMissMeter  = metrics.NewRegisteredMeter("ethapi/getstorageproof/ret/miss", nil)
 )
 
 // max is a helper function which returns the larger of the two given integers.
@@ -629,19 +637,25 @@ func (s *PersonalAccountAPI) Unpair(ctx context.Context, url string, pin string)
 
 // BlockChainAPI provides an API to access Ethereum blockchain data.
 type BlockChainAPI struct {
-	b     Backend
-	cache *lru.Cache
+	b                        Backend
+	getStorageProofRetCache  *lru.Cache
+	getStorageProofTrieCache *lru.Cache
 }
 
 // NewBlockChainAPI creates a new Ethereum blockchain API.
 func NewBlockChainAPI(b Backend) *BlockChainAPI {
-	cache, err := lru.New(APICache)
+	getStorageProofRetCache, err := lru.New(GetStorageProofRetCacheDefaultSize)
+	if err != nil {
+		return nil
+	}
+	getStorageProofTrieCache, err := lru.New(GetStorageProofTrieDefaultSize)
 	if err != nil {
 		return nil
 	}
 	return &BlockChainAPI{
-		b:     b,
-		cache: cache,
+		b:                        b,
+		getStorageProofRetCache:  getStorageProofRetCache,
+		getStorageProofTrieCache: getStorageProofTrieCache,
 	}
 }
 
@@ -789,27 +803,34 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 	}
 
 	var (
-		blockNum     uint64
 		keys         = make([]common.Hash, len(storageKeys))
 		keyLengths   = make([]int, len(storageKeys))
 		prefixKeys   = make([][]byte, len(storagePrefixKeys))
 		storageProof = make([]types.ReviveStorageProof, len(storageKeys))
 	)
 
-	// try open target state root trie
-	storageTrie, err := s.b.StorageTrie(stateRoot, address, root)
+	header, err := s.b.HeaderByNumber(ctx, rpc.LatestBlockNumber)
 	if err != nil {
-		// if there cannot find target state root, try latest trie
-		stateDb, header, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-		if err != nil {
-			return nil, err
-		}
-		blockNum = header.Number.Uint64()
-		storageTrie, err = stateDb.StorageTrie(address)
+		return nil, err
+	}
+	blockNum := header.Number.Uint64()
+
+	// Check if request has been cached
+	var storageTrie state.Trie
+	cachedTrie, exist := s.getStorageProofTrieCache.Get(ethdb.ProofCacheTrie(header.Root, address))
+	if exist {
+		getProofTrieCacheHitMeter.Mark(1)
+		storageTrie = cachedTrie.(state.Trie)
+	} else {
+		getProofTrieCacheMissMeter.Mark(1)
+		// try open target state root trie
+		//storageTrie, err := s.b.StorageTrie(stateRoot, address, root)
+		// just open target addr trie in latest block state
+		storageTrie, err = s.b.StorageTrieAt(header.Root, address)
 		if err != nil {
 			return types.NewReviveErrResult(err, blockNum), nil
 		}
-		log.Debug("GetStorageReviveProof from latest block number", "blockNum", blockNum, "blockHash", header.Hash())
+		s.getStorageProofTrieCache.Add(ethdb.ProofCacheTrie(header.Root, address), storageTrie)
 	}
 
 	// Deserialize all keys. This prevents state access on invalid input.
@@ -845,12 +866,14 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 		prefixKey := prefixKeys[i]
 
 		// Check if request has been cached
-		val, ok := s.cache.Get(ethdb.ProofCacheKey(address, root, storagePrefixKeys[i], storageKeys[i]))
+		val, ok := s.getStorageProofRetCache.Get(ethdb.ProofCacheKey(address, header.Root, storagePrefixKeys[i], storageKeys[i]))
 		if ok {
+			getProofRetCacheHitMeter.Mark(1)
 			storageProof[i] = val.(types.ReviveStorageProof)
 			continue
 		}
 
+		getProofRetCacheMissMeter.Mark(1)
 		if err := storageTrie.ProveByPath(crypto.Keccak256(key.Bytes()), prefixKey, &proof); err != nil {
 			return types.NewReviveErrResult(err, blockNum), nil
 		}
@@ -859,7 +882,7 @@ func (s *BlockChainAPI) GetStorageReviveProof(ctx context.Context, stateRoot com
 			PrefixKey: storagePrefixKeys[i],
 			Proof:     proof,
 		}
-		s.cache.Add(ethdb.ProofCacheKey(address, root, storagePrefixKeys[i], storageKeys[i]), storageProof[i])
+		s.getStorageProofRetCache.Add(ethdb.ProofCacheKey(address, header.Root, storagePrefixKeys[i], storageKeys[i]), storageProof[i])
 	}
 
 	return types.NewReviveResult(storageProof, blockNum), nil

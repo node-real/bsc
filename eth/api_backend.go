@@ -234,6 +234,10 @@ func (b *EthAPIBackend) StorageTrie(stateRoot common.Hash, addr common.Address, 
 	return b.eth.BlockChain().StorageTrie(stateRoot, addr, root)
 }
 
+func (b *EthAPIBackend) StorageTrieAt(stateRoot common.Hash, addr common.Address) (state.Trie, error) {
+	return b.eth.BlockChain().StorageTrieAt(stateRoot, addr)
+}
+
 func (b *EthAPIBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
 	return b.eth.blockchain.GetReceiptsByHash(hash), nil
 }

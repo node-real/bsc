@@ -10,7 +10,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
@@ -74,7 +73,6 @@ func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, accoun
 	ret := make([]types.ReviveStorageProof, 0, len(keys))
 	for i, key := range keys {
 		val, ok := f.cache.Get(ProofCacheKey(account, root, prefixKeys[i], key))
-		log.Debug("GetStorageReviveProof hit cache", "account", account, "key", key, "ok", ok)
 		if !ok {
 			uncachedPrefixKeys = append(uncachedPrefixKeys, prefixKeys[i])
 			uncachedKeys = append(uncachedKeys, keys[i])
@@ -116,5 +114,13 @@ func ProofCacheKey(account common.Address, root common.Hash, prefix, key string)
 	buf.WriteString(common.No0xPrefix(prefix))
 	buf.WriteByte('$')
 	buf.WriteString(common.No0xPrefix(key))
+	return buf.String()
+}
+
+func ProofCacheTrie(blockRoot common.Hash, addr common.Address) string {
+	buf := bytes.NewBuffer(make([]byte, 0, len(blockRoot)+len(addr)+1))
+	buf.Write(blockRoot[:])
+	buf.WriteByte('$')
+	buf.Write(addr[:])
 	return buf.String()
 }

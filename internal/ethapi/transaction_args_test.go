@@ -212,6 +212,10 @@ type backendMock struct {
 	config  *params.ChainConfig
 }
 
+func (b *backendMock) StorageTrieAt(stateRoot common.Hash, addr common.Address) (state.Trie, error) {
+	panic("implement me")
+}
+
 func newBackendMock() *backendMock {
 	config := &params.ChainConfig{
 		ChainID:             big.NewInt(42),
