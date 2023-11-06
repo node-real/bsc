@@ -1994,6 +1994,13 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if err != nil {
 		Fatalf("%v", err)
 	}
+	seCfg.AllowedPeerList = make([]string, 0)
+	for _, seNode := range stack.Config().P2P.StateExpiryAllowedNodes {
+		seCfg.AllowedPeerList = append(seCfg.AllowedPeerList, seNode.ID().String())
+	}
+	if len(seCfg.AllowedPeerList) == 0 && seCfg.EnableRemoteMode {
+		log.Warn("State expiry remote mode is enabled but no allowed peers are specified.")
+	}
 	cfg.StateExpiryCfg = seCfg
 	chaindb.Close()
 

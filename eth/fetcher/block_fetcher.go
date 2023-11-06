@@ -388,7 +388,7 @@ func (f *BlockFetcher) loop() {
 			}
 
 			if f.expiryConfig.EnableRemote() {
-				if keep, _ := f.expiryConfig.ShouldKeep1EpochBehind(number, height); keep {
+				if keep, _ := f.expiryConfig.ShouldKeep1EpochBehind(number, height, op.origin); keep {
 					log.Debug("BlockFetcher EnableRemote wait remote more blocks", "remoteHeight", number, "localHeight", height, "config", f.expiryConfig)
 					break
 				}

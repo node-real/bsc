@@ -134,6 +134,10 @@ type Config struct {
 	// allowed to connect, even above the peer limit.
 	TrustedNodes []*enode.Node
 
+	// StateExpiryAllowedNodes are used to ensure that the state expiry remoteDb
+	// will only delay its sync for the peers in the list.
+	StateExpiryAllowedNodes []*enode.Node
+
 	// Connectivity can be restricted to certain IP networks.
 	// If this option is set to a non-nil value, only hosts which match one of the
 	// IP networks contained in the list are considered.
