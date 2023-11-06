@@ -527,7 +527,7 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td, ttd *
 
 	if d.expiryConfig.EnableRemote() {
 		var keep bool
-		keep, remoteHeight = d.expiryConfig.ShouldKeep1EpochBehind(remoteHeight, localHeight)
+		keep, remoteHeight = d.expiryConfig.ShouldKeep1EpochBehind(remoteHeight, localHeight, p.id)
 		log.Debug("EnableRemote wait remote more blocks", "remoteHeight", remoteHeader.Number, "request", remoteHeight, "localHeight", localHeight, "keep", keep, "config", d.expiryConfig)
 		if keep {
 			return errCanceled
