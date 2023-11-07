@@ -19,7 +19,6 @@ package rpc
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +29,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 const (
@@ -178,6 +179,7 @@ func (c *Client) sendHTTP(ctx context.Context, op *requestOp, msg interface{}) e
 
 	var resp jsonrpcMessage
 	batch := [1]*jsonrpcMessage{&resp}
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return err
 	}
@@ -194,6 +196,7 @@ func (c *Client) sendBatchHTTP(ctx context.Context, op *requestOp, msgs []*jsonr
 	defer respBody.Close()
 
 	var respmsgs []*jsonrpcMessage
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	if err := json.NewDecoder(respBody).Decode(&respmsgs); err != nil {
 		return err
 	}
@@ -202,6 +205,7 @@ func (c *Client) sendBatchHTTP(ctx context.Context, op *requestOp, msgs []*jsonr
 }
 
 func (hc *httpConn) doRequest(ctx context.Context, msg interface{}) (io.ReadCloser, error) {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return nil, err
@@ -258,6 +262,7 @@ func newHTTPServerConn(r *http.Request, w http.ResponseWriter) ServerCodec {
 
 	encoder := func(v any, isErrorResponse bool) error {
 		if !isErrorResponse {
+			var json = jsoniter.ConfigCompatibleWithStandardLibrary
 			return json.NewEncoder(conn).Encode(v)
 		}
 
@@ -267,6 +272,7 @@ func newHTTPServerConn(r *http.Request, w http.ResponseWriter) ServerCodec {
 		// server's write timeout occurs. So we need to flush the response. The
 		// Content-Length header also needs to be set to ensure the client knows
 		// when it has the full response.
+		var json = jsoniter.ConfigCompatibleWithStandardLibrary
 		encdata, err := json.Marshal(v)
 		if err != nil {
 			return err
@@ -287,6 +293,7 @@ func newHTTPServerConn(r *http.Request, w http.ResponseWriter) ServerCodec {
 		return err
 	}
 
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	dec := json.NewDecoder(conn)
 	dec.UseNumber()
 

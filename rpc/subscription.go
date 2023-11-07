@@ -29,6 +29,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 var (
@@ -182,6 +184,7 @@ func (n *Notifier) activate() error {
 }
 
 func (n *Notifier) send(sub *Subscription, data json.RawMessage) error {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	params, _ := json.Marshal(&subscriptionResult{ID: string(sub.ID), Result: data})
 	ctx := context.Background()
 
@@ -208,6 +211,7 @@ func (s *Subscription) Err() <-chan error {
 
 // MarshalJSON marshals a subscription as its ID.
 func (s *Subscription) MarshalJSON() ([]byte, error) {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	return json.Marshal(s.ID)
 }
 
@@ -376,6 +380,7 @@ func (sub *ClientSubscription) forward() (unsubscribeServer bool, err error) {
 
 func (sub *ClientSubscription) unmarshal(result json.RawMessage) (interface{}, error) {
 	val := reflect.New(sub.etype)
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	err := json.Unmarshal(result, val.Interface())
 	return val.Elem().Interface(), err
 }

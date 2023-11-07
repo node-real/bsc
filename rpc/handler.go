@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
+
 	"github.com/ethereum/go-ethereum/common/gopool"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -409,6 +411,7 @@ func (h *handler) handleResponses(batch []*jsonrpcMessage, handleCall func(*json
 			if msg.Error != nil {
 				op.err = msg.Error
 			} else {
+				var json = jsoniter.ConfigCompatibleWithStandardLibrary
 				op.err = json.Unmarshal(msg.Result, &op.sub.subid)
 				if op.err == nil {
 					go op.sub.run()
@@ -450,6 +453,7 @@ func (h *handler) handleResponses(batch []*jsonrpcMessage, handleCall func(*json
 // handleSubscriptionResult processes subscription notifications.
 func (h *handler) handleSubscriptionResult(msg *jsonrpcMessage) {
 	var result subscriptionResult
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	if err := json.Unmarshal(msg.Params, &result); err != nil {
 		h.log.Debug("Dropping invalid subscription message")
 		return
