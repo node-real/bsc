@@ -27,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 const (
@@ -91,6 +93,7 @@ func (msg *jsonrpcMessage) namespace() string {
 }
 
 func (msg *jsonrpcMessage) String() string {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	b, _ := json.Marshal(msg)
 	return string(b)
 }
@@ -102,6 +105,7 @@ func (msg *jsonrpcMessage) errorResponse(err error) *jsonrpcMessage {
 }
 
 func (msg *jsonrpcMessage) response(result interface{}) *jsonrpcMessage {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	enc, err := json.Marshal(result)
 	if err != nil {
 		return msg.errorResponse(&internalServerError{errcodeMarshalError, err.Error()})
@@ -199,6 +203,7 @@ func NewFuncCodec(conn deadlineCloser, encode encodeFunc, decode decodeFunc) Ser
 // NewCodec creates a codec on the given connection. If conn implements ConnRemoteAddr, log
 // messages will use it to include the remote address of the connection.
 func NewCodec(conn Conn) ServerCodec {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	enc := json.NewEncoder(conn)
 	dec := json.NewDecoder(conn)
 	dec.UseNumber()
@@ -267,6 +272,7 @@ func (c *jsonCodec) closed() <-chan interface{} {
 func parseMessage(raw json.RawMessage) ([]*jsonrpcMessage, bool) {
 	if !isBatch(raw) {
 		msgs := []*jsonrpcMessage{{}}
+		var json = jsoniter.ConfigCompatibleWithStandardLibrary
 		json.Unmarshal(raw, &msgs[0])
 		return msgs, false
 	}

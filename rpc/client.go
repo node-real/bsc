@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
+
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -371,6 +373,7 @@ func (c *Client) CallContext(ctx context.Context, result interface{}, method str
 		if result == nil {
 			return nil
 		}
+		var json = jsoniter.ConfigCompatibleWithStandardLibrary
 		return json.Unmarshal(resp.Result, result)
 	}
 }
@@ -453,6 +456,7 @@ func (c *Client) BatchCallContext(ctx context.Context, b []BatchElem) error {
 		case resp.Result == nil:
 			elem.Error = ErrNoResult
 		default:
+			var json = jsoniter.ConfigCompatibleWithStandardLibrary
 			elem.Error = json.Unmarshal(resp.Result, elem.Result)
 		}
 	}
@@ -549,6 +553,7 @@ func (c *Client) newMessage(method string, paramsIn ...interface{}) (*jsonrpcMes
 	msg := &jsonrpcMessage{Version: vsn, ID: c.nextID(), Method: method}
 	if paramsIn != nil { // prevent sending "params":null
 		var err error
+		var json = jsoniter.ConfigCompatibleWithStandardLibrary
 		if msg.Params, err = json.Marshal(paramsIn); err != nil {
 			return nil, err
 		}
