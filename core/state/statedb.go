@@ -51,16 +51,15 @@ const (
 )
 
 var (
-	getCommittedStorageMeter                   = metrics.NewRegisteredMeter("state/contract/committed", nil)
-	getCommittedStorageSnapMeter               = metrics.NewRegisteredMeter("state/contract/committed/snap", nil)
-	getCommittedStorageTrieMeter               = metrics.NewRegisteredMeter("state/contract/committed/trie", nil)
-	getCommittedStorageExpiredMeter            = metrics.NewRegisteredMeter("state/contract/committed/expired", nil)
-	getCommittedStorageExpiredLocalReviveMeter = metrics.NewRegisteredMeter("state/contract/committed/expired/localrevive", nil)
-	getCommittedStorageUnexpiredMeter          = metrics.NewRegisteredMeter("state/contract/committed/unexpired", nil)
-	getCommittedStorageRemoteMeter             = metrics.NewRegisteredMeter("state/contract/committed/remote", nil)
-	storageReadMeter                           = metrics.NewRegisteredMeter("state/contract/state/read", nil)
-	storageWriteMeter                          = metrics.NewRegisteredMeter("state/contract/state/write", nil)
-	storageAccessMeter                         = metrics.NewRegisteredMeter("state/contract/state/access", nil)
+	getCommittedStorageMeter          = metrics.NewRegisteredMeter("state/contract/committed", nil)
+	getCommittedStorageSnapMeter      = metrics.NewRegisteredMeter("state/contract/committed/snap", nil)
+	getCommittedStorageTrieMeter      = metrics.NewRegisteredMeter("state/contract/committed/trie", nil)
+	getCommittedStorageExpiredMeter   = metrics.NewRegisteredMeter("state/contract/committed/expired", nil)
+	getCommittedStorageUnexpiredMeter = metrics.NewRegisteredMeter("state/contract/committed/unexpired", nil)
+	getCommittedStorageRemoteMeter    = metrics.NewRegisteredMeter("state/contract/committed/remote", nil)
+	storageReadMeter                  = metrics.NewRegisteredMeter("state/contract/state/read", nil)
+	storageWriteMeter                 = metrics.NewRegisteredMeter("state/contract/state/write", nil)
+	storageAccessMeter                = metrics.NewRegisteredMeter("state/contract/state/access", nil)
 )
 
 type revision struct {
@@ -269,6 +268,7 @@ func (s *StateDB) InitStateExpiryFeature(config *types.StateExpiryConfig, remote
 		epoch:             epoch,
 		originalRoot:      s.originalRoot,
 		originalHash:      startAtBlockHash,
+		pruneLevel:        config.PruneLevel,
 	}
 	//log.Debug("StateDB enable state expiry feature", "expectHeight", expectHeight, "startAtBlockHash", startAtBlockHash, "epoch", epoch)
 	return s

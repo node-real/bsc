@@ -30,6 +30,7 @@ type stateExpiryMeta struct {
 	epoch             types.StateEpoch
 	originalRoot      common.Hash
 	originalHash      common.Hash
+	pruneLevel        uint8
 }
 
 func defaultStateExpiryMeta() *stateExpiryMeta {
@@ -50,6 +51,7 @@ func tryReviveState(meta *stateExpiryMeta, addr common.Address, root common.Hash
 		case *trie.MissingNodeError:
 			// cannot revive locally, request from remote
 		case nil:
+			//log.Debug("tryReviveState localrevive", "addr", addr, "key", key, "val", common.BytesToHash(val), "err", err)
 			reviveFromLocalMeter.Mark(1)
 			return map[string][]byte{string(crypto.Keccak256(key[:])): val}, nil
 		default:

@@ -225,6 +225,7 @@ var (
 		utils.StateExpiryStateEpochPeriodFlag,
 		utils.StateExpiryEnableLocalReviveFlag,
 		utils.StateExpiryEnableRemoteModeFlag,
+		utils.StateExpiryPruneLevelFlag,
 	}
 )
 

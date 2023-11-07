@@ -327,5 +327,10 @@ func (t *StateTrie) TryRevive(key []byte, proof []*MPTProofNub) ([]*MPTProofNub,
 
 func (t *StateTrie) TryLocalRevive(_ common.Address, key []byte) ([]byte, error) {
 	key = t.hashKey(key)
-	return t.trie.TryLocalRevive(key)
+	enc, err := t.trie.TryLocalRevive(key)
+	if err != nil || len(enc) == 0 {
+		return nil, err
+	}
+	_, content, _, err := rlp.Split(enc)
+	return content, err
 }

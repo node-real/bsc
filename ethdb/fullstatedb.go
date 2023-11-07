@@ -86,7 +86,7 @@ func (f *FullStateRPCServer) GetStorageReviveProof(stateRoot common.Hash, accoun
 	}
 
 	// TODO(0xbundler): add timeout in flags?
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelFunc()
 	err := f.client.CallContext(ctx, &result, "eth_getStorageReviveProof", stateRoot, account, root, uncachedKeys, uncachedPrefixKeys)
 	if err != nil {

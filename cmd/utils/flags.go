@@ -1128,6 +1128,7 @@ var (
 	StateExpiryBaseFlags = []cli.Flag{
 		StateExpiryEnableFlag,
 		StateExpiryEnableRemoteModeFlag,
+		StateExpiryPruneLevelFlag,
 	}
 )
 
@@ -1173,6 +1174,12 @@ var (
 		Name:     "state-expiry.remotemode",
 		Usage:    "set state expiry in remotemode",
 		Value:    false,
+		Category: flags.StateExpiryCategory,
+	}
+	StateExpiryPruneLevelFlag = &cli.UintFlag{
+		Name:     "state-expiry.prunelevel",
+		Usage:    "set prune level for state expiry",
+		Value:    types.StateExpiryPruneLevel0,
 		Category: flags.StateExpiryCategory,
 	}
 )
@@ -2616,20 +2623,17 @@ func ParseStateExpiryConfig(ctx *cli.Context, disk ethdb.Database, scheme string
 	} else if stored != nil {
 		newCfg.StateEpochPeriod = stored.StateEpochPeriod
 	}
+	if ctx.IsSet(StateExpiryPruneLevelFlag.Name) {
+		newCfg.PruneLevel = uint8(ctx.Uint(StateExpiryPruneLevelFlag.Name))
+	} else if stored != nil {
+		newCfg.PruneLevel = stored.PruneLevel
+	}
 	if ctx.IsSet(StateExpiryEnableLocalReviveFlag.Name) {
 		newCfg.EnableLocalRevive = ctx.Bool(StateExpiryEnableLocalReviveFlag.Name)
 	}
 
-	// override prune level
-	newCfg.PruneLevel = types.StateExpiryPruneLevel1
-	switch newCfg.StateScheme {
-	case rawdb.HashScheme:
-		// TODO(0xbundler): will stop support HBSS later.
-		newCfg.PruneLevel = types.StateExpiryPruneLevel0
-	case rawdb.PathScheme:
-		newCfg.PruneLevel = types.StateExpiryPruneLevel1
-	default:
-		return nil, fmt.Errorf("not support the state scheme: %v", newCfg.StateScheme)
+	if rawdb.HashScheme == newCfg.StateScheme && types.StateExpiryPruneLevel1 != newCfg.PruneLevel {
+		return nil, errors.New("PruneLevel must be StateExpiryPruneLevel1 in HBSS")
 	}
 
 	if err := newCfg.Validation(); err != nil {

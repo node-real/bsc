@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	StateExpiryPruneLevel0 = iota // StateExpiryPruneLevel0 is for HBSS, in HBSS we cannot prune any expired snapshot, it need rebuild trie for old tire node prune, it also cannot prune any shared trie node too.
-	StateExpiryPruneLevel1        // StateExpiryPruneLevel1 is the default level, it left some expired snapshot meta for performance friendly.
-	StateExpiryPruneLevel2        // StateExpiryPruneLevel2 will prune all expired snapshot kvs and trie nodes, but it will access more times in tire when execution. TODO(0xbundler): will support it later
+	StateExpiryPruneLevel0 = iota // StateExpiryPruneLevel0 is the default level, it will prune all expired snapshot kvs and trie nodes, but it will access more times in tire when execution. It not supports in HBSS.
+	StateExpiryPruneLevel1        // StateExpiryPruneLevel1 it left all snapshot & epoch meta for performance friendly.
 )
 
 type StateExpiryConfig struct {

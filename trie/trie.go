@@ -1670,47 +1670,46 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 }
 
 func (t *Trie) recursePruneExpiredNode(n node, path []byte, epoch types.StateEpoch, st *ScanTask) error {
+	np := renewBytes(path)
 	switch n := n.(type) {
 	case *shortNode:
 		st.Stat(true)
-		subPath := append(path, n.Key...)
-		key := common.Hash{}
-		_, isLeaf := n.Val.(valueNode)
-		if isLeaf {
-			key = common.BytesToHash(hexToKeybytes(subPath))
+		err := t.recursePruneExpiredNode(n.Val, append(path, n.Key...), epoch, st)
+		if err != nil {
+			return err
 		}
 		if st.findExpired {
+			key := common.Hash{}
+			_, isLeaf := n.Val.(valueNode)
+			if isLeaf {
+				key = common.BytesToHash(hexToKeybytes(append(np, n.Key...)))
+			}
 			st.itemCh <- &NodeInfo{
 				Addr:   t.owner,
 				Hash:   common.BytesToHash(n.flags.hash),
-				Path:   renewBytes(path),
+				Path:   np,
 				Key:    key,
 				Epoch:  epoch,
 				IsLeaf: isLeaf,
 			}
 		}
-
-		err := t.recursePruneExpiredNode(n.Val, subPath, epoch, st)
-		if err != nil {
-			return err
-		}
 		return nil
 	case *fullNode:
 		st.Stat(true)
-		if st.findExpired {
-			st.itemCh <- &NodeInfo{
-				Addr:     t.owner,
-				Hash:     common.BytesToHash(n.flags.hash),
-				Path:     renewBytes(path),
-				Epoch:    epoch,
-				IsBranch: true,
-			}
-		}
 		// recurse child, and except valueNode
 		for i := 0; i < BranchNodeLength-1; i++ {
 			err := t.recursePruneExpiredNode(n.Children[i], append(path, byte(i)), n.EpochMap[i], st)
 			if err != nil {
 				return err
+			}
+		}
+		if st.findExpired {
+			st.itemCh <- &NodeInfo{
+				Addr:     t.owner,
+				Hash:     common.BytesToHash(n.flags.hash),
+				Path:     np,
+				Epoch:    epoch,
+				IsBranch: true,
 			}
 		}
 		return nil
