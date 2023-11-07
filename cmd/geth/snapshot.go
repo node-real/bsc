@@ -455,12 +455,12 @@ func pruneState(ctx *cli.Context) error {
 		StateExpiryCfg:      cfg.Eth.StateExpiryCfg,
 	}
 	prunerconfig := pruner.Config{
-		Datadir:           stack.ResolvePath(""),
-		BloomSize:         ctx.Uint64(utils.BloomFilterSizeFlag.Name),
-		EnableStateExpiry: cfg.Eth.StateExpiryCfg.EnableExpiry(),
-		ChainConfig:       chainConfig,
-		CacheConfig:       cacheConfig,
-		MaxExpireThreads:  ctx.Uint64(utils.StateExpiryMaxThreadFlag.Name),
+		Datadir:          stack.ResolvePath(""),
+		BloomSize:        ctx.Uint64(utils.BloomFilterSizeFlag.Name),
+		ExpiryCfg:        cfg.Eth.StateExpiryCfg,
+		ChainConfig:      chainConfig,
+		CacheConfig:      cacheConfig,
+		MaxExpireThreads: ctx.Uint64(utils.StateExpiryMaxThreadFlag.Name),
 	}
 	pruner, err := pruner.NewPruner(chaindb, prunerconfig, ctx.Uint64(utils.TriesInMemoryFlag.Name))
 	if err != nil {

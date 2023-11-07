@@ -65,7 +65,9 @@ const (
 	// to avoid triggering range compaction because of small deletion.
 	rangeCompactionThreshold = 1000000
 
-	FixedPrefixAndAddrSize = 33
+	ContractTrieNodeAvgSize = 105 // This is an estimated value
+
+	ContractEpochMetaAvgSize = 16 // This is an estimated value
 
 	defaultReportDuration = 60 * time.Second
 
@@ -74,12 +76,12 @@ const (
 
 // Config includes all the configurations for pruning.
 type Config struct {
-	Datadir           string // The directory of the state database
-	BloomSize         uint64 // The Megabytes of memory allocated to bloom-filter
-	EnableStateExpiry bool
-	ChainConfig       *params.ChainConfig
-	CacheConfig       *core.CacheConfig
-	MaxExpireThreads  uint64
+	Datadir          string // The directory of the state database
+	BloomSize        uint64 // The Megabytes of memory allocated to bloom-filter
+	ExpiryCfg        *types.StateExpiryConfig
+	ChainConfig      *params.ChainConfig
+	CacheConfig      *core.CacheConfig
+	MaxExpireThreads uint64
 }
 
 // Pruner is an offline tool to prune the stale state with the
@@ -702,7 +704,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 // ExpiredPrune it must run later to prune, using bloom filter in HBSS to prevent pruning in use trie node, cannot prune concurrently.
 // but in PBSS, it need not bloom filter
 func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
-	if !p.config.EnableStateExpiry {
+	if !p.config.ExpiryCfg.EnableExpiry() {
 		log.Info("stop prune expired state, disable state expiry", "height", height, "root", root, "scheme", p.config.CacheConfig.StateScheme)
 		return nil
 	}
@@ -742,7 +744,7 @@ func (p *Pruner) ExpiredPrune(height *big.Int, root common.Hash) error {
 	}()
 	go func() {
 		defer tasksWG.Done()
-		rets[1] = asyncPruneExpiredStorageInDisk(p.db, pruneExpiredInDiskCh, bloom, p.config.CacheConfig.StateScheme)
+		rets[1] = asyncPruneExpiredStorageInDisk(p.db, pruneExpiredInDiskCh, bloom, p.config.ExpiryCfg)
 	}()
 	rets[2] = snapshot.TraverseContractTrie(p.snaptree, root, scanExpiredTrieCh)
 
@@ -874,6 +876,14 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 			return err
 		}
 		tr.SetEpoch(epoch)
+		if st.MoreThread() {
+			st.Schedule(func() {
+				if err = tr.ScanForPrune(st); err != nil {
+					log.Error("asyncScanExpiredInTrie, ScanForPrune err", "id", item, "err", err)
+				}
+			})
+			continue
+		}
 		if err = tr.ScanForPrune(st); err != nil {
 			log.Error("asyncScanExpiredInTrie, ScanForPrune err", "id", item, "err", err)
 			return err
@@ -883,7 +893,7 @@ func asyncScanExpiredInTrie(db *trie.Database, stateRoot common.Hash, epoch type
 	return nil
 }
 
-func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk chan *trie.NodeInfo, bloom *bloomfilter.Filter, scheme string) error {
+func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk chan *trie.NodeInfo, bloom *bloomfilter.Filter, cfg *types.StateExpiryConfig) error {
 	var (
 		itemCount      = 0
 		trieCount      = 0
@@ -902,44 +912,26 @@ func asyncPruneExpiredStorageInDisk(diskdb ethdb.Database, pruneExpiredInDisk ch
 			info.IsBranch, "isLeaf", info.IsLeaf)
 		itemCount++
 		addr := info.Addr
-		switch scheme {
+		trieCount++
+		trieSize += ContractTrieNodeAvgSize
+		switch cfg.StateScheme {
 		case rawdb.PathScheme:
-			val := rawdb.ReadTrieNode(diskdb, addr, info.Path, info.Hash, rawdb.PathScheme)
-			if len(val) == 0 {
-				log.Debug("cannot find source trie?", "addr", addr, "path", info.Path, "hash", info.Hash, "epoch", info.Epoch)
-			} else {
-				trieCount++
-				trieSize += common.StorageSize(len(val) + FixedPrefixAndAddrSize + len(info.Path))
-				rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.PathScheme)
-			}
+			rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.PathScheme)
 		case rawdb.HashScheme:
 			// hbss has shared kv, so using bloom to filter them out.
 			if bloom == nil || !bloom.Contains(stateBloomHasher(info.Hash.Bytes())) {
-				val := rawdb.ReadTrieNode(diskdb, addr, info.Path, info.Hash, rawdb.HashScheme)
-				if len(val) == 0 {
-					log.Debug("cannot find source trie?", "addr", addr, "path", info.Path, "hash", info.Hash, "epoch", info.Epoch)
-				} else {
-					trieCount++
-					trieSize += common.StorageSize(len(val) + FixedPrefixAndAddrSize)
-					rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
-				}
+				rawdb.DeleteTrieNode(batch, addr, info.Path, info.Hash, rawdb.HashScheme)
 			}
 		}
 		// delete epoch meta in HBSS
-		if info.IsBranch && rawdb.HashScheme == scheme {
-			val := rawdb.ReadEpochMetaPlainState(diskdb, addr, string(info.Path))
-			if len(val) == 0 && info.Epoch > types.StateEpoch0 {
-				log.Debug("cannot find source epochmeta?", "addr", addr, "path", info.Path, "hash", info.Hash, "epoch", info.Epoch)
-			}
-			if len(val) > 0 {
-				epochMetaCount++
-				epochMetaSize += common.StorageSize(FixedPrefixAndAddrSize + len(info.Path) + len(val))
-				rawdb.DeleteEpochMetaPlainState(batch, addr, string(info.Path))
-			}
+		if info.IsBranch && rawdb.HashScheme == cfg.StateScheme {
+			epochMetaCount++
+			epochMetaSize += ContractEpochMetaAvgSize
+			rawdb.DeleteEpochMetaPlainState(batch, addr, string(info.Path))
 		}
 		// replace snapshot kv only epoch
 		if info.IsLeaf {
-			size, err := snapshot.ShrinkExpiredLeaf(batch, diskdb, addr, info.Key, info.Epoch, scheme)
+			size, err := snapshot.ShrinkExpiredLeaf(batch, diskdb, addr, info.Key, cfg)
 			if err != nil {
 				log.Error("ShrinkExpiredLeaf err", "addr", addr, "key", info.Key, "err", err)
 			}

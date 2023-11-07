@@ -236,16 +236,19 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	getCommittedStorageMeter.Mark(1)
 	// If we have a pending write or clean cached, return that
 	if value, pending := s.pendingStorage[key]; pending {
+		//log.Debug("GetCommittedState pendingStorage", "addr", s.address, "key", key, "val", value)
 		return value
 	}
 
 	if s.db.EnableExpire() {
 		if revived, revive := s.queryFromReviveState(s.pendingReviveState, key); revive {
+			//log.Debug("GetCommittedState queryFromReviveState", "addr", s.address, "key", key, "val", revived)
 			return revived
 		}
 	}
 
 	if value, cached := s.getOriginStorage(key); cached {
+		//log.Debug("GetCommittedState getOriginStorage", "addr", s.address, "key", key, "val", value)
 		return value
 	}
 
@@ -269,14 +272,10 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		start := time.Now()
 		// handle state expiry situation
 		if s.db.EnableExpire() {
-			var dbError error
-			enc, err, dbError = s.getExpirySnapStorage(key)
-			if dbError != nil {
-				s.db.setError(fmt.Errorf("state expiry getExpirySnapStorage, contract: %v, key: %v, err: %v", s.address, key, dbError))
-				return common.Hash{}
-			}
+			enc, err = s.getExpirySnapStorage(key)
 			if len(enc) > 0 {
 				value.SetBytes(enc)
+				//log.Debug("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value)
 			}
 		} else {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
@@ -286,6 +285,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 					s.db.setError(err)
 				}
 				value.SetBytes(content)
+				//log.Debug("GetCommittedState Storage", "addr", s.address, "key", key, "val", value, "err", err)
 			}
 		}
 		if metrics.EnabledExpensive {
@@ -294,7 +294,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	}
 
 	// If the snapshot is unavailable or reading from it fails, load from the database.
-	if s.db.snap == nil || err != nil {
+	if s.db.snap == nil || err != nil || s.needCheckExpiredInTrie(enc, err) {
 		getCommittedStorageTrieMeter.Mark(1)
 		start := time.Now()
 		var tr Trie
@@ -307,16 +307,18 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			s.db.setError(fmt.Errorf("state object getTrie err, contract: %v, err: %v", s.address, err))
 			return common.Hash{}
 		}
-		val, err := tr.GetStorage(s.address, key.Bytes())
+		var val []byte
+		val, err = tr.GetStorage(s.address, key.Bytes())
+		//log.Debug("GetCommittedState GetStorage", "addr", s.address, "key", key, "val", common.BytesToHash(val), "err", err)
 		if metrics.EnabledExpensive {
 			s.db.StorageReads += time.Since(start)
 		}
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			if path, ok := trie.ParseExpiredNodeErr(err); ok {
-				//log.Debug("GetCommittedState expired in trie", "addr", s.address, "key", key, "err", err)
-				val, err = s.tryReviveState(path, key, false)
+				val, err = s.tryReviveState(path, key)
 				getCommittedStorageExpiredMeter.Mark(1)
+				//log.Debug("GetCommittedState tryReviveState", "addr", s.address, "key", key, "val", common.BytesToHash(val), "err", err)
 			} else if err == nil {
 				getCommittedStorageUnexpiredMeter.Mark(1)
 				// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
@@ -520,9 +522,11 @@ func (s *stateObject) updateTrie() (Trie, error) {
 			if len(value) == 0 {
 				err := tr.DeleteStorage(s.address, key[:])
 				if path, ok := trie.ParseExpiredNodeErr(err); ok {
-					touchExpiredStorage[key] = value
-					if _, err = tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true); err != nil {
-						s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, err))
+					_, reviveErr := tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true)
+					if reviveErr != nil {
+						s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, reviveErr))
+					} else {
+						touchExpiredStorage[key] = value
 					}
 				} else if err != nil {
 					s.db.setError(fmt.Errorf("updateTrie DeleteStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
@@ -532,9 +536,11 @@ func (s *stateObject) updateTrie() (Trie, error) {
 			} else {
 				err := tr.UpdateStorage(s.address, key[:], value)
 				if path, ok := trie.ParseExpiredNodeErr(err); ok {
-					touchExpiredStorage[key] = value
-					if _, err = tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true); err != nil {
-						s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, err))
+					_, reviveErr := tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true)
+					if reviveErr != nil {
+						s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, reviveErr))
+					} else {
+						touchExpiredStorage[key] = value
 					}
 				} else if err != nil {
 					s.db.setError(fmt.Errorf("updateTrie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
@@ -546,18 +552,43 @@ func (s *stateObject) updateTrie() (Trie, error) {
 			usedStorage = append(usedStorage, common.CopyBytes(key[:]))
 		}
 
-		// re-execute touched expired storage
-		for key, value := range touchExpiredStorage {
-			if len(value) == 0 {
-				if err := tr.DeleteStorage(s.address, key[:]); err != nil {
-					s.db.setError(fmt.Errorf("updateTrie DeleteStorage in touchExpiredStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
+		// re-execute touched expired storage, it may have recurse expired tree
+		if s.db.EnableExpire() {
+			tryTimes := 65 * len(touchExpiredStorage) // trie height max is 65, prevent too many revive fail
+			for len(touchExpiredStorage) > 0 && tryTimes > 0 {
+				nextRevive := make(map[common.Hash][]byte, len(touchExpiredStorage))
+				for key, value := range touchExpiredStorage {
+					if len(value) == 0 {
+						err := tr.DeleteStorage(s.address, key[:])
+						if path, ok := trie.ParseExpiredNodeErr(err); ok {
+							_, reviveErr := tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true)
+							if reviveErr != nil {
+								s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, reviveErr))
+							} else {
+								nextRevive[key] = value
+							}
+						} else if err != nil {
+							s.db.setError(fmt.Errorf("updateTrie DeleteStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
+						}
+					} else {
+						err := tr.UpdateStorage(s.address, key[:], value)
+						if path, ok := trie.ParseExpiredNodeErr(err); ok {
+							_, reviveErr := tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, path, key, true)
+							if reviveErr != nil {
+								s.db.setError(fmt.Errorf("updateTrie DeleteStorage tryReviveState err, contract: %v, key: %v, path: %v, err: %v", s.address, key, path, reviveErr))
+							} else {
+								nextRevive[key] = value
+							}
+						} else if err != nil {
+							s.db.setError(fmt.Errorf("updateTrie UpdateStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
+						}
+					}
 				}
-				//log.Debug("updateTrie DeleteStorage in touchExpiredStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "err", err, "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
-			} else {
-				if err := tr.UpdateStorage(s.address, key[:], value); err != nil {
-					s.db.setError(fmt.Errorf("updateTrie UpdateStorage in touchExpiredStorage err, contract: %v, key: %v, err: %v", s.address, key, err))
-				}
-				//log.Debug("updateTrie UpdateStorage in touchExpiredStorage", "contract", s.address, "key", key, "epoch", s.db.Epoch(), "value", value, "tr.epoch", tr.Epoch(), "err", err, "tr", fmt.Sprintf("%p", tr), "ins", fmt.Sprintf("%p", s))
+				touchExpiredStorage = nextRevive
+				tryTimes--
+			}
+			if len(touchExpiredStorage) > 0 {
+				s.db.setError(fmt.Errorf("updateTrie cannot revive expired storage, contract: %v, keys: %v", s.address, touchExpiredStorage))
 			}
 		}
 	}()
@@ -895,27 +926,13 @@ func (s *stateObject) queryFromReviveState(reviveState map[string]common.Hash, k
 }
 
 // tryReviveState request expired state from remote full state node;
-func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash, resolvePath bool) ([]byte, error) {
+func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash) ([]byte, error) {
 	tr, err := s.getPendingReviveTrie()
 	if err != nil {
 		return nil, err
 	}
 
-	// if no prefix, query from revive trie, got the newest expired info
-	if resolvePath {
-		val, err := tr.GetStorage(s.address, key.Bytes())
-		if err == nil {
-			// TODO(asyukii): temporary fix snap expired, but trie not expire, may investigate more later.
-			s.pendingReviveState[string(crypto.Keccak256(key[:]))] = common.BytesToHash(val)
-			return val, nil
-		}
-		path, ok := trie.ParseExpiredNodeErr(err)
-		if !ok {
-			return nil, fmt.Errorf("cannot find expired state from trie, err: %v", err)
-		}
-		prefixKey = path
-	}
-
+	// if there need resolvePath from snap, it must not locally revive successful.
 	kvs, err := tryReviveState(s.db.expiryMeta, s.address, s.data.Root, tr, prefixKey, key, false)
 	if err != nil {
 		return nil, err
@@ -923,6 +940,7 @@ func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash, resolveP
 
 	for k, v := range kvs {
 		s.pendingReviveState[k] = common.BytesToHash(v)
+		//log.Debug("tryReviveState tryReviveState", "addr", s.address, "key", key, "kvk", k, "kvv", common.BytesToHash(v))
 	}
 
 	getCommittedStorageRemoteMeter.Mark(1)
@@ -930,45 +948,52 @@ func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash, resolveP
 	return val.Bytes(), nil
 }
 
-func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error, error) {
+func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error) {
 	enc, err := s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
 	if err != nil {
-		return nil, err, nil
+		return nil, err
 	}
 	var val snapshot.SnapValue
 	if len(enc) > 0 {
 		val, err = snapshot.DecodeValueFromRLPBytes(enc)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
 	if val == nil {
 		// record access empty kv, try touch in updateTrie for duplication
 		s.futureReviveState(key)
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	s.originStorageEpoch[key] = val.GetEpoch()
-	if !types.EpochExpired(val.GetEpoch(), s.db.Epoch()) {
-		getCommittedStorageUnexpiredMeter.Mark(1)
-		return val.GetVal(), nil, nil
-	}
-
-	getCommittedStorageExpiredMeter.Mark(1)
-	// if found value not been pruned, just return, local revive later
-	if s.db.EnableLocalRevive() && len(val.GetVal()) > 0 {
+	if types.EpochExpired(val.GetEpoch(), s.db.Epoch()) {
+		getCommittedStorageExpiredMeter.Mark(1)
 		s.futureReviveState(key)
-		getCommittedStorageExpiredLocalReviveMeter.Mark(1)
-		return val.GetVal(), nil, nil
+	} else {
+		getCommittedStorageUnexpiredMeter.Mark(1)
+	}
+	return val.GetVal(), nil
+}
+
+func (s *stateObject) needCheckExpiredInTrie(enc []byte, err error) bool {
+	if !s.db.EnableExpire() {
+		return false
 	}
 
-	//log.Debug("GetCommittedState expired in snapshot", "addr", s.address, "key", key, "val", val, "enc", enc, "err", err)
-	// handle from remoteDB, if got err just setError, or return to revert in consensus version.
-	valRaw, err := s.tryReviveState(nil, key, true)
-	if err != nil {
-		return nil, nil, err
+	if types.StateExpiryPruneLevel1 == s.db.expiryMeta.pruneLevel {
+		return false
 	}
 
-	return valRaw, nil, nil
+	// if in PruneLevel0, nil val need check expiry in trie
+	if s.db.expiryMeta.epoch <= types.StateEpoch1 {
+		return false
+	}
+
+	if err != nil || len(enc) == 0 {
+		return true
+	}
+
+	return false
 }
