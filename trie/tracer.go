@@ -18,8 +18,6 @@ package trie
 
 import (
 	"bytes"
-
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // tracer tracks the changes of trie nodes. During the trie operations,
@@ -45,7 +43,7 @@ type tracer struct {
 	inserts             map[string]struct{}
 	deletes             map[string]struct{}
 	deleteEpochMetas    map[string]struct{} // record for epoch meta
-	accessList          map[string][]byte
+	accessList          map[string]accessItem
 	accessEpochMetaList map[string][]byte
 	tagEpochMeta        bool
 }
@@ -56,9 +54,14 @@ func newTracer() *tracer {
 		inserts:             make(map[string]struct{}),
 		deletes:             make(map[string]struct{}),
 		deleteEpochMetas:    make(map[string]struct{}),
-		accessList:          make(map[string][]byte),
+		accessList:          make(map[string]accessItem),
 		accessEpochMetaList: make(map[string][]byte),
 	}
+}
+
+type accessItem struct {
+	blob []byte
+	n    node
 }
 
 func (t *tracer) enableTagEpochMeta() {
@@ -68,8 +71,11 @@ func (t *tracer) enableTagEpochMeta() {
 // onRead tracks the newly loaded trie node and caches the rlp-encoded
 // blob internally. Don't change the value outside of function since
 // it's not deep-copied.
-func (t *tracer) onRead(path []byte, val []byte) {
-	t.accessList[string(path)] = val
+func (t *tracer) onRead(path []byte, val []byte, n node) {
+	t.accessList[string(path)] = accessItem{
+		blob: val,
+		n:    n,
+	}
 }
 
 // onReadEpochMeta tracks the newly loaded trie epoch meta
@@ -123,7 +129,7 @@ func (t *tracer) reset() {
 	t.inserts = make(map[string]struct{})
 	t.deletes = make(map[string]struct{})
 	t.deleteEpochMetas = make(map[string]struct{})
-	t.accessList = make(map[string][]byte)
+	t.accessList = make(map[string]accessItem)
 	t.accessEpochMetaList = make(map[string][]byte)
 }
 
@@ -133,7 +139,7 @@ func (t *tracer) copy() *tracer {
 		inserts             = make(map[string]struct{})
 		deletes             = make(map[string]struct{})
 		deleteBranchNodes   = make(map[string]struct{})
-		accessList          = make(map[string][]byte)
+		accessList          = make(map[string]accessItem)
 		accessEpochMetaList = make(map[string][]byte)
 	)
 	for path := range t.inserts {
@@ -145,11 +151,11 @@ func (t *tracer) copy() *tracer {
 	for path := range t.deleteEpochMetas {
 		deleteBranchNodes[path] = struct{}{}
 	}
-	for path, blob := range t.accessList {
-		accessList[path] = common.CopyBytes(blob)
+	for path, item := range t.accessList {
+		accessList[path] = item
 	}
 	for path, blob := range t.accessEpochMetaList {
-		accessEpochMetaList[path] = common.CopyBytes(blob)
+		accessEpochMetaList[path] = blob
 	}
 	return &tracer{
 		inserts:             inserts,
@@ -191,19 +197,19 @@ func (t *tracer) deletedBranchNodes() []string {
 }
 
 // cached check if cache the node.
-func (t *tracer) cached(path []byte) ([]byte, bool) {
+func (t *tracer) cached(path []byte) (accessItem, bool) {
 	val, ok := t.accessList[string(path)]
 	return val, ok
 }
 
 // checkNodeChanged check if change for node.
 func (t *tracer) checkNodeChanged(path []byte, blob []byte) bool {
-	val, ok := t.accessList[string(path)]
+	item, ok := t.accessList[string(path)]
 	if !ok {
 		return len(blob) > 0
 	}
 
-	return !bytes.Equal(val, blob)
+	return !bytes.Equal(item.blob, blob)
 }
 
 // checkEpochMetaChanged check if change for epochMeta.

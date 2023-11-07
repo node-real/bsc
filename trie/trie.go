@@ -1028,17 +1028,21 @@ func (t *Trie) resolve(n node, prefix []byte, epoch types.StateEpoch) (node, err
 func (t *Trie) resolveAndTrack(n hashNode, prefix []byte) (node, error) {
 	if t.enableExpiry {
 		// when meet expired, the trie will skip the resolve path, but cache in tracer
-		blob, ok := t.tracer.cached(prefix)
+		item, ok := t.tracer.cached(prefix)
 		if ok {
-			return mustDecodeNode(n, blob), nil
+			if item.n != nil {
+				return item.n, nil
+			}
+			return mustDecodeNode(n, item.blob), nil
 		}
 	}
 	blob, err := t.reader.node(prefix, common.BytesToHash(n))
 	if err != nil {
 		return nil, err
 	}
-	t.tracer.onRead(prefix, blob)
-	return mustDecodeNode(n, blob), nil
+	rn := mustDecodeNode(n, blob)
+	t.tracer.onRead(prefix, blob, rn)
+	return rn, nil
 }
 
 func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
@@ -1139,7 +1143,7 @@ func (t *Trie) resolveAccountMetaAndTrack() (types.MetaNoConsensus, error) {
 		if err != nil {
 			return types.EmptyMetaNoConsensus, err
 		}
-		t.tracer.onRead(epochmeta.AccountMetadataPath, enc)
+		t.tracer.onRead(epochmeta.AccountMetadataPath, enc, nil)
 	}
 
 	if len(enc) > 0 {
