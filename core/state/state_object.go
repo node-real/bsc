@@ -431,6 +431,8 @@ func (s *stateObject) updateTrie() (Trie, error) {
 		s.db.setError(fmt.Errorf("state object update trie getTrie err, contract: %v, err: %v", s.address, err))
 		return nil, err
 	}
+	storageReadMeter.Mark(int64(len(s.originStorage)))
+	storageWriteMeter.Mark(int64(len(s.pendingStorage)))
 	// Insert all the pending updates into the trie
 	usedStorage := make([][]byte, 0, len(s.pendingStorage))
 	dirtyStorage := make(map[common.Hash][]byte)
@@ -448,16 +450,28 @@ func (s *stateObject) updateTrie() (Trie, error) {
 	}
 
 	if s.db.EnableExpire() {
+		var accessCount int64
 		// append more access slots to update in db
 		for key := range s.pendingAccessedState {
 			if _, ok := dirtyStorage[key]; ok {
 				continue
 			}
+			accessCount++
 			// it must hit in cache
 			value := s.GetState(key)
 			dirtyStorage[key] = common.TrimLeftZeroes(value[:])
 			//log.Debug("updateTrie access state", "contract", s.address, "key", key, "epoch", s.db.Epoch())
 		}
+		for key := range s.pendingFutureReviveState {
+			if _, ok := dirtyStorage[key]; ok {
+				continue
+			}
+			if _, ok := s.pendingAccessedState[key]; ok {
+				continue
+			}
+			accessCount++
+		}
+		storageAccessMeter.Mark(accessCount)
 	}
 
 	var wg sync.WaitGroup
