@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/trie/epochmeta"
+
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -214,9 +216,9 @@ func (nc *nodecache) node(owner common.Hash, path []byte, hash common.Hash) (*tr
 	if !ok {
 		return nil, nil
 	}
-	if n.Hash != hash {
+	if !epochmeta.IsEpochMetaPath(path) && n.Hash != hash {
 		dirtyFalseMeter.Mark(1)
-		log.Error("Unexpected trie node in node buffer", "owner", owner, "path", path, "expect", hash, "got", n.Hash)
+		log.Debug("Unexpected trie node in node buffer", "owner", owner, "path", path, "expect", hash, "got", n.Hash)
 		return nil, newUnexpectedNodeError("dirty", hash, n.Hash, owner, path, n.Blob)
 	}
 	return n, nil
@@ -412,7 +414,7 @@ func (nc *nodecache) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[s
 					_, nhash = rawdb.ReadStorageTrieNode(db, owner, []byte(path))
 				}
 				// Ignore the clean node in the case described above.
-				if nhash == n.Hash {
+				if epochmeta.IsEpochMetaPath([]byte(path)) || nhash == n.Hash {
 					continue
 				}
 				panic(fmt.Sprintf("non-existent node (%x %v) blob: %v", owner, path, crypto.Keccak256Hash(n.Blob).Hex()))

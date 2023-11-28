@@ -1654,7 +1654,7 @@ func (t *Trie) findExpiredSubTree(n node, path []byte, epoch types.StateEpoch, p
 			path := common.CopyBytes(path)
 			st.Schedule(func() {
 				if err := t.findExpiredSubTree(resolve, path, epoch, pruner, st); err != nil {
-					log.Error("recursePruneExpiredNode err", "addr", t.owner, "path", path, "epoch", epoch, "err", err)
+					log.Error("findExpiredSubTree err", "addr", t.owner, "path", path, "epoch", epoch, "err", err)
 				}
 			})
 			return nil

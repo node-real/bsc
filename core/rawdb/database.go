@@ -777,7 +777,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 	// Inspect all registered append-only file store then.
 	ancients, err := inspectFreezers(db)
 	if err != nil {
-		return err
+		log.Error("inspectFreezers err", "err", err)
 	}
 	for _, ancient := range ancients {
 		for _, table := range ancient.sizes {

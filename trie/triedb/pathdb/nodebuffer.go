@@ -164,7 +164,7 @@ func (b *nodebuffer) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[s
 					_, nhash = rawdb.ReadStorageTrieNode(db, owner, []byte(path))
 				}
 				// Ignore the clean node in the case described above.
-				if nhash == n.Hash {
+				if epochmeta.IsEpochMetaPath([]byte(path)) || nhash == n.Hash {
 					continue
 				}
 				panic(fmt.Sprintf("non-existent node (%x %v) blob: %v", owner, path, crypto.Keccak256Hash(n.Blob).Hex()))
