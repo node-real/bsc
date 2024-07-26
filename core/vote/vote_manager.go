@@ -30,6 +30,7 @@ var notContinuousJustified = metrics.NewRegisteredCounter("votesManager/notConti
 // Backend wraps all methods required for voting.
 type Backend interface {
 	IsMining() bool
+	VoteEnabled() bool
 	EventMux() *event.TypeMux
 }
 
@@ -135,6 +136,11 @@ func (voteManager *VoteManager) loop() {
 				log.Debug("skip voting because mining is disabled, continue")
 				continue
 			}
+			if !voteManager.eth.VoteEnabled() {
+				log.Debug("skip voting because voting is disabled, continue")
+				continue
+			}
+
 			blockCountSinceMining++
 			if blockCountSinceMining <= blocksNumberSinceMining {
 				log.Debug("skip voting", "blockCountSinceMining", blockCountSinceMining, "blocksNumberSinceMining", blocksNumberSinceMining)
