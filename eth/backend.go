@@ -546,6 +546,7 @@ func (s *Ethereum) StopMining() {
 }
 
 func (s *Ethereum) IsMining() bool      { return s.miner.Mining() }
+func (s *Ethereum) VoteEnabled() bool   { return s.miner.VoteEnabled() }
 func (s *Ethereum) Miner() *miner.Miner { return s.miner }
 
 func (s *Ethereum) AccountManager() *accounts.Manager  { return s.accountManager }
