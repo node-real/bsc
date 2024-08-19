@@ -33,6 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/accounts/scwallet"
 	"github.com/ethereum/go-ethereum/accounts/usbwallet"
+	"github.com/ethereum/go-ethereum/beacon/beaconserver"
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -96,6 +97,7 @@ type gethConfig struct {
 	Node     node.Config
 	Ethstats ethstatsConfig
 	Metrics  metrics.Config
+	Beacon   beaconserver.Config
 }
 
 func loadConfig(file string, cfg *gethConfig) error {
@@ -240,6 +242,10 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 	// Add the Ethereum Stats daemon if requested.
 	if cfg.Ethstats.URL != "" {
 		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL)
+	}
+
+	if cfg.Beacon.Enable {
+		go beaconserver.NewService(&cfg.Beacon).Run()
 	}
 
 	git, _ := version.VCS()
