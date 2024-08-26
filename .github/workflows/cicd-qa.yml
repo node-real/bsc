@@ -8,8 +8,8 @@ on:
       - node-real:develop
 
 jobs:
-  cicd-qa:
-    uses: node-real/github-workflows/.github/workflows/cicd-pr.yml@v1
+  ci-pr:
+    uses: node-real/github-workflows/.github/workflows/ci-pr.yml@v1
     secrets: inherit
     with:
       ci-lint-skip: true
