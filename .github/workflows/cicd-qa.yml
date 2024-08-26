@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - bsc/v*
+      - node-real:develop
 
 jobs:
   cicd-qa:
