@@ -6,7 +6,7 @@ on:
       - opened
       - synchronize
     branches:
-      - dike*
+      - develop
       - bsc/v*
     paths-ignore:
       - 'docs/**'
