@@ -15,3 +15,5 @@ jobs:
       ci-lint-skip: true
       ci-test-skip: true
       build-platform: linux/amd64
+      image-repo-name: bsc
+      dockerfile: Dockerfile
