@@ -2,27 +2,15 @@ name: cicd-qa
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
     branches:
       - develop
       - bsc/v*
-    paths-ignore:
-      - 'docs/**'
-      - 'README.md'
 
 jobs:
   cicd-qa:
-    uses: node-real/github-workflows/.github/workflows/cicd-qa-pr.yml@v1
+    uses: node-real/github-workflows/.github/workflows/cicd-pr.yml@v1
     secrets: inherit
     with:
       ci-lint-skip: true
       ci-test-skip: true
       build-platform: linux/amd64
-      deploy-tag-field: '.bsc-dataseed.image.tag'
-      # tmp
-      deploy-path: >
-        rpc-bsc-qanet-bohr/gatherer,
-        #        rpc-bsc-testnet/gatherer-test2,
-        #        rpc-bsc-mainnet/gatherer,
