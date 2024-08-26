@@ -1,11 +1,9 @@
-name: cicd-qa
+name: cicd
 
 on:
   pull_request:
     branches:
       - develop
-      - bsc/v*
-      - node-real:develop
 
 jobs:
   ci-pr:
