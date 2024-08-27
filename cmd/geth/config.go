@@ -244,16 +244,14 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL)
 	}
 
-	if ctx.IsSet(utils.FakeBeaconEnabledFlag.Name) {
-		cfg.FakeBeacon.Enable = ctx.Bool(utils.FakeBeaconEnabledFlag.Name)
-	}
 	if ctx.IsSet(utils.FakeBeaconAddrFlag.Name) {
 		cfg.FakeBeacon.Addr = ctx.String(utils.FakeBeaconAddrFlag.Name)
 	}
 	if ctx.IsSet(utils.FakeBeaconPortFlag.Name) {
 		cfg.FakeBeacon.Port = ctx.Int(utils.FakeBeaconPortFlag.Name)
 	}
-	if cfg.FakeBeacon.Enable {
+	log.Info("FakeBeacon config", "enable", cfg.FakeBeacon.Enable, "port", cfg.FakeBeacon.Port)
+	if cfg.FakeBeacon.Enable || ctx.IsSet(utils.FakeBeaconEnabledFlag.Name) {
 		go fakebeacon.NewService(&cfg.FakeBeacon, backend).Run()
 	}
 
