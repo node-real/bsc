@@ -93,11 +93,11 @@ type ethstatsConfig struct {
 }
 
 type gethConfig struct {
-	Eth      ethconfig.Config
-	Node     node.Config
-	Ethstats ethstatsConfig
-	Metrics  metrics.Config
-	FkBeacon fakebeacon.Config
+	Eth        ethconfig.Config
+	Node       node.Config
+	Ethstats   ethstatsConfig
+	Metrics    metrics.Config
+	FakeBeacon fakebeacon.Config
 }
 
 func loadConfig(file string, cfg *gethConfig) error {
@@ -245,13 +245,16 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 	}
 
 	if ctx.IsSet(utils.FakeBeaconEnabledFlag.Name) {
-		cfg.FkBeacon.Enable = ctx.Bool(utils.FakeBeaconEnabledFlag.Name)
+		cfg.FakeBeacon.Enable = ctx.Bool(utils.FakeBeaconEnabledFlag.Name)
 	}
-	if ctx.IsSet(utils.FakeBeaconHTTPHostPortFlag.Name) {
-		cfg.FkBeacon.HostPort = ctx.String(utils.FakeBeaconHTTPHostPortFlag.Name)
+	if ctx.IsSet(utils.FakeBeaconAddrFlag.Name) {
+		cfg.FakeBeacon.Addr = ctx.String(utils.FakeBeaconAddrFlag.Name)
 	}
-	if cfg.FkBeacon.Enable {
-		go fakebeacon.NewService(&cfg.FkBeacon, backend).Run()
+	if ctx.IsSet(utils.FakeBeaconPortFlag.Name) {
+		cfg.FakeBeacon.Port = ctx.Int(utils.FakeBeaconPortFlag.Name)
+	}
+	if cfg.FakeBeacon.Enable {
+		go fakebeacon.NewService(&cfg.FakeBeacon, backend).Run()
 	}
 
 	git, _ := version.VCS()

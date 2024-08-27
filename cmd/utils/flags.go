@@ -1150,14 +1150,20 @@ Please note that --` + MetricsHTTPFlag.Name + ` must be set to start the server.
 
 	// Fake beacon
 	FakeBeaconEnabledFlag = &cli.BoolFlag{
-		Name:     "fake-beacon.enable",
+		Name:     "fake-beacon",
 		Usage:    "Enable the HTTP-RPC server of fake-beacon",
 		Category: flags.APICategory,
 	}
-	FakeBeaconHTTPHostPortFlag = &cli.StringFlag{
-		Name:     "fake-beacon.hostport",
+	FakeBeaconAddrFlag = &cli.StringFlag{
+		Name:     "fake-beacon.addr",
+		Usage:    "HTTP-RPC server listening addr of fake-beacon",
+		Value:    fakebeacon.DefaultAddr,
+		Category: flags.APICategory,
+	}
+	FakeBeaconPortFlag = &cli.IntFlag{
+		Name:     "fake-beacon.port",
 		Usage:    "HTTP-RPC server listening port of fake-beacon",
-		Value:    fakebeacon.DefaultHostPort,
+		Value:    fakebeacon.DefaultPort,
 		Category: flags.APICategory,
 	}
 )

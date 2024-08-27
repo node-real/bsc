@@ -2,6 +2,7 @@ package fakebeacon
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/gorilla/mux"
@@ -9,18 +10,21 @@ import (
 )
 
 const (
-	DefaultHostPort = "0.0.0.0:8686"
+	DefaultAddr = "localhost"
+	DefaultPort = 8686
 )
 
 type Config struct {
-	Enable   bool
-	HostPort string
+	Enable bool
+	Addr   string
+	Port   int
 }
 
 func defaultConfig() *Config {
 	return &Config{
-		Enable:   false,
-		HostPort: DefaultHostPort,
+		Enable: false,
+		Addr:   DefaultAddr,
+		Port:   DefaultPort,
 	}
 }
 
@@ -32,8 +36,11 @@ type Service struct {
 
 func NewService(cfg *Config, backend ethapi.Backend) *Service {
 	cfgs := defaultConfig()
-	if cfg.HostPort != "" {
-		cfgs.HostPort = cfg.HostPort
+	if cfg.Addr != "" {
+		cfgs.Addr = cfg.Addr
+	}
+	if cfg.Port > 0 {
+		cfgs.Port = cfg.Port
 	}
 
 	s := &Service{
@@ -46,7 +53,7 @@ func NewService(cfg *Config, backend ethapi.Backend) *Service {
 }
 
 func (s *Service) Run() {
-	_ = http.ListenAndServe(s.cfg.HostPort, s.router)
+	_ = http.ListenAndServe(s.cfg.Addr+strconv.Itoa(s.cfg.Port), s.router)
 }
 
 func (s *Service) newRouter() *mux.Router {

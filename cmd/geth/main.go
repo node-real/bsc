@@ -235,7 +235,8 @@ var (
 
 	fakeBeaconFlags = []cli.Flag{
 		utils.FakeBeaconEnabledFlag,
-		utils.FakeBeaconHTTPHostPortFlag,
+		utils.FakeBeaconAddrFlag,
+		utils.FakeBeaconPortFlag,
 	}
 )
 
