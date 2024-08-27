@@ -56,7 +56,7 @@ func NewService(cfg *Config, backend ethapi.Backend) *Service {
 
 func (s *Service) Run() {
 	log.Info("FakeBeacon server listening on", "addr", s.cfg.Addr, "port", s.cfg.Port)
-	err := http.ListenAndServe(s.cfg.Addr+strconv.Itoa(s.cfg.Port), s.router)
+	err := http.ListenAndServe(s.cfg.Addr+":"+strconv.Itoa(s.cfg.Port), s.router)
 	if err != nil {
 		log.Error("Failed to start FakeBeacon server", "err", err)
 	}
