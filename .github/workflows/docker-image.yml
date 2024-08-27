@@ -1,8 +1,6 @@
 name: Docker Image CI
 
 on:
-  push:
-    branches: [ develop, dike-*]
   pull_request:
     branches: [ develop ]
 
