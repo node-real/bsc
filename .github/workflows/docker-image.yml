@@ -6,16 +6,24 @@ on:
 
 env:
   REGION: us-east-1
-  ECR_REGISTRY_ID: 346509735976
   # AWS_ASSUMED_ROLE_ARN: arn:aws:iam::553885929720:role/tf_nodereal_prod_ecr_cicd_deployment_assume_role
 
 jobs:
-  build:
+  qa-ci-build:
     runs-on: [self-hosted,qa-cicd-runners]
     steps:
       - uses: actions/checkout@v2
       - name: Build the Docker image to Amazon ECR
         run: |
-          aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY_ID}.dkr.ecr.${REGION}.amazonaws.com
-          docker build --build-arg profile=prod --build-arg GIT_TOKEN=${{ secrets.GO_MODULES_TOKEN }} -t ${ECR_REGISTRY_ID}.dkr.ecr.${REGION}.amazonaws.com/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA} .
-          docker push ${ECR_REGISTRY_ID}.dkr.ecr.${REGION}.amazonaws.com/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA}
+          aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin 346509735976.dkr.ecr.${REGION}.amazonaws.com
+          docker build --build-arg profile=prod --build-arg GIT_TOKEN=${{ secrets.GO_MODULES_TOKEN }} -t 346509735976.dkr.ecr.${REGION}.amazonaws.com/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA} .
+          docker push 346509735976.dkr.ecr.${REGION}.amazonaws.com/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA}
+  prod-ci-build:
+    runs-on:  [prod-cicd-runners]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build the Docker image to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin 553885929720.dkr.ecr.${REGION}.amazonaws.com
+          docker build --build-arg profile=prod --build-arg GIT_TOKEN=${{ secrets.GO_MODULES_TOKEN }} -t 553885929720.dkr.ecr.${REGION}.amazonaws.com/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA} .
+          docker push 553885929720.dkr.ecr.${REGION}.amazonaws.com/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA}
