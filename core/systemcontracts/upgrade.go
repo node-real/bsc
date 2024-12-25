@@ -1081,7 +1081,7 @@ func upgradeBuildInSystemContract(config *params.ChainConfig, blockNumber *big.I
 		network = mainNet
 	case params.ChapelGenesisHash:
 		network = chapelNet
-	case params.RialtoGenesisHash:
+	case common.HexToHash("0xb9c18e204b67260b4a5fe75f60510872a00352750dc43d7df5d8c96bba8d8f66"):
 		network = rialtoNet
 	default:
 		network = defaultNet
