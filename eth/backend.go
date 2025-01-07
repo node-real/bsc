@@ -511,9 +511,6 @@ func (s *Ethereum) StartMining() error {
 			}
 			parlia.Authorize(eb, wallet.SignData, wallet.SignTx)
 		}
-		// If mining is started, we can disable the transaction rejection mechanism
-		// introduced to speed sync times.
-		s.handler.enableSyncedFeatures()
 
 		go s.miner.Start()
 	}
@@ -535,6 +532,7 @@ func (s *Ethereum) StopMining() {
 }
 
 func (s *Ethereum) IsMining() bool      { return s.miner.Mining() }
+func (s *Ethereum) VoteEnabled() bool   { return s.miner.VoteEnabled() }
 func (s *Ethereum) Miner() *miner.Miner { return s.miner }
 
 func (s *Ethereum) AccountManager() *accounts.Manager  { return s.accountManager }

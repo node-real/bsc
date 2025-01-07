@@ -170,6 +170,10 @@ func (miner *Miner) Mining() bool {
 	return miner.worker.isRunning()
 }
 
+func (miner *Miner) VoteEnabled() bool {
+	return miner.worker.config.VoteEnable && !miner.worker.config.MB.VoteDisable
+}
+
 func (miner *Miner) InTurn() bool {
 	return miner.worker.inTurn()
 }
@@ -223,6 +227,34 @@ func (miner *Miner) SetEtherbase(addr common.Address) {
 // For pre-1559 blocks, it sets the ceiling.
 func (miner *Miner) SetGasCeil(ceil uint64) {
 	miner.worker.setGasCeil(ceil)
+}
+
+func (miner *Miner) MBConfig() minerconfig.MBConfig {
+	return miner.worker.config.MB
+}
+
+func (miner *Miner) ResetMaliciousBehavior() {
+	miner.worker.config.MB = minerconfig.DefaultMBConfig
+}
+
+func (miner *Miner) SetDoubleSign(on bool) {
+	miner.worker.config.MB.DoubleSign = on
+}
+
+func (miner *Miner) SetVoteDisable(on bool) {
+	miner.worker.config.MB.VoteDisable = on
+}
+
+func (miner *Miner) SetSkipOffsetInturn(offset uint64) {
+	miner.worker.config.MB.SkipOffsetInturn = &offset
+}
+
+func (miner *Miner) SetBroadcastDelayBlocks(num uint64) {
+	miner.worker.config.MB.BroadcastDelayBlocks = num
+}
+
+func (miner *Miner) SetLastBlockMiningTime(time uint64) {
+	miner.worker.config.MB.LastBlockMiningTime = time
 }
 
 // SubscribePendingLogs starts delivering logs from pending transactions

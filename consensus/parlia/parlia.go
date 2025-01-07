@@ -1559,6 +1559,23 @@ func (p *Parlia) Delay(chain consensus.ChainReader, header *types.Header, leftOv
 	return &delay
 }
 
+// AssembleSignature assemble the signature for block header
+func (p *Parlia) AssembleSignature(block *types.Block) (*types.Block, error) {
+	header := block.Header()
+	// Don't hold the val fields for the entire sealing procedure
+	p.lock.RLock()
+	val, signFn := p.val, p.signFn
+	p.lock.RUnlock()
+	sig, err := signFn(accounts.Account{Address: val}, accounts.MimetypeParlia, ParliaRLP(header, p.chainConfig.ChainID))
+	if err != nil {
+		log.Error("Sign for the block header failed when sealing", "err", err)
+		return nil, err
+	}
+	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+	block = block.WithSeal(header)
+	return block, nil
+}
+
 // Seal implements consensus.Engine, attempting to create a sealed block using
 // the local signing credentials.
 func (p *Parlia) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
@@ -2117,6 +2134,10 @@ func (p *Parlia) backOffTime(snap *Snapshot, header *types.Header, val common.Ad
 		r.Shuffle(n, func(i, j int) {
 			backOffSteps[i], backOffSteps[j] = backOffSteps[j], backOffSteps[i]
 		})
+
+		for i := uint64(0); i < uint64(n); i++ {
+			log.Debug("backOffTime", "Number", header.Number, "val", validators[i], "delay", delay+backOffSteps[i]*wiggleTime)
+		}
 
 		delay += backOffSteps[idx] * wiggleTime
 		return delay

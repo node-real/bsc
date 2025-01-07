@@ -77,6 +77,7 @@ func newTestBackend() *testBackend {
 	return &testBackend{eventMux: new(event.TypeMux)}
 }
 func (b *testBackend) IsMining() bool           { return true }
+func (b *testBackend) VoteEnabled() bool        { return true }
 func (b *testBackend) EventMux() *event.TypeMux { return b.eventMux }
 
 func (mp *mockPOSA) GetJustifiedNumberAndHash(chain consensus.ChainHeaderReader, headers []*types.Header) (uint64, common.Hash, error) {

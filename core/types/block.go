@@ -20,6 +20,7 @@ package types
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -601,6 +602,14 @@ func (b *Block) WithWitness(witness *ExecutionWitness) *Block {
 		withdrawals:  b.withdrawals,
 		witness:      witness,
 		sidecars:     b.sidecars,
+	}
+}
+
+func (b *Block) DeepCopySidecars(sidecars BlobSidecars) {
+	b.sidecars = make(BlobSidecars, len(sidecars))
+	if len(sidecars) != 0 {
+		buffer, _ := json.Marshal(sidecars)
+		json.Unmarshal(buffer, &b.sidecars)
 	}
 }
 
