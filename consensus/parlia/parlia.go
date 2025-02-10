@@ -629,7 +629,7 @@ func (p *Parlia) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 		case !header.EmptyWithdrawalsHash():
 			return errors.New("header has wrong WithdrawalsHash")
 		}
-		if err := eip4844.VerifyEIP4844Header(parent, header); err != nil {
+		if err := eip4844.VerifyEIP4844Header(chain.Config(), parent, header); err != nil {
 			return err
 		}
 	}
@@ -1560,6 +1560,23 @@ func (p *Parlia) Delay(chain consensus.ChainReader, header *types.Header, leftOv
 	return &delay
 }
 
+// AssembleSignature assemble the signature for block header
+func (p *Parlia) AssembleSignature(block *types.Block) (*types.Block, error) {
+	header := block.Header()
+	// Don't hold the val fields for the entire sealing procedure
+	p.lock.RLock()
+	val, signFn := p.val, p.signFn
+	p.lock.RUnlock()
+	sig, err := signFn(accounts.Account{Address: val}, accounts.MimetypeParlia, ParliaRLP(header, p.chainConfig.ChainID))
+	if err != nil {
+		log.Error("Sign for the block header failed when sealing", "err", err)
+		return nil, err
+	}
+	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+	block = block.WithSeal(header)
+	return block, nil
+}
+
 // Seal implements consensus.Engine, attempting to create a sealed block using
 // the local signing credentials.
 func (p *Parlia) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
@@ -2154,6 +2171,10 @@ func (p *Parlia) backOffTime(snap *Snapshot, header *types.Header, val common.Ad
 			backOffSteps[i], backOffSteps[j] = backOffSteps[j], backOffSteps[i]
 		})
 
+		for i := uint64(0); i < uint64(n); i++ {
+			log.Debug("backOffTime", "Number", header.Number, "val", validators[i], "delay", delay+backOffSteps[i]*wiggleTime)
+		}
+
 		delay += backOffSteps[idx] * wiggleTime
 		return delay
 	}
@@ -2186,6 +2207,10 @@ func (c chainContext) GetHeader(hash common.Hash, number uint64) *types.Header {
 	return c.Chain.GetHeader(hash, number)
 }
 
+func (c chainContext) Config() *params.ChainConfig {
+	return c.Chain.Config()
+}
+
 // apply message
 func applyMessage(
 	msg *core.Message,
@@ -2203,7 +2228,7 @@ func applyMessage(
 		state.ClearAccessList()
 	}
 	// Increment the nonce for the next transaction
-	state.SetNonce(msg.From, state.GetNonce(msg.From)+1)
+	state.SetNonce(msg.From, state.GetNonce(msg.From)+1, tracing.NonceChangeEoACall)
 
 	ret, returnGas, err := evm.Call(
 		vm.AccountRef(msg.From),

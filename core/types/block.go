@@ -20,6 +20,7 @@ package types
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -133,7 +134,7 @@ type Header struct {
 	ParentBeaconRoot *common.Hash `json:"parentBeaconBlockRoot" rlp:"optional"`
 
 	// RequestsHash was added by EIP-7685 and is ignored in legacy headers.
-	RequestsHash *common.Hash `json:"requestsRoot" rlp:"optional"`
+	RequestsHash *common.Hash `json:"requestsHash" rlp:"optional"`
 }
 
 // field type overrides for gencodec
@@ -601,6 +602,14 @@ func (b *Block) WithWitness(witness *ExecutionWitness) *Block {
 		withdrawals:  b.withdrawals,
 		witness:      witness,
 		sidecars:     b.sidecars,
+	}
+}
+
+func (b *Block) DeepCopySidecars(sidecars BlobSidecars) {
+	b.sidecars = make(BlobSidecars, len(sidecars))
+	if len(sidecars) != 0 {
+		buffer, _ := json.Marshal(sidecars)
+		json.Unmarshal(buffer, &b.sidecars)
 	}
 }
 

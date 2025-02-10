@@ -12,7 +12,7 @@
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package pathdb
 
@@ -84,6 +84,17 @@ func (r *reader) Node(owner common.Hash, path []byte, hash common.Hash) ([]byte,
 		return nil, fmt.Errorf("unexpected node: (%x %v), %x!=%x, %s, blob: %s", owner, path, hash, got, loc.string(), blobHex)
 	}
 	return blob, nil
+}
+
+// AccountRLP directly retrieves the account associated with a particular hash.
+// An error will be returned if the read operation exits abnormally. Specifically,
+// if the layer is already stale.
+//
+// Note:
+// - the returned account data is not a copy, please don't modify it
+// - no error will be returned if the requested account is not found in database
+func (r *reader) AccountRLP(hash common.Hash) ([]byte, error) {
+	return r.layer.account(hash, 0)
 }
 
 // Account directly retrieves the account associated with a particular hash in
