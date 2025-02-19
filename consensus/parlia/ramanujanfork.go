@@ -14,7 +14,7 @@ const (
 )
 
 func (p *Parlia) delayForRamanujanFork(snap *Snapshot, header *types.Header) time.Duration {
-	delay := time.Until(time.Unix(int64(header.Time), 0)) // nolint: gosimple
+	delay := time.Until(time.UnixMilli(int64(header.TimeInMilliseconds()))) // nolint: gosimple
 	if p.chainConfig.IsRamanujan(header.Number) {
 		return delay
 	}

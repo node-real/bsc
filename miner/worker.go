@@ -1288,7 +1288,7 @@ LOOP:
 			break
 		} else {
 			log.Debug("commitWork stopTimer", "block", work.header.Number,
-				"header time", time.Until(time.Unix(int64(work.header.Time), 0)),
+				"header time", time.Until(time.UnixMilli(int64(work.header.TimeInMilliseconds()))),
 				"commit delay", *delay, "DelayLeftOver", w.config.DelayLeftOver)
 			stopTimer.Reset(*delay)
 		}
@@ -1332,7 +1332,7 @@ LOOP:
 		newTxsNum := 0
 		// stopTimer was the maximum delay for each fillTransactions
 		// but now it is used to wait until (head.Time - DelayLeftOver) is reached.
-		stopTimer.Reset(time.Until(time.Unix(int64(work.header.Time), 0)) - w.config.DelayLeftOver)
+		stopTimer.Reset(time.Until(time.UnixMilli(int64(work.header.TimeInMilliseconds()))) - w.config.DelayLeftOver)
 	LOOP_WAIT:
 		for {
 			select {
@@ -1397,7 +1397,7 @@ LOOP:
 	if w.bidFetcher != nil && bestWork.header.Difficulty.Cmp(diffInTurn) == 0 {
 		// We want to start sealing the block as late as possible here if mev is enabled, so we could give builder the chance to send their final bid.
 		// Time left till sealing the block.
-		tillSealingTime := time.Until(time.Unix(int64(bestWork.header.Time), 0)) - w.config.DelayLeftOver
+		tillSealingTime := time.Until(time.UnixMilli(int64(bestWork.header.TimeInMilliseconds()))) - w.config.DelayLeftOver
 		if tillSealingTime > max(100*time.Millisecond, w.config.DelayLeftOver) {
 			// Still a lot of time left, wait for the best bid.
 			// This happens during the peak time of the network, the local block building LOOP would break earlier than
