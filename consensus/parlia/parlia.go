@@ -1199,8 +1199,7 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 	cx core.ChainContext, txs *[]*types.Transaction, receipts *[]*types.Receipt, systemTxs *[]*types.Transaction,
 	usedGas *uint64, mining bool, tracer *tracing.Hooks) error {
 	currentHeight := header.Number.Uint64()
-	epoch := p.config.Epoch
-	chainConfig := chain.Config()
+	epoch := defaultEpochLength // distribute Fast Finality Rewards every 200 blocks
 	if currentHeight%epoch != 0 {
 		return nil
 	}
@@ -1212,7 +1211,7 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 		if head == nil {
 			return fmt.Errorf("header is nil at height %d", height)
 		}
-		voteAttestation, err := getVoteAttestationFromHeader(head, chainConfig, p.config)
+		voteAttestation, err := getVoteAttestationFromHeader(head, chain.Config(), p.config)
 		if err != nil {
 			return err
 		}
