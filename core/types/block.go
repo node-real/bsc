@@ -166,7 +166,7 @@ func (h *Header) Milliseconds() uint64 {
 	if h.MixDigest == (common.Hash{}) {
 		return 0
 	}
-	return uint256.NewInt(0).SetBytes2(h.MixDigest[30:]).Uint64()
+	return uint256.NewInt(0).SetBytes32(h.MixDigest[:]).Uint64()
 }
 
 func (h *Header) TimeInMilliseconds() uint64 {
