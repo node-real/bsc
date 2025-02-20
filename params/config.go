@@ -290,7 +290,7 @@ var (
 		LorentzTime: nil,
 
 		Parlia: &ParliaConfig{
-			Epoch: 1000, // temp change it this way for test
+			Epoch: 2000, // temp change it this way for test
 		},
 		BlobScheduleConfig: &BlobScheduleConfig{
 			Cancun:  DefaultCancunBlobConfig,
