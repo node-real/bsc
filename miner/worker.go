@@ -721,8 +721,10 @@ func (w *worker) delayBlocksBroadcastLoop() {
 
 			currentBlock := w.chain.CurrentBlock()
 			currentBlockNum := currentBlock.Number.Uint64()
+			parentHeader := w.chain.GetHeaderByHash(currentBlock.ParentHash)
+			blockInterval, _ := w.engine.BlockInterval(w.chain, parentHeader)
 
-			delayTime := (w.config.MB.BroadcastDelayBlocks - 1) * w.chainConfig.Parlia.Period
+			delayTime := (w.config.MB.BroadcastDelayBlocks - 1) * blockInterval
 			if p, ok := w.engine.(*parlia.Parlia); ok {
 				service := p.APIs(w.chain)[0].Service
 				latestBlockNumber := rpc.LatestBlockNumber
@@ -734,16 +736,16 @@ func (w *worker) delayBlocksBroadcastLoop() {
 						nonInTurnBackoff = uint64(currentTurnLength)
 					}
 				}
-				delayTime += nonInTurnBackoff
+				delayTime += nonInTurnBackoff * 1000
 			}
 
 			firstBlock := w.delayedBlocksForBroadcast[0]
-			if uint64(time.Now().Unix()) >= (firstBlock.Time() + delayTime) {
+			if uint64(time.Now().UnixMilli()) >= (firstBlock.Header().TimeInMilliseconds() + delayTime) {
 				time.Sleep(500 * time.Microsecond)
 				for _, block := range w.delayedBlocksForBroadcast {
 					w.mux.Post(core.NewMinedBlockEvent{Block: block})
 					log.Info("delayBlocksBroadcastLoop", "number", block.Number(), "hash", block.Hash(),
-						"time", block.Time(), "now", uint64(time.Now().Unix()), "currentBlockNum", currentBlockNum)
+						"time", block.Header().TimeInMilliseconds(), "now", uint64(time.Now().UnixMilli()), "currentBlockNum", currentBlockNum)
 				}
 				w.delayedBlocksForBroadcast = make([]*types.Block, 0)
 			}
@@ -1387,13 +1389,16 @@ LOOP:
 
 		delay := w.engine.Delay(w.chain, work.header, &w.config.DelayLeftOver)
 		if p, ok := w.engine.(*parlia.Parlia); ok {
-			if w.config.MB.LastBlockMiningTime > w.chainConfig.Parlia.Period*1000/2 {
+			currentBlock := w.chain.CurrentBlock()
+			parentHeader := w.chain.GetHeaderByHash(currentBlock.ParentHash)
+			blockInterval, _ := w.engine.BlockInterval(w.chain, parentHeader)
+			if w.config.MB.LastBlockMiningTime > blockInterval/2 {
 				service := p.APIs(w.chain)[0].Service
 				latestBlockNumber := rpc.LatestBlockNumber
 				currentTurnLength, err := service.(*parlia.API).GetTurnLength(&latestBlockNumber)
 				if err == nil && (work.header.Number.Uint64()+1)%uint64(currentTurnLength) == 0 {
-					*delay += time.Duration((w.config.MB.LastBlockMiningTime - w.chainConfig.Parlia.Period*1000/2) * uint64(time.Millisecond))
-					timeLeft := time.Until(time.Unix(int64(work.header.Time), 0))
+					*delay += time.Duration((w.config.MB.LastBlockMiningTime - blockInterval/2) * uint64(time.Millisecond))
+					timeLeft := time.Until(time.UnixMilli(int64(work.header.TimeInMilliseconds())))
 					if *delay > timeLeft {
 						*delay = timeLeft
 					}
