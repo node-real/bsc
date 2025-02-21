@@ -56,7 +56,7 @@ const (
 	checkpointInterval   = 1024         // Number of blocks after which to save the snapshot to the database
 	defaultEpochLength   = uint64(200)  // Default number of blocks of checkpoint to update validatorSet from contract
 	defaultBlockInterval = uint16(3000) // Default block interval in milliseconds
-	lorentzBlockInterval = uint16(750)  // Block interval starting from the Lorentz hard fork
+	lorentzBlockInterval = uint16(1500) // Block interval starting from the Lorentz hard fork
 	defaultTurnLength    = uint8(1)     // Default consecutive number of blocks a validator receives priority for block production
 
 	extraVanity      = 32 // Fixed number of extra-data prefix bytes reserved for signer vanity
