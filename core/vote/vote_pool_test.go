@@ -86,6 +86,8 @@ func (b *testBackend) postSyncEvent(typ downloader.SyncEventType) {
 	b.syncFeed.Send(downloader.SyncEvent{Type: typ})
 }
 
+func (b *testBackend) VoteEnabled() bool { return true }
+
 func (mp *mockPOSA) GetJustifiedNumberAndHash(chain consensus.ChainHeaderReader, headers []*types.Header) (uint64, common.Hash, error) {
 	parentHeader := chain.GetHeaderByHash(headers[len(headers)-1].ParentHash)
 	if parentHeader == nil {
