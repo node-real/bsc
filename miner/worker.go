@@ -46,6 +46,7 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/miner/minerconfig"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 const (
@@ -242,6 +243,10 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
+
+	// Test purpose
+	delayedBlocksForBroadcast []*types.Block
+	delayedMu                 sync.RWMutex
 }
 
 func newWorker(config *minerconfig.Config, engine consensus.Engine, eth Backend, mux *event.TypeMux, permMgr *BidBlockPermissionManager) *worker {
@@ -291,6 +296,8 @@ func newWorker(config *minerconfig.Config, engine consensus.Engine, eth Backend,
 	go worker.newWorkLoop(recommit)
 	go worker.resultLoop()
 	go worker.taskLoop()
+	worker.wg.Add(1)
+	go worker.delayBlocksBroadcastLoop()
 
 	return worker
 }
@@ -626,9 +633,11 @@ func (w *worker) resultLoop() {
 				logs = append(logs, receipt.Logs...)
 			}
 
+			inturn := w.inTurn()
 			// Commit block and state to database.
 			start := time.Now()
-			status, err := w.chain.WriteBlockAndSetHead(block, receipts, logs, task.state, w.mux)
+			needDelay := w.needDelayBroadcast(inturn)
+			status, err := w.chain.WriteBlockAndSetHead(block, receipts, logs, task.state, w.mux, needDelay)
 			if status != core.CanonStatTy {
 				if err != nil {
 					log.Error("Failed writing block to chain", "err", err, "status", status)
@@ -642,11 +651,112 @@ func (w *worker) resultLoop() {
 			stats.SendBlockTime.Store(time.Now().UnixMilli())
 			stats.StartMiningTime.Store(task.miningStartAt.UnixMilli())
 			log.Info("Successfully seal and write new block", "number", block.Number(), "hash", hash, "time", block.Header().MilliTimestamp(), "sealhash", sealhash,
-				"block size", block.Size(), "elapsed", common.PrettyDuration(time.Since(task.createdAt)))
-			w.mux.Post(core.NewMinedBlockEvent{Block: block})
+				"block size(noBal)", block.Size(), "balSize", block.BALSize(), "elapsed", common.PrettyDuration(time.Since(task.createdAt)))
+
+			if needDelay {
+				w.postDelayedBlock(block)
+			} else {
+				w.mux.Post(core.NewMinedBlockEvent{Block: block})
+			}
+			if p, ok := w.engine.(*parlia.Parlia); ok {
+				if w.config.MB.DoubleSign {
+					shadowHeader := block.Header()
+					shadowHeader.Extra[0] = 'd'
+					shadowHeader.Extra[1] = 's'
+					shadowBlock := types.NewBlockWithHeader(shadowHeader).WithBody(types.Body{Transactions: block.Transactions(), Uncles: block.Uncles()}).WithWithdrawals(block.Withdrawals())
+					shadowBlock.DeepCopySidecars(block.Sidecars())
+					shadowBlock, err := p.AssembleSignature(shadowBlock)
+					if err == nil {
+						w.postBlock(shadowBlock, inturn)
+						sealhash := w.engine.SealHash(shadowBlock.Header())
+						hash := shadowBlock.Hash()
+						log.Info("Successfully sealed new block", "number", shadowBlock.Number(), "sealhash", sealhash, "hash", hash,
+							"elapsed", common.PrettyDuration(time.Since(task.createdAt)))
+						if len(block.Sidecars()) != 0 {
+							log.Debug("show sidecars", "block.Sidecars()[0].BlockHash", block.Sidecars()[0].BlockHash, "shadowBlock.Sidecars()[0].BlockHash", shadowBlock.Sidecars()[0].BlockHash)
+						}
+					} else {
+						log.Info("Failed to AssembleSignature", "err", err)
+					}
+				}
+			}
 
 		case <-w.exitCh:
 			return
+		}
+	}
+}
+
+func (w *worker) needDelayBroadcast(inTurn bool) bool {
+	return w.config.MB.BroadcastDelayBlocks > 0 && inTurn
+}
+
+func (w *worker) postDelayedBlock(block *types.Block) {
+	w.delayedMu.Lock()
+	w.delayedBlocksForBroadcast = append(w.delayedBlocksForBroadcast, block)
+	w.delayedMu.Unlock()
+}
+
+func (w *worker) postBlock(block *types.Block, inTurn bool) {
+	if w.needDelayBroadcast(inTurn) {
+		w.postDelayedBlock(block)
+	} else {
+		w.mux.Post(core.NewSealedBlockEvent{Block: block})
+		w.mux.Post(core.NewMinedBlockEvent{Block: block})
+	}
+}
+func (w *worker) delayBlocksBroadcastLoop() {
+	defer w.wg.Done()
+
+	for {
+		if len(w.delayedBlocksForBroadcast) > 0 && w.config.MB.BroadcastDelayBlocks > 0 {
+			w.delayedMu.Lock()
+
+			currentBlock := w.chain.CurrentBlock()
+			currentBlockNum := currentBlock.Number.Uint64()
+
+			if p, ok := w.engine.(*parlia.Parlia); ok {
+				blockInterval, err := p.BlockInterval(w.chain, currentBlock)
+				if err != nil {
+					log.Debug("failed to get BlockInterval when delayBlocksBroadcastLoop")
+				}
+				delayTime := (w.config.MB.BroadcastDelayBlocks - 1) * blockInterval
+				service := p.APIs(w.chain)[0].Service
+				latestBlockNumber := rpc.LatestBlockNumber
+				currentTurnLength, err := service.(*parlia.API).GetTurnLength(&latestBlockNumber)
+				nonInTurnBackoff := w.config.MB.BroadcastDelayBlocks
+				if err == nil {
+					if w.config.MB.BroadcastDelayBlocks > uint64(currentTurnLength) {
+						// suppose extra blocks are generated by in turn validators
+						nonInTurnBackoff = uint64(currentTurnLength)
+					}
+				}
+				if w.chainConfig.IsLorentz(currentBlock.Number, currentBlock.Time) { // not exactly right, but no matters
+					nonInTurnBackoff *= 2
+				}
+				delayTime += nonInTurnBackoff * 1000
+
+				firstBlock := w.delayedBlocksForBroadcast[0]
+				if uint64(time.Now().UnixMilli()) >= (firstBlock.Header().MilliTimestamp() + delayTime) {
+					time.Sleep(500 * time.Microsecond)
+					for _, block := range w.delayedBlocksForBroadcast {
+						w.mux.Post(core.NewSealedBlockEvent{Block: block})
+						w.mux.Post(core.NewMinedBlockEvent{Block: block})
+						log.Info("delayBlocksBroadcastLoop", "number", block.Number(), "hash", block.Hash(),
+							"milliTimestamp", block.Header().MilliTimestamp(), "now", uint64(time.Now().UnixMilli()), "currentBlockNum", currentBlockNum)
+					}
+					w.delayedBlocksForBroadcast = make([]*types.Block, 0)
+				}
+			}
+
+			w.delayedMu.Unlock()
+		}
+
+		select {
+		case <-w.exitCh:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -1253,6 +1363,25 @@ func (w *worker) commitWork(interruptCh chan int32, timestamp int64) {
 			return
 		}
 	}
+	if w.config.MB.SkipOffsetInturn != nil {
+		if w.inTurn() {
+			if p, ok := w.engine.(*parlia.Parlia); ok {
+				service := p.APIs(w.chain)[0].Service
+				latestBlockNumber := rpc.LatestBlockNumber
+				currentTurnLength, err := service.(*parlia.API).GetTurnLength(&latestBlockNumber)
+				if err == nil {
+					currentHeader := w.chain.CurrentBlock()
+					blockToMine := currentHeader.Number.Uint64() + 1
+					if *w.config.MB.SkipOffsetInturn == blockToMine%uint64(currentTurnLength) {
+						log.Info("skip commitWork", "blockNumber", blockToMine)
+						return
+					}
+				} else {
+					log.Error("commitWork|GetTurnLength", "err", err)
+				}
+			}
+		}
+	}
 
 	stopTimer := time.NewTimer(0)
 	defer stopTimer.Stop()
@@ -1293,6 +1422,24 @@ LOOP:
 		workList = append(workList, work)
 
 		delay := w.delay(work.header, w.config.DelayLeftOver)
+		if p, ok := w.engine.(*parlia.Parlia); ok {
+			blockInterval, err := p.BlockInterval(w.chain, work.header)
+			if err != nil {
+				log.Debug("failed to get BlockInterval when tryWaitProposalDoneWhenStopping")
+			}
+			if w.config.MB.LastBlockMiningTime > blockInterval/2 {
+				service := p.APIs(w.chain)[0].Service
+				latestBlockNumber := rpc.LatestBlockNumber
+				currentTurnLength, err := service.(*parlia.API).GetTurnLength(&latestBlockNumber)
+				if err == nil && (work.header.Number.Uint64()+1)%uint64(currentTurnLength) == 0 {
+					*delay += time.Duration((w.config.MB.LastBlockMiningTime - blockInterval/2) * uint64(time.Millisecond))
+					timeLeft := time.Until(time.UnixMilli(int64(work.header.MilliTimestamp())))
+					if *delay > timeLeft {
+						*delay = timeLeft
+					}
+				}
+			}
+		}
 		if delay == nil {
 			log.Warn("commitWork delay is nil, something is wrong")
 			stopTimer = nil

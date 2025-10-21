@@ -2053,18 +2053,18 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 
 // WriteBlockAndSetHead writes the given block and all associated state to the database,
 // and applies the block as the new chain head.
-func (bc *BlockChain) WriteBlockAndSetHead(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, sealedBlockSender *event.TypeMux) (status WriteStatus, err error) {
+func (bc *BlockChain) WriteBlockAndSetHead(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, sealedBlockSender *event.TypeMux, delayBroadcast bool) (status WriteStatus, err error) {
 	if !bc.chainmu.TryLock() {
 		return NonStatTy, errChainStopped
 	}
 	defer bc.chainmu.Unlock()
 
-	return bc.writeBlockAndSetHead(block, receipts, logs, state, sealedBlockSender)
+	return bc.writeBlockAndSetHead(block, receipts, logs, state, sealedBlockSender, delayBroadcast)
 }
 
 // writeBlockAndSetHead is the internal implementation of WriteBlockAndSetHead.
 // This function expects the chain mutex to be held.
-func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, sealedBlockSender *event.TypeMux) (status WriteStatus, err error) {
+func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, sealedBlockSender *event.TypeMux, delayBroadcast bool) (status WriteStatus, err error) {
 	currentBlock := bc.CurrentBlock()
 	reorg, err := bc.forker.ReorgNeededWithFastFinality(currentBlock, block.Header())
 	if err != nil {
@@ -2073,7 +2073,7 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 	if reorg {
 		bc.highestVerifiedBlock.Store(types.CopyHeader(block.Header()))
 		bc.highestVerifiedBlockFeed.Send(HighestVerifiedBlockEvent{Header: block.Header()})
-		if sealedBlockSender != nil {
+		if sealedBlockSender != nil && !delayBroadcast {
 			// If the local DB is corrupted, writeBlockWithState may fail.
 			// It's fine — other nodes will persist the block.
 			//
@@ -2726,7 +2726,7 @@ func (bc *BlockChain) ProcessBlock(ctx context.Context, parentRoot common.Hash, 
 			// Don't set the head, only insert the block
 			err = bc.writeBlockWithState(block, res.Receipts, statedb)
 		} else {
-			status, err = bc.writeBlockAndSetHead(block, res.Receipts, res.Logs, statedb, nil)
+			status, err = bc.writeBlockAndSetHead(block, res.Receipts, res.Logs, statedb, nil, false)
 		}
 		if err != nil {
 			return nil, err
