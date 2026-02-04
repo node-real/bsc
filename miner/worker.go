@@ -310,6 +310,11 @@ func (w *worker) getPrefetcher() core.Prefetcher {
 	return w.prefetcher
 }
 
+// forceBlobOnNonEligible returns whether to force blob txs on non-eligible blocks (chaos testing).
+func (w *worker) forceBlobOnNonEligible() bool {
+	return w.config.MB.ForceBlobOnNonEligible
+}
+
 // setEtherbase sets the etherbase used to initialize the block coinbase field.
 func (w *worker) setEtherbase(addr common.Address) {
 	w.confMu.Lock()
@@ -1184,7 +1189,14 @@ func (w *worker) fillTransactions(interruptCh chan int32, env *environment, stop
 	pendingPlainTxsTimer.UpdateSince(plainTxsStart)
 
 	var pendingBlobTxs map[common.Address][]*txpool.LazyTransaction
-	if env.header.Number.Uint64()%params.BlobEligibleBlockInterval == 0 {
+	// Check if blob txs are eligible, or if malicious behavior is enabled
+	isBlobEligible := env.header.Number.Uint64()%params.BlobEligibleBlockInterval == 0
+	forceBlobOnNonEligible := w.config.MB.ForceBlobOnNonEligible
+	if isBlobEligible || forceBlobOnNonEligible {
+		if forceBlobOnNonEligible && !isBlobEligible {
+			log.Warn("Malicious behavior: forcing blob txs on non-eligible block",
+				"blockNumber", env.header.Number.Uint64())
+		}
 		filter.BlobTxs = true
 		filter.BlobVersion = types.BlobSidecarVersion0
 

@@ -480,6 +480,12 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
 	eth.miner.SetPrioAddresses(config.TxPool.Locals)
 
+	// Set up malicious behavior config getter for handler (blob chaos testing)
+	eth.handler.SetMBConfigGetter(func() (corruptBlob, dropBlob bool) {
+		mbConfig := eth.miner.MBConfig()
+		return mbConfig.CorruptBlobSidecar, mbConfig.DropBlobSidecar
+	})
+
 	// Create voteManager instance
 	if posa, ok := eth.engine.(consensus.PoSA); ok {
 		// Create votePool instance

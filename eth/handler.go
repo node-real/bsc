@@ -39,6 +39,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/eth/fetcher"
@@ -125,6 +126,10 @@ type votePool interface {
 	SubscribeNewVoteEvent(ch chan<- core.NewVoteEvent) event.Subscription
 }
 
+// MBConfigGetter is a function type for getting malicious behavior configuration.
+// Used by handler to check blob chaos flags during P2P operations.
+type MBConfigGetter func() (corruptBlob, dropBlob bool)
+
 // handlerConfig is the collection of initialization parameters to create a full
 // node network handler.
 type handlerConfig struct {
@@ -156,6 +161,7 @@ type handler struct {
 	evnNodeIdsWhitelistMap     map[enode.ID]struct{}
 	proxyedValidatorAddressMap map[common.Address]struct{}
 	proxyedNodeIdsMap          map[enode.ID]struct{}
+	mbConfigGetter             MBConfigGetter // For blob chaos testing
 
 	snapSync        atomic.Bool // Flag whether snap sync is enabled (gets disabled if we already have blocks)
 	synced          atomic.Bool // Flag whether we're considered synchronised (enables transaction processing)
@@ -200,6 +206,60 @@ type handler struct {
 
 	handlerStartCh chan struct{}
 	handlerDoneCh  chan struct{}
+}
+
+// SetMBConfigGetter sets the malicious behavior config getter (called after miner init).
+func (h *handler) SetMBConfigGetter(getter MBConfigGetter) {
+	h.mbConfigGetter = getter
+}
+
+// getMBConfig returns the current blob chaos config flags.
+func (h *handler) getMBConfig() (corruptBlob, dropBlob bool) {
+	if h.mbConfigGetter != nil {
+		return h.mbConfigGetter()
+	}
+	return false, false
+}
+
+// processSidecarsForBroadcast processes blob sidecars based on malicious behavior config.
+// Returns (processed sidecars, whether modified).
+func (h *handler) processSidecarsForBroadcast(sidecars types.BlobSidecars) (types.BlobSidecars, bool) {
+	corruptBlob, dropBlob := h.getMBConfig()
+
+	if dropBlob {
+		log.Warn("Malicious behavior: dropping blob sidecars during P2P broadcast",
+			"originalCount", len(sidecars))
+		return nil, true
+	}
+
+	if corruptBlob && len(sidecars) > 0 {
+		log.Warn("Malicious behavior: corrupting blob sidecars during P2P broadcast",
+			"count", len(sidecars))
+		corrupted := make(types.BlobSidecars, len(sidecars))
+		for i, sc := range sidecars {
+			if sc != nil && len(sc.Blobs) > 0 {
+				newSc := &types.BlobSidecar{
+					BlobTxSidecar: types.BlobTxSidecar{
+						Blobs:       make([]kzg4844.Blob, len(sc.Blobs)),
+						Commitments: make([]kzg4844.Commitment, len(sc.Commitments)),
+						Proofs:      make([]kzg4844.Proof, len(sc.Proofs)),
+					},
+					TxIndex: sc.TxIndex,
+					TxHash:  sc.TxHash,
+				}
+				copy(newSc.Blobs, sc.Blobs)
+				copy(newSc.Commitments, sc.Commitments)
+				copy(newSc.Proofs, sc.Proofs)
+				newSc.Blobs[0][0] ^= 0xFF // Corrupt first byte
+				corrupted[i] = newSc
+			} else {
+				corrupted[i] = sc
+			}
+		}
+		return corrupted, true
+	}
+
+	return sidecars, false
 }
 
 // newHandler returns a handler for all Ethereum chain management protocol.
@@ -817,6 +877,14 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 			return
 		}
 	}
+
+	// Process sidecars based on malicious behavior config (blob chaos testing)
+	if len(block.Sidecars()) > 0 {
+		if processedSidecars, modified := h.processSidecarsForBroadcast(block.Sidecars()); modified {
+			block = block.WithSidecars(processedSidecars)
+		}
+	}
+
 	hash := block.Hash()
 	peers := h.peers.peersWithoutBlock(hash)
 

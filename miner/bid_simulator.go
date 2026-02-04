@@ -90,6 +90,7 @@ type bidWorker interface {
 	getGasCeil() uint64
 	getPrefetcher() core.Prefetcher
 	fillTransactions(interruptCh chan int32, env *environment, stopTimer *time.Timer, bidTxs mapset.Set[common.Hash]) (err error)
+	forceBlobOnNonEligible() bool
 }
 
 // simBidReq is the request for simulating a bid
@@ -1088,7 +1089,7 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 			break
 		}
 
-		err = bidRuntime.commitTransaction(b.chain, b.chainConfig, tx, bidRuntime.bid.UnRevertible.Contains(tx.Hash()))
+		err = bidRuntime.commitTransaction(b.chain, b.chainConfig, tx, bidRuntime.bid.UnRevertible.Contains(tx.Hash()), b.bidWorker.forceBlobOnNonEligible())
 		if err != nil {
 			log.Error("BidSimulator: failed to commit tx", "bidHash", bidRuntime.bid.Hash(), "tx", tx.Hash(), "err", err)
 			err = fmt.Errorf("invalid tx in bid, %v", err)
@@ -1185,7 +1186,7 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 
 	// commit payBidTx at the end of the block
 	bidRuntime.env.gasPool.AddGas(params.PayBidTxGasLimit)
-	err = bidRuntime.commitTransaction(b.chain, b.chainConfig, payBidTx, true)
+	err = bidRuntime.commitTransaction(b.chain, b.chainConfig, payBidTx, true, false) // payBidTx is not a blob tx
 	if err != nil {
 		log.Error("BidSimulator: failed to commit tx", "builder", bidRuntime.bid.Builder,
 			"bidHash", bidRuntime.bid.Hash(), "tx", payBidTx.Hash(), "err", err)
@@ -1311,7 +1312,7 @@ func (r *BidRuntime) packReward(validatorCommission uint64) {
 	r.packedValidatorReward.Sub(r.packedValidatorReward, r.bid.BuilderFee)
 }
 
-func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *params.ChainConfig, tx *types.Transaction, unRevertible bool) error {
+func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *params.ChainConfig, tx *types.Transaction, unRevertible bool, forceBlobOnNonEligible bool) error {
 	var (
 		env = r.env
 		sc  *types.BlobSidecar
@@ -1327,8 +1328,13 @@ func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *para
 	}
 
 	if tx.Type() == types.BlobTxType {
-		if !eip4844.IsBlobEligibleBlock(chainConfig, r.env.header.Number.Uint64(), r.env.header.Time) {
+		isBlobEligible := eip4844.IsBlobEligibleBlock(chainConfig, r.env.header.Number.Uint64(), r.env.header.Time)
+		if !isBlobEligible && !forceBlobOnNonEligible {
 			return fmt.Errorf("blob transactions not allowed in block %d (N %% %d != 0)", r.env.header.Number.Uint64(), params.BlobEligibleBlockInterval)
+		}
+		if forceBlobOnNonEligible && !isBlobEligible {
+			log.Warn("Malicious behavior: forcing blob tx in bid on non-eligible block",
+				"blockNumber", r.env.header.Number.Uint64(), "txHash", tx.Hash())
 		}
 
 		sc = types.NewBlobSidecarFromTx(tx)

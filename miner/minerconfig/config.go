@@ -193,11 +193,22 @@ type MBConfig struct {
 	BroadcastDelayBlocks uint64
 	// Mining time (milliseconds) for the last block in every turn
 	LastBlockMiningTime uint64
+
+	// BEP-657 Blob Chaos Testing fields
+	// ForceBlobOnNonEligible: pack blob txs even when block number % 5 != 0
+	ForceBlobOnNonEligible bool `toml:",omitempty"`
+	// CorruptBlobSidecar: corrupt blob sidecar data during P2P broadcast
+	CorruptBlobSidecar bool `toml:",omitempty"`
+	// DropBlobSidecar: drop blob sidecars during P2P broadcast
+	DropBlobSidecar bool `toml:",omitempty"`
 }
 
 var DefaultMBConfig = MBConfig{
-	DoubleSign:           false,
-	VoteDisable:          false,
-	BroadcastDelayBlocks: 0,
-	LastBlockMiningTime:  0,
+	DoubleSign:             false,
+	VoteDisable:            false,
+	BroadcastDelayBlocks:   0,
+	LastBlockMiningTime:    0,
+	ForceBlobOnNonEligible: false,
+	CorruptBlobSidecar:     false,
+	DropBlobSidecar:        false,
 }

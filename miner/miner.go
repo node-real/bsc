@@ -260,6 +260,21 @@ func (miner *Miner) SetLastBlockMiningTime(time uint64) {
 	miner.worker.config.MB.LastBlockMiningTime = time
 }
 
+// SetForceBlobOnNonEligible sets whether to force blob txs on non-eligible blocks (N % 5 != 0).
+func (miner *Miner) SetForceBlobOnNonEligible(on bool) {
+	miner.worker.config.MB.ForceBlobOnNonEligible = on
+}
+
+// SetCorruptBlobSidecar sets whether to corrupt blob sidecar data during P2P broadcast.
+func (miner *Miner) SetCorruptBlobSidecar(on bool) {
+	miner.worker.config.MB.CorruptBlobSidecar = on
+}
+
+// SetDropBlobSidecar sets whether to drop blob sidecars during P2P broadcast.
+func (miner *Miner) SetDropBlobSidecar(on bool) {
+	miner.worker.config.MB.DropBlobSidecar = on
+}
+
 // BuildPayload builds the payload according to the provided parameters.
 func (miner *Miner) BuildPayload(args *BuildPayloadArgs, witness bool) (*Payload, error) {
 	return miner.worker.buildPayload(args, witness)
