@@ -142,3 +142,22 @@ func (api *MinerAPI) SetLastBlockMiningTime(time uint64) minerconfig.MBConfig {
 	api.e.Miner().SetLastBlockMiningTime(time)
 	return api.e.Miner().MBConfig()
 }
+
+// SetForceBlobOnNonEligible sets whether to force blob txs on non-eligible blocks.
+// BEP-657 chaos testing: simulate malicious validator packing blobs when N % 5 != 0.
+func (api *MinerAPI) SetForceBlobOnNonEligible(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetForceBlobOnNonEligible(on)
+	return api.e.Miner().MBConfig()
+}
+
+// SetCorruptBlobSidecar sets whether to corrupt blob sidecar data during P2P broadcast.
+func (api *MinerAPI) SetCorruptBlobSidecar(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetCorruptBlobSidecar(on)
+	return api.e.Miner().MBConfig()
+}
+
+// SetDropBlobSidecar sets whether to drop blob sidecars during P2P broadcast.
+func (api *MinerAPI) SetDropBlobSidecar(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetDropBlobSidecar(on)
+	return api.e.Miner().MBConfig()
+}
