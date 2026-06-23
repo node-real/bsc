@@ -651,7 +651,7 @@ func (w *worker) resultLoop() {
 			stats.SendBlockTime.Store(time.Now().UnixMilli())
 			stats.StartMiningTime.Store(task.miningStartAt.UnixMilli())
 			log.Info("Successfully seal and write new block", "number", block.Number(), "hash", hash, "time", block.Header().MilliTimestamp(), "sealhash", sealhash,
-				"block size(noBal)", block.Size(), "balSize", block.BALSize(), "elapsed", common.PrettyDuration(time.Since(task.createdAt)))
+				"block size(noBal)", block.Size(), "elapsed", common.PrettyDuration(time.Since(task.createdAt)))
 
 			if needDelay {
 				w.postDelayedBlock(block)
