@@ -158,9 +158,9 @@ func (t *BlockTest) Run(snapshotter bool, scheme string, witness bool, tracer *t
 		Preimages:      true,
 		TxLookupLimit:  -1, // disable tx indexing
 		VmConfig: vm.Config{
-			Tracer:                  tracer,
-			StatelessSelfValidation: witness,
+			Tracer: tracer,
 		},
+		StatelessSelfValidation: witness,
 	}
 	if snapshotter {
 		options.SnapshotLimit = 1
@@ -223,7 +223,7 @@ func (t *BlockTest) genesis(config *params.ChainConfig) *core.Genesis {
 }
 
 /*
-See https://github.com/ethereum/tests/wiki/Blockchain-Tests-II
+See https://ethereum-tests.readthedocs.io/en/latest/blockchain-ref.html
 
 	Whether a block is valid or not is a bit subtle, it's defined by presence of
 	blockHeader, transactions and uncleHeaders fields. If they are missing, the block is

@@ -6,7 +6,7 @@ program.option("--startNum <startNum>", "start num");
 program.option("--endNum <endNum>", "end num");
 program.option("--miner <miner>", "miner", "");
 program.option("--num <Num>", "validator num", 21);
-program.option("--turnLength <Num>", "the consecutive block length", 16);
+program.option("--turnLength <Num>", "the consecutive block length", 8);
 program.option("--topNum <Num>", "top num of address to be displayed", 20);
 program.option("--blockNum <Num>", "block num", 0);
 program.option("--stepLength <Num>", "step length", 115200);
@@ -43,7 +43,7 @@ function printUsage() {
     console.log("  --stepNum    the step num, default: 1");
     console.log("\nExample:");
     console.log("  node getchainstatus.js GetMaxTxCountInBlockRange --rpc https://bsc-testnet-dataseed.bnbchain.org --startNum 40000001  --endNum 40000005");
-    console.log("  node getchainstatus.js GetBinaryVersion --rpc https://bsc-testnet-dataseed.bnbchain.org --num 21 --turnLength 16");
+    console.log("  node getchainstatus.js GetBinaryVersion --rpc https://bsc-testnet-dataseed.bnbchain.org --num 21 --turnLength 8");
     console.log("  node getchainstatus.js GetTopAddr --rpc https://bsc-testnet-dataseed.bnbchain.org --startNum 40000001  --endNum 40000010 --topNum 10");
     console.log("  node getchainstatus.js GetSlashCount --rpc https://bsc-testnet-dataseed.bnbchain.org --blockNum 40000001 --stepNum 1 --stepLength 115200"); // default: latest block
     console.log("  node getchainstatus.js GetPerformanceData --rpc https://bsc-testnet-dataseed.bnbchain.org --startNum 40000001  --endNum 40000010");
@@ -227,7 +227,12 @@ const builderMap = new Map([
     ["0x48FeE1BB3823D72fdF80671ebaD5646Ae397BB48", "puissant us"],
     ["0x48B4bBEbF0655557A461e91B8905b85864B8BB48", "puissant x"],
     ["0x4827b423D03a349b7519Dda537e9A28d31ecBB48", "puissant y"],
-    ["0x48B2665E5E9a343409199D70F7495c8aB660BB48", "puissant:z"],
+    ["0x48B2665E5E9a343409199D70F7495c8aB660BB48", "puissant z"],
+    //     unknown 
+    ["0x48265F91F542dCE47ABE5E6683bb086c0f36BB48", "unknown-1"],
+    ["0x48437A0d4AB091b81c6DeD43dEbf23cdfC85BB48", "unknown-2"],
+    ["0x4851f44038fE746173e9E3C4A6e7E904c619BB48", "unknown-3"],
+    ["0x4880cb180d3bb665748f7b66f75F1fEE68D8BB48", "unknown-4"],
     //     blockroute
     ["0xD4376FdC9b49d90e6526dAa929f2766a33BFFD52", "blockroute dublin"],
     ["0x2873fc7aD9122933BECB384f5856f0E87918388d", "blockroute frankfurt"],
@@ -241,10 +246,13 @@ const builderMap = new Map([
     ["0x36CB523286D57680efBbfb417C63653115bCEBB5", "jetbldr ap"],
     ["0x3aD6121407f6EDb65C8B2a518515D45863C206A8", "jetbldr eu"],
     ["0x345324dC15F1CDcF9022E3B7F349e911fb823b4C", "jetbldr us"],
+    ["0xfd38358475078F81a45077f6e59dff8286e0dCA1", "jetbldr dublin"],
+    ["0x7F5fbFd8e2eB3160dF4c96757DEEf29E26F969a3", "jetbldr tokyo"],
+    ["0xA0Cde9891C6966fCe740817cc5576De2C669AB43", "jetbldr virginia"],
     //      blockbus
-    ["0x3FC0c936c00908c07723ffbf2d536D6E0f62C3A4", "jetbldr dublin"],
-    ["0x17e9F0D7E45A500f0148B29C6C98EfD19d95F138", "jetbldr tokyo"],
-    ["0x1319Be8b8Ec4AA81f501924BdCF365fBcAa8d753", "jetbldr virginia"],
+    ["0x3FC0c936c00908c07723ffbf2d536D6E0f62C3A4", "blockbus dublin"],
+    ["0x17e9F0D7E45A500f0148B29C6C98EfD19d95F138", "blockbus tokyo"],
+    ["0x1319Be8b8Ec4AA81f501924BdCF365fBcAa8d753", "blockbus virginia"],
     //     txboost(blocksmith)
     ["0x6Dddf681C908705472D09B1D7036B2241B50e5c7", "txboost ap"],
     ["0x76736159984AE865a9b9Cc0Df61484A49dA68191", "txboost eu"],
@@ -258,9 +266,12 @@ const builderMap = new Map([
     ["0xb49f86586a840AB9920D2f340a85586E50FD30a2", "inblock eu"],
     ["0x0F6D8b72F3687de6f2824903a83B3ba13c0e88A0", "inblock us"],
     //      nodereal
-    ["0x79102dB16781ddDfF63F301C9Be557Fd1Dd48fA0", "nodereal ap"],
-    ["0xd0d56b330a0dea077208b96910ce452fd77e1b6f", "nodereal eu"],
-    ["0x4f24ce4cd03a6503de97cf139af2c26347930b99", "nodereal us"],
+    ["0x79102dB16781ddDfF63F301C9Be557Fd1Dd48fA0", "nodereal ap-1"],
+    ["0x5B526b45e833704d84b5C2EB0F41323dA9466c48", "nodereal ap-2"],
+    ["0xd0d56b330a0dea077208b96910ce452fd77e1b6f", "nodereal eu-1"],
+    ["0xa547F87B2BADE689a404544859314CBC01f2605e", "nodereal eu-2"],
+    ["0x4f24ce4cd03a6503de97cf139af2c26347930b99", "nodereal us-1"],
+    ["0xFD3F1Ad459D585C50Cf4630649817C6E0cec7335", "nodereal us-2"],
     //      xzbuilder
     ["0x812720cb4639550D7BDb1d8F2be463F4a9663762", "xzbuilder"],
 
@@ -278,6 +289,58 @@ const builderMap = new Map([
     ["0x7b3ee856c98b1bb3689ef7f90477df2927fcbdb6",  "trustnet"],
     ["0xA8caEc0D68a90Ac971EA1aDEFA1747447e1f9871",  "blockroute"],
 ]);
+
+function getMappedAddressName(addressMap, address) {
+    if (!address) return undefined;
+    try {
+        const normalized = ethers.getAddress(address);
+        return addressMap.get(normalized) || addressMap.get(normalized.toLowerCase());
+    } catch (_) {
+        return addressMap.get(address);
+    }
+}
+
+async function getBlockMevInfo(blockNumber) {
+    let rpcInfo;
+    try {
+        rpcInfo = await provider.send("eth_getBlockMevInfo", ["0x" + blockNumber.toString(16)]);
+        if (rpcInfo) {
+            if (!rpcInfo.builder) {
+                return { ...rpcInfo, source: "local" };
+            }
+            const source = rpcInfo.version === "v2" ? "bidblock" : "bid";
+            return { ...rpcInfo, source };
+        }
+    } catch (_) {
+        // Older validators do not expose eth_getBlockMevInfo; fall back to the
+        // pre-BEP-675 payment-tx heuristic below.
+    }
+
+    const block = await provider.getBlock(blockNumber);
+    if (!block) return rpcInfo || { blockNumber, source: "local" };
+
+    const txHashes = block.transactions.slice(-4);
+    const txResults = await Promise.all(txHashes.map(txHash => provider.getTransaction(txHash)));
+    for (const txData of txResults) {
+        if (!txData || !txData.to || !getMappedAddressName(builderMap, txData.to)) continue;
+        return {
+            blockNumber: block.number,
+            blockHash: block.hash,
+            miner: block.miner,
+            source: "bid",
+            builder: txData.to,
+            fallback: true,
+        };
+    }
+
+    return {
+        ...(rpcInfo || {}),
+        blockNumber: rpcInfo ? (rpcInfo.blockNumber || block.number) : block.number,
+        blockHash: rpcInfo ? (rpcInfo.blockHash || block.hash) : block.hash,
+        miner: rpcInfo ? (rpcInfo.miner || block.miner) : block.miner,
+        source: "local",
+    };
+}
 
 // 1.cmd: "GetMaxTxCountInBlockRange", usage:
 // node getchainstatus.js GetMaxTxCountInBlockRange --rpc https://bsc-testnet-dataseed.bnbchain.org \
@@ -315,10 +378,53 @@ async function getBinaryVersion() {
     let turnLength = program.turnLength;
     for (let i = 0; i < program.num; i++) {
         let blockData = await provider.getBlock(blockNum - i * turnLength);
-        // 1.get Geth client version
-        let major = ethers.toNumber(ethers.dataSlice(blockData.extraData, 2, 3));
-        let minor = ethers.toNumber(ethers.dataSlice(blockData.extraData, 3, 4));
-        let patch = ethers.toNumber(ethers.dataSlice(blockData.extraData, 4, 5));
+
+        let major = 0, minor = 0, patch = 0;
+        let commitID = "";
+
+        try {
+            major = ethers.toNumber(ethers.dataSlice(blockData.extraData, 2, 3));
+            minor = ethers.toNumber(ethers.dataSlice(blockData.extraData, 3, 4));
+            patch = ethers.toNumber(ethers.dataSlice(blockData.extraData, 4, 5));
+            
+            // Check version: >= 1.6.4 uses new format with commitID
+            const isNewFormat = major > 1 || (major === 1 && minor > 6) || (major === 1 && minor === 6 && patch >= 4);
+            
+            if (isNewFormat) {
+                const extraVanity = 28;
+                let vanityBytes = ethers.getBytes(ethers.dataSlice(blockData.extraData, 0, extraVanity));
+
+                let rlpLength = vanityBytes.length;
+                if (vanityBytes[0] >= 0xC0 && vanityBytes[0] <= 0xF7) {
+                    rlpLength = (vanityBytes[0] - 0xC0) + 1; 
+                }
+                
+                const rlpData = ethers.dataSlice(blockData.extraData, 0, rlpLength);
+                const decoded = ethers.decodeRlp(rlpData);
+                
+                if (Array.isArray(decoded) && decoded.length >= 2) {
+                     const secondElemHex = decoded[1];
+                     let secondElemStr = "";
+                     try {
+                         secondElemStr = ethers.toUtf8String(secondElemHex);
+                     } catch (e) {
+                         secondElemStr = secondElemHex;
+                     }
+                     
+                     if (secondElemStr.length > 0 && secondElemStr !== "geth") {
+                         commitID = secondElemStr.startsWith("0x") ? secondElemStr.substring(2) : secondElemStr;
+                     }
+                }
+            }
+        } catch (e) {
+            console.log("Parsing failed:", e.message);
+        }
+
+        // Format version string
+        let versionStr = major + "." + minor + "." + patch;
+        if (commitID && commitID.length > 0) {
+            versionStr = versionStr + "-" + commitID;
+        }
 
         // 2.get minimum txGasPrice based on the last non-zero-gasprice transaction
         let lastGasPrice = 0;
@@ -332,7 +438,7 @@ async function getBinaryVersion() {
             break;
         }
         var moniker = await getValidatorMoniker(blockData.miner, blockNum);
-        console.log(blockNum - i * turnLength, blockData.miner, "version =", major + "." + minor + "." + patch, " MinGasPrice = " + lastGasPrice, moniker);
+        console.log(blockNum - i * turnLength, blockData.miner, "version =", versionStr, " MinGasPrice = " + lastGasPrice, moniker);
     }
 }
 
@@ -468,7 +574,7 @@ async function getPerformanceData() {
     let gasUsedTotal = 0;
     let inturnBlocks = 0;
     let justifiedBlocks = 0;
-    let turnLength = 16;
+    let turnLength = 8;
     let lastTimestamp = null; 
     let parliaEnabled = true;
     
@@ -802,6 +908,8 @@ async function getMevStatus() {
         local: 0,
         ...Object.fromEntries([...new Set(builderMap.values())].map(builder => [builder, 0]))
     };
+    // Per-type tallies for the MEV path breakdown (v1 = legacy SendBid, v2 = bidblock).
+    let typeCounts = { mev_v1: 0, mev_v2: 0, local: 0 };
 
     // Get the latest block number
     const latestBlock = await provider.getBlockNumber();
@@ -823,12 +931,18 @@ async function getMevStatus() {
         return;
     }
 
-    const blockPromises = [];
+    const blockNumbers = [];
     for (let i = startBlock; i <= endBlock; i++) {
-        blockPromises.push(provider.getBlock(i));
+        blockNumbers.push(i);
     }
 
-    const blocks = await Promise.all(blockPromises);
+    let mevInfos;
+    try {
+        mevInfos = await Promise.all(blockNumbers.map(getBlockMevInfo));
+    } catch (err) {
+        console.error("GetMevStatus failed:", err.shortMessage || err.message || err);
+        return;
+    }
 
     // Calculate max lengths for alignment with default values
     let maxMinerLength = 10; // Default length
@@ -844,38 +958,39 @@ async function getMevStatus() {
         maxBuilderLength = Math.max(...builderLengths);
     }
 
-    for (const blockData of blocks) {
-        const minerInfo = validatorMap.get(blockData.miner);
+    for (const mevInfo of mevInfos) {
+        const blockNumber = typeof mevInfo.blockNumber === "string"
+            ? BigInt(mevInfo.blockNumber).toString()
+            : mevInfo.blockNumber.toString();
+        const minerInfo = getMappedAddressName(validatorMap, mevInfo.miner);
         const miner = minerInfo ? minerInfo[0] : "Unknown";
-        const transactions = blockData.transactions.slice(-4); // Last 4 transactions
-        const txPromises = transactions.map(txHash => provider.getTransaction(txHash));
 
-        const txResults = await Promise.all(txPromises);
-        let mevBlock = false;
-
-        for (const txData of txResults) {
-            if (builderMap.has(txData.to)) {
-                const builder = builderMap.get(txData.to);
-                counts[builder]++;
-
-                mevBlock = true;
-                console.log(
-                    `blockNum: ${blockData.number.toString().padStart(8)}      ` +
-                    `miner: ${miner.padEnd(maxMinerLength)}        ` +
-                    `builder: (${builder.padEnd(maxBuilderLength)}) ${txData.to}`
-                );
-                break;
-            }
-        }
-
-        if (!mevBlock) {
-            counts.local++;
+        if (mevInfo.source !== "local") {
+            const builderName = getMappedAddressName(builderMap, mevInfo.builder);
+            const friendlyName = builderName || mevInfo.builder;
+            const bucket = builderName || mevInfo.builder;
+            // v2 = bidblock (tagged), everything else on the MEV path = v1
+            // (tagged legacy bid, or heuristic-detected payBidTx which is v1-only).
+            const typeLabel = (mevInfo.source === "bidblock" || mevInfo.version === "v2") ? "mev_v2" : "mev_v1";
+            counts[bucket] = (counts[bucket] || 0) + 1;
+            typeCounts[typeLabel]++;
             console.log(
-                `blockNum: ${blockData.number.toString().padStart(8)}      ` +
+                `blockNum: ${blockNumber.padStart(8)}      ` +
+                `type: ${typeLabel.padEnd(6)}   ` +
                 `miner: ${miner.padEnd(maxMinerLength)}        ` +
-                `builder: local`
+                `builder: (${friendlyName.padEnd(maxBuilderLength)}) ${mevInfo.builder}`
             );
+            continue;
         }
+
+        counts.local++;
+        typeCounts.local++;
+        console.log(
+            `blockNum: ${blockNumber.padStart(8)}      ` +
+            `type: ${"local".padEnd(6)}   ` +
+            `miner: ${miner.padEnd(maxMinerLength)}        ` +
+            `builder: local`
+        );
     }
 
     const total = endBlock - startBlock + 1;
@@ -893,6 +1008,17 @@ async function getMevStatus() {
             const ratio = (value * 100 / total).toFixed(2);
             console.log(`${key.padEnd(maxBuilderLength)}: ${value.toString().padStart(3)} blocks (${ratio}%)`);
         });
+
+    // MEV path breakdown: v1 (legacy SendBid) vs v2 (bidblock), as a share of MEV blocks.
+    const mevTotal = typeCounts.mev_v1 + typeCounts.mev_v2;
+    console.log("\nMEV Path Distribution:");
+    console.log(`MEV blocks: ${mevTotal} (${(mevTotal * 100 / total).toFixed(2)}% of total)`);
+    if (mevTotal > 0) {
+        const v1Ratio = (typeCounts.mev_v1 * 100 / mevTotal).toFixed(2);
+        const v2Ratio = (typeCounts.mev_v2 * 100 / mevTotal).toFixed(2);
+        console.log(`${"mev_v1".padEnd(8)}: ${typeCounts.mev_v1.toString().padStart(3)} blocks (${v1Ratio}% of MEV)`);
+        console.log(`${"mev_v2".padEnd(8)}: ${typeCounts.mev_v2.toString().padStart(3)} blocks (${v2Ratio}% of MEV)`);
+    }
 }
 
 // 11.cmd: "getLargeTxs", usage:

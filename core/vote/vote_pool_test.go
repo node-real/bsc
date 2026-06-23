@@ -76,6 +76,7 @@ func newTestBackend() *testBackend {
 	return &testBackend{eventMux: new(event.TypeMux)}
 }
 func (b *testBackend) IsMining() bool           { return true }
+func (b *testBackend) VoteEnabled() bool        { return true }
 func (b *testBackend) EventMux() *event.TypeMux { return b.eventMux }
 
 func (mp *mockPOSA) GetJustifiedNumberAndHash(chain consensus.ChainHeaderReader, headers []*types.Header) (uint64, common.Hash, error) {
@@ -104,6 +105,14 @@ func (mp *mockPOSA) IsActiveValidatorAt(chain consensus.ChainHeaderReader, heade
 
 func (mip *mockInvalidPOSA) IsActiveValidatorAt(chain consensus.ChainHeaderReader, header *types.Header, checkVoteKeyFn func(bLSPublicKey *types.BLSPublicKey) bool) bool {
 	return true
+}
+
+func (mp *mockPOSA) CheckFinalityAndNotify(chain consensus.ChainHeaderReader, targetBlockHash common.Hash, notifyFn func(finalizedHeader *types.Header)) {
+	// No-op for testing
+}
+
+func (mip *mockInvalidPOSA) CheckFinalityAndNotify(chain consensus.ChainHeaderReader, targetBlockHash common.Hash, notifyFn func(finalizedHeader *types.Header)) {
+	// No-op for testing
 }
 
 func (pool *VotePool) verifyStructureSizeOfVotePool(receivedVotes, curVotes, futureVotes, curVotesPq, futureVotesPq int) bool {

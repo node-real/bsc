@@ -20,7 +20,6 @@ package memorydb
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -45,8 +44,6 @@ var (
 type Database struct {
 	db   map[string][]byte
 	lock sync.RWMutex
-
-	stateStore ethdb.Database
 }
 
 func (db *Database) ModifyAncients(f func(ethdb.AncientWriteOp) error) (int64, error) {
@@ -85,6 +82,11 @@ func (db *Database) Ancient(kind string, number uint64) ([]byte, error) {
 }
 
 func (db *Database) AncientRange(kind string, start, count, maxBytes uint64) ([][]byte, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (db *Database) AncientBytes(kind string, id, offset, length uint64) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -286,13 +288,6 @@ func (db *Database) Len() int {
 	return len(db.db)
 }
 
-func (db *Database) StateStoreReader() ethdb.Reader {
-	if db.stateStore == nil {
-		return db
-	}
-	return db.stateStore
-}
-
 // keyvalue is a key-value tuple tagged with a deletion field to allow creating
 // memory-database write batches.
 type keyvalue struct {
@@ -396,7 +391,7 @@ func (b *batch) Replay(w ethdb.KeyValueWriter) error {
 						return err
 					}
 				} else {
-					return fmt.Errorf("ethdb.KeyValueWriter does not implement DeleteRange")
+					return errors.New("ethdb.KeyValueWriter does not implement DeleteRange")
 				}
 			}
 			continue

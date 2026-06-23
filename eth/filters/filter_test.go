@@ -109,11 +109,9 @@ func benchmarkFilters(b *testing.B, history uint64, noHistory bool) {
 	backend.startFilterMaps(history, noHistory, filtermaps.DefaultParams)
 	defer backend.stopFilterMaps()
 
-	b.ResetTimer()
-
 	filter := sys.NewRangeFilter(0, int64(rpc.LatestBlockNumber), []common.Address{addr1, addr2, addr3, addr4}, nil, false)
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		filter.begin = 0
 		logs, _ := filter.Logs(context.Background())
 		if len(logs) != 4 {
@@ -362,7 +360,8 @@ func testFilters(t *testing.T, history uint64, noHistory bool) {
 				want: `[{"address":"0xff00000000000000000000000000000000000000","topics":["0x0000000000000000000000000000000000000000000000000000746f70696333"],"data":"0x","blockNumber":"0x3e7","transactionHash":"0x53e3675800c6908424b61b35a44e51ca4c73ca603e58a65b32c67968b4f42200","transactionIndex":"0x0","blockHash":"0x2e4620a2b426b0612ec6cad9603f466723edaed87f98c9137405dd4f7a2409ff","logIndex":"0x0","removed":false}]`,
 			},
 			{
-				f: sys.NewRangeFilter(int64(rpc.LatestBlockNumber), int64(rpc.FinalizedBlockNumber), nil, nil),
+				f:   sys.NewRangeFilter(int64(rpc.LatestBlockNumber), int64(rpc.FinalizedBlockNumber), nil, nil, false),
+				err: errInvalidBlockRange.Error(),
 			},
 			{
 				f:   sys.NewRangeFilter(int64(rpc.SafeBlockNumber), int64(rpc.LatestBlockNumber), nil, nil),

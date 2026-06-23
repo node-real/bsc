@@ -75,22 +75,6 @@ func (db *Database) AncientSize(kind string) (uint64, error) {
 	panic("not supported")
 }
 
-func (db *Database) SetStateStore(state ethdb.Database) {
-	panic("not supported")
-}
-
-func (db *Database) GetStateStore() ethdb.Database {
-	panic("not supported")
-}
-
-func (db *Database) HasSeparateStateStore() bool {
-	panic("not supported")
-}
-
-func (db *Database) StateStoreReader() ethdb.Reader {
-	return db
-}
-
 func (db *Database) ReadAncients(fn func(op ethdb.AncientReaderOp) error) (err error) {
 	return fn(db)
 }
@@ -179,6 +163,10 @@ func (db *Database) SetupFreezerEnv(env *ethdb.FreezerEnv, blockHistory uint64) 
 }
 
 func (db *Database) CleanBlock(ethdb.KeyValueStore, uint64) error {
+	panic("not supported")
+}
+
+func (db *Database) AncientBytes(kind string, id, offset, length uint64) ([]byte, error) {
 	panic("not supported")
 }
 

@@ -39,9 +39,6 @@ type ChainHeaderReader interface {
 	// Config retrieves the blockchain's chain configuration.
 	Config() *params.ChainConfig
 
-	// GenesisHeader retrieves the chain's genesis block header.
-	GenesisHeader() *types.Header
-
 	// CurrentHeader retrieves the current header from the local chain.
 	CurrentHeader() *types.Header
 
@@ -54,6 +51,9 @@ type ChainHeaderReader interface {
 	// GetHeaderByHash retrieves a block header from the database by its hash.
 	GetHeaderByHash(hash common.Hash) *types.Header
 
+	// GenesisHeader retrieves the chain's genesis block header.
+	GenesisHeader() *types.Header
+
 	// GetTd retrieves the total difficulty from the database by hash and number.
 	GetTd(hash common.Hash, number uint64) *big.Int
 
@@ -62,9 +62,6 @@ type ChainHeaderReader interface {
 
 	// GetVerifiedBlockByHash retrieves the highest verified block.
 	GetVerifiedBlockByHash(hash common.Hash) *types.Header
-
-	// ChasingHead return the best chain head of peers.
-	ChasingHead() *types.Header
 }
 
 type VotePool interface {
@@ -136,12 +133,6 @@ type Engine interface {
 	// SealHash returns the hash of a block prior to it being sealed.
 	SealHash(header *types.Header) common.Hash
 
-	// SignBAL signs the BAL of the block
-	SignBAL(blockAccessList *types.BlockAccessListEncode) error
-
-	// VerifyBAL verifies the BAL of the block
-	VerifyBAL(block *types.Block, bal *types.BlockAccessListEncode) error
-
 	// CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
 	// that a new block should have.
 	CalcDifficulty(chain ChainHeaderReader, time uint64, parent *types.Header) *big.Int
@@ -162,6 +153,7 @@ type PoSA interface {
 	IsLocalBlock(header *types.Header) bool
 	GetJustifiedNumberAndHash(chain ChainHeaderReader, headers []*types.Header) (uint64, common.Hash, error)
 	GetFinalizedHeader(chain ChainHeaderReader, header *types.Header) *types.Header
+	CheckFinalityAndNotify(chain ChainHeaderReader, targetBlockHash common.Hash, notifyFn func(finalizedHeader *types.Header))
 	VerifyVote(chain ChainHeaderReader, vote *types.VoteEnvelope) error
 	IsActiveValidatorAt(chain ChainHeaderReader, header *types.Header, checkVoteKeyFn func(bLSPublicKey *types.BLSPublicKey) bool) bool
 	NextProposalBlock(chain ChainHeaderReader, header *types.Header, proposer common.Address) (uint64, uint64, error)

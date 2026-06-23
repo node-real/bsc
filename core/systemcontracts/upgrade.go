@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/systemcontracts/moran"
 	"github.com/ethereum/go-ethereum/core/systemcontracts/niels"
 	"github.com/ethereum/go-ethereum/core/systemcontracts/pascal"
+	"github.com/ethereum/go-ethereum/core/systemcontracts/pasteur"
 	"github.com/ethereum/go-ethereum/core/systemcontracts/planck"
 	"github.com/ethereum/go-ethereum/core/systemcontracts/plato"
 	"github.com/ethereum/go-ethereum/core/systemcontracts/ramanujan"
@@ -95,6 +96,8 @@ var (
 	maxwellUpgrade = make(map[string]*Upgrade)
 
 	fermiUpgrade = make(map[string]*Upgrade)
+
+	pasteurUpgrade = make(map[string]*Upgrade)
 )
 
 func init() {
@@ -1055,6 +1058,54 @@ func init() {
 			},
 		},
 	}
+
+	pasteurUpgrade[mainNet] = &Upgrade{
+		UpgradeName: "pasteur",
+		Configs: []*UpgradeConfig{
+			{
+				ContractAddr: common.HexToAddress(StakeHubContract),
+				CommitUrl:    "https://github.com/bnb-chain/bsc-genesis-contract/commit/041881a02475638b19f3d840871b7621cdebd8f8",
+				Code:         pasteur.MainnetStakeHubContract,
+			},
+			{
+				ContractAddr: common.HexToAddress(GovernorContract),
+				CommitUrl:    "https://github.com/bnb-chain/bsc-genesis-contract/commit/041881a02475638b19f3d840871b7621cdebd8f8",
+				Code:         pasteur.MainnetGovernorContract,
+			},
+		},
+	}
+
+	pasteurUpgrade[chapelNet] = &Upgrade{
+		UpgradeName: "pasteur",
+		Configs: []*UpgradeConfig{
+			{
+				ContractAddr: common.HexToAddress(StakeHubContract),
+				CommitUrl:    "https://github.com/bnb-chain/bsc-genesis-contract/commit/041881a02475638b19f3d840871b7621cdebd8f8",
+				Code:         pasteur.ChapelStakeHubContract,
+			},
+			{
+				ContractAddr: common.HexToAddress(GovernorContract),
+				CommitUrl:    "https://github.com/bnb-chain/bsc-genesis-contract/commit/041881a02475638b19f3d840871b7621cdebd8f8",
+				Code:         pasteur.ChapelGovernorContract,
+			},
+		},
+	}
+
+	pasteurUpgrade[rialtoNet] = &Upgrade{
+		UpgradeName: "pasteur",
+		Configs: []*UpgradeConfig{
+			{
+				ContractAddr: common.HexToAddress(StakeHubContract),
+				CommitUrl:    "https://github.com/bnb-chain/bsc-genesis-contract/commit/041881a02475638b19f3d840871b7621cdebd8f8",
+				Code:         pasteur.RialtoStakeHubContract,
+			},
+			{
+				ContractAddr: common.HexToAddress(GovernorContract),
+				CommitUrl:    "https://github.com/bnb-chain/bsc-genesis-contract/commit/041881a02475638b19f3d840871b7621cdebd8f8",
+				Code:         pasteur.RialtoGovernorContract,
+			},
+		},
+	}
 }
 
 func TryUpdateBuildInSystemContract(config *params.ChainConfig, blockNumber *big.Int, lastBlockTime uint64, blockTime uint64, statedb vm.StateDB, atBlockBegin bool) {
@@ -1063,8 +1114,8 @@ func TryUpdateBuildInSystemContract(config *params.ChainConfig, blockNumber *big
 			upgradeBuildInSystemContract(config, blockNumber, lastBlockTime, blockTime, statedb)
 		}
 		// HistoryStorageAddress is a special system contract in bsc, which can't be upgraded
-		if config.IsOnPrague(blockNumber, lastBlockTime, blockTime) {
-			statedb.SetCode(params.HistoryStorageAddress, params.HistoryStorageCode)
+		if config.IsInBSC() && config.IsOnPrague(blockNumber, lastBlockTime, blockTime) {
+			statedb.SetCode(params.HistoryStorageAddress, params.HistoryStorageCode, tracing.CodeChangeSystemContractUpgrade)
 			statedb.SetNonce(params.HistoryStorageAddress, 1, tracing.NonceChangeNewContract)
 			log.Info("Set code for HistoryStorageAddress", "blockNumber", blockNumber.Int64(), "blockTime", blockTime)
 		}
@@ -1174,6 +1225,10 @@ func upgradeBuildInSystemContract(config *params.ChainConfig, blockNumber *big.I
 		applySystemContractUpgrade(fermiUpgrade[network], blockNumber, statedb, logger)
 	}
 
+	if config.IsOnPasteur(blockNumber, lastBlockTime, blockTime) {
+		applySystemContractUpgrade(pasteurUpgrade[network], blockNumber, statedb, logger)
+	}
+
 	/*
 		apply other upgrades
 	*/
@@ -1200,7 +1255,7 @@ func applySystemContractUpgrade(upgrade *Upgrade, blockNumber *big.Int, statedb 
 		if err != nil {
 			panic(fmt.Errorf("failed to decode new contract code: %s", err.Error()))
 		}
-		statedb.SetCode(cfg.ContractAddr, newContractCode)
+		statedb.SetCode(cfg.ContractAddr, newContractCode, tracing.CodeChangeSystemContractUpgrade)
 
 		if cfg.AfterUpgrade != nil {
 			err := cfg.AfterUpgrade(blockNumber, cfg.ContractAddr, statedb)

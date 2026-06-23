@@ -132,9 +132,6 @@ type Peer struct {
 
 	// Indicates whether this peer is proxyed.
 	ProxyedPeerFlag atomic.Bool
-
-	// it indicates the peer can handle BAL(block access list) packet
-	CanHandleBAL atomic.Bool
 }
 
 // NewPeer returns a peer for testing purposes.
@@ -200,7 +197,6 @@ func (p *Peer) Fullname() string {
 
 // Caps returns the capabilities (supported subprotocols) of the remote peer.
 func (p *Peer) Caps() []Cap {
-	// TODO: maybe return copy
 	return p.rw.caps
 }
 
@@ -209,10 +205,8 @@ func (p *Peer) Caps() []Cap {
 // versions is supported by both this node and the peer p.
 func (p *Peer) RunningCap(protocol string, versions []uint) bool {
 	if proto, ok := p.running[protocol]; ok {
-		for _, ver := range versions {
-			if proto.Version == ver {
-				return true
-			}
+		if slices.Contains(versions, proto.Version) {
+			return true
 		}
 	}
 	return false

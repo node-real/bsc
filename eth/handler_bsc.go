@@ -17,22 +17,11 @@ func (h *bscHandler) Chain() *core.BlockChain { return h.chain }
 
 // RunPeer is invoked when a peer joins on the `bsc` protocol.
 func (h *bscHandler) RunPeer(peer *bsc.Peer, hand bsc.Handler) error {
-	if err := peer.Handshake(); err != nil {
-		// ensure that waitBscExtension receives the exit signal normally
-		// otherwise, can't graceful shutdown
-		ps := h.peers
-		id := peer.ID()
+	// Send capability message asynchronously for backward compatibility.
+	// Old nodes expect this message to complete their handshake.
+	// We don't wait for response - just send and continue.
+	peer.SendBscCap()
 
-		// Ensure nobody can double connect
-		ps.lock.Lock()
-		if wait, ok := ps.bscWait[id]; ok {
-			delete(ps.bscWait, id)
-			peer.Log().Error("Bsc extension Handshake failed", "err", err)
-			wait <- nil
-		}
-		ps.lock.Unlock()
-		return err
-	}
 	return (*handler)(h).runBscExtension(peer, hand)
 }
 
@@ -59,11 +48,9 @@ func (h *bscHandler) Handle(peer *bsc.Peer, packet bsc.Packet) error {
 }
 
 // handleVotesBroadcast is invoked from a peer's message handler when it transmits a
-// votes broadcast for the local node to process.
+// votes broadcast for the local node to process. Per-peer rate limiting happens
+// upstream in bsc.handleVotes via IsOverLimitAfterReceivingVotes.
 func (h *bscHandler) handleVotesBroadcast(peer *bsc.Peer, votes []*types.VoteEnvelope) error {
-	if peer.IsOverLimitAfterReceiving() {
-		return nil
-	}
 	// Here we only put the first vote, to avoid ddos attack by sending a large batch of votes.
 	// This won't abandon any valid vote, because one vote is sent every time referring to func voteBroadcastLoop
 	if len(votes) > 0 {

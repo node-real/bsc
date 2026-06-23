@@ -423,6 +423,9 @@ func (b *backendMock) CurrentValidators() ([]common.Address, error) { return []c
 
 func (b *backendMock) MevRunning() bool                       { return false }
 func (b *backendMock) HasBuilder(builder common.Address) bool { return false }
+func (b *backendMock) GetBidBlockPermission(builder common.Address) types.BidBlockPermissionStatus {
+	return types.BidBlockPermissionStatus{}
+}
 func (b *backendMock) MevParams() *types.MevParams {
 	return &types.MevParams{}
 }
@@ -431,6 +434,9 @@ func (b *backendMock) StopMev()                                                 
 func (b *backendMock) AddBuilder(builder common.Address, builderUrl string) error { return nil }
 func (b *backendMock) RemoveBuilder(builder common.Address) error                 { return nil }
 func (b *backendMock) SendBid(ctx context.Context, bid *types.BidArgs) (common.Hash, error) {
+	panic("implement me")
+}
+func (b *backendMock) SendBidBlock(ctx context.Context, args *types.BidBlockArgs) (common.Hash, error) {
 	panic("implement me")
 }
 func (b *backendMock) MinerInTurn() bool                            { return false }

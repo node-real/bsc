@@ -91,9 +91,6 @@ func inspectFreezers(db ethdb.Database) ([]freezerInfo, error) {
 			infos = append(infos, info)
 
 		case MerkleStateFreezerName, VerkleStateFreezerName:
-			if db.HasSeparateStateStore() {
-				continue
-			}
 			datadir, err := db.AncientDatadir()
 			if err != nil {
 				return nil, err
@@ -117,6 +114,23 @@ func inspectFreezers(db ethdb.Database) ([]freezerInfo, error) {
 			defer f.Close()
 
 			info, err := inspect(freezer, stateFreezerTableConfigs, f)
+			if err != nil {
+				return nil, err
+			}
+			infos = append(infos, info)
+
+		case MerkleTrienodeFreezerName, VerkleTrienodeFreezerName:
+			datadir, err := db.AncientDatadir()
+			if err != nil {
+				return nil, err
+			}
+			f, err := NewTrienodeFreezer(datadir, freezer == VerkleTrienodeFreezerName, true)
+			if err != nil {
+				continue // might be possible the trienode freezer is not existent
+			}
+			defer f.Close()
+
+			info, err := inspect(freezer, trienodeFreezerTableConfigs, f)
 			if err != nil {
 				return nil, err
 			}
@@ -160,7 +174,7 @@ func inspectIncrFreezers(db *snapDBWrapper) ([]freezerInfo, error) {
 // ancient indicates the path of root ancient directory where the chain freezer can
 // be opened. Start and end specify the range for dumping out indexes.
 // Note this function can only be used for debugging purposes.
-func InspectFreezerTable(ancient string, freezerName string, tableName string, start, end int64, multiDatabase bool) error {
+func InspectFreezerTable(ancient string, freezerName string, tableName string, start, end int64) error {
 	var (
 		path   string
 		tables map[string]freezerTableConfig
@@ -170,11 +184,7 @@ func InspectFreezerTable(ancient string, freezerName string, tableName string, s
 		path, tables = resolveChainFreezerDir(ancient), chainFreezerTableConfigs
 
 	case MerkleStateFreezerName, VerkleStateFreezerName:
-		if multiDatabase {
-			path, tables = filepath.Join(filepath.Dir(ancient)+"/state/ancient", freezerName), stateFreezerTableConfigs
-		} else {
-			path, tables = filepath.Join(ancient, freezerName), stateFreezerTableConfigs
-		}
+		path, tables = filepath.Join(ancient, freezerName), stateFreezerTableConfigs
 	default:
 		return fmt.Errorf("unknown freezer, supported ones: %v", freezers)
 	}

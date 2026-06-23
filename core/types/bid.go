@@ -175,6 +175,10 @@ type Bid struct {
 	committed    bool // whether the bid has been committed to simulate or not
 
 	rawBid RawBid
+
+	// BlobValResults carries per-tx results of async blob validation (field
+	// checks + KZG proof verification), keyed by transaction hash.
+	BlobValResults map[common.Hash]chan error
 }
 
 func (b *Bid) Commit() {
@@ -198,6 +202,102 @@ type BidIssue struct {
 	Message   string
 }
 
+// BidBlockArgs is the input for the SendBidBlock RPC.
+type BidBlockArgs struct {
+	BidBlock  *BidBlock
+	Signature hexutil.Bytes `json:"signature"`
+}
+
+// EcrecoverSender recovers the builder address from the signature over BidBlock.Hash().
+func (b *BidBlockArgs) EcrecoverSender() (common.Address, error) {
+	pk, err := crypto.SigToPub(b.BidBlock.Hash().Bytes(), b.Signature)
+	if err != nil {
+		return common.Address{}, err
+	}
+	return crypto.PubkeyToAddress(*pk), nil
+}
+
+// ToDecodedBidBlock converts BidBlockArgs to a decoded internal representation.
+// Note: transaction sender recovery is deferred to InsertChain.
+func (b *BidBlockArgs) ToDecodedBidBlock(builder common.Address) (*DecodedBidBlock, error) {
+	txs, err := b.DecodeTxs()
+	if err != nil {
+		return nil, err
+	}
+
+	sidecars := b.BidBlock.Sidecars
+	if sidecars == nil {
+		sidecars = BlobSidecars{}
+	}
+
+	return &DecodedBidBlock{
+		Builder:  builder,
+		Header:   CopyHeader(b.BidBlock.Header),
+		Txs:      txs,
+		Sidecars: sidecars,
+		bidHash:  b.BidBlock.Hash(),
+	}, nil
+}
+
+// DecodeTxs decodes user txs followed by unsigned system txs.
+func (b *BidBlockArgs) DecodeTxs() ([]*Transaction, error) {
+	txs := make([]*Transaction, len(b.BidBlock.Transactions))
+	for i, txBytes := range b.BidBlock.Transactions {
+		tx := new(Transaction)
+		if err := tx.UnmarshalBinary(txBytes); err != nil {
+			return nil, fmt.Errorf("failed to decode tx %d: %v", i, err)
+		}
+		txs[i] = tx
+	}
+	return txs, nil
+}
+
+// BidBlock is the builder-proposed block carried by BidBlockArgs.
+type BidBlock struct {
+	Header       *Header         `json:"header"`
+	Transactions []hexutil.Bytes `json:"transactions"` // user txs first, unsigned system txs last
+	Sidecars     BlobSidecars    `json:"sidecars,omitempty"`
+
+	hash atomic.Value
+}
+
+// Hash returns rlpHash over all BidBlock fields. This is what the builder signs.
+func (b *BidBlock) Hash() common.Hash {
+	if hash := b.hash.Load(); hash != nil {
+		return hash.(common.Hash)
+	}
+	h := rlpHash(b)
+	b.hash.Store(h)
+	return h
+}
+
+// DecodedBidBlock is the validator-side decoded representation of a BidBlock.
+type DecodedBidBlock struct {
+	Builder       common.Address // recovered from BidBlockArgs.Signature
+	Header        *Header
+	Txs           Transactions
+	Sidecars      BlobSidecars
+	GasFee        *big.Int
+	SystemTxStart int // index in Txs where the unsigned trailing system-tx region begins; set during admission.
+
+	bidHash common.Hash
+}
+
+// Hash returns the hash of the original BidBlock payload.
+func (d *DecodedBidBlock) Hash() common.Hash {
+	return d.bidHash
+}
+
+// BlockNumber returns the block number from the header.
+func (d *DecodedBidBlock) BlockNumber() uint64 {
+	return d.Header.Number.Uint64()
+}
+
+// ParentHash returns the parent hash from the header.
+func (d *DecodedBidBlock) ParentHash() common.Hash {
+	return d.Header.ParentHash
+}
+
 type MevParams struct {
 	ValidatorCommission   uint64 // 100 means 1%
 	BidSimulationLeftOver time.Duration
@@ -206,5 +306,6 @@ type MevParams struct {
 	GasCeil               uint64
 	GasPrice              *big.Int // Minimum avg gas price for bid block
 	BuilderFeeCeil        *big.Int
+	BidBlockEnabled       bool // whether mev_sendBidBlock is accepted
 	Version               string
 }

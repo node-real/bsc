@@ -123,6 +123,10 @@ type AncientReaderOp interface {
 	//   - if maxBytes is not specified, 'count' items will be returned if they are present
 	AncientRange(kind string, start, count, maxBytes uint64) ([][]byte, error)
 
+	// AncientBytes retrieves the value segment of the element specified by the id
+	// and value offsets.
+	AncientBytes(kind string, id, offset, length uint64) ([]byte, error)
+
 	// Ancients returns the ancient item numbers in the ancient store.
 	Ancients() (uint64, error)
 
@@ -211,17 +215,11 @@ type AncientStater interface {
 	AncientDatadir() (string, error)
 }
 
-// StateStoreReader wraps the StateStoreReader method.
-type StateStoreReader interface {
-	StateStoreReader() Reader
-}
-
 // Reader contains the methods required to read data from both key-value as well as
 // immutable ancient data.
 type Reader interface {
 	KeyValueReader
 	AncientReader
-	StateStoreReader
 }
 
 // AncientStore contains all the methods required to allow handling different
@@ -231,12 +229,6 @@ type AncientStore interface {
 	AncientWriter
 	AncientStater
 	io.Closer
-}
-
-type StateStore interface {
-	SetStateStore(state Database)
-	GetStateStore() Database
-	HasSeparateStateStore() bool
 }
 
 // ResettableAncientStore extends the AncientStore interface by adding a Reset method.
@@ -250,8 +242,6 @@ type ResettableAncientStore interface {
 // Database contains all the methods required by the high level database to not
 // only access the key-value data store but also the ancient chain store.
 type Database interface {
-	StateStore
-	StateStoreReader
 	AncientFreezer
 
 	KeyValueStore

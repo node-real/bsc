@@ -7,7 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tendermint/iavl"
+	"github.com/cometbft/cometbft/types"
+	"github.com/cosmos/iavl"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
 	cmn "github.com/tendermint/tendermint/libs/common"
@@ -107,6 +108,10 @@ func (c *tmHeaderValidate) Run(input []byte) (result []byte, err error) {
 	return result, nil
 }
 
+func (c *tmHeaderValidate) Name() string {
+	return "HEADER_VALIDATE"
+}
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // iavlMerkleProofValidate implemented as a native contract.
@@ -125,25 +130,38 @@ func (c *iavlMerkleProofValidate) Run(input []byte) (result []byte, err error) {
 	return c.basicIavlMerkleProofValidate.Run(input)
 }
 
-// tmHeaderValidateNano implemented as a native contract.
-type tmHeaderValidateNano struct{}
+func (c *iavlMerkleProofValidate) Name() string {
+	return "IAVL_MERKLE_PROOF_VALIDATE"
+}
 
-func (c *tmHeaderValidateNano) RequiredGas(input []byte) uint64 {
+// tmHeaderValidateDeprecated implemented as a native contract that disables the
+// legacy v1 Tendermint header-validate precompile (returns an error for any input).
+type tmHeaderValidateDeprecated struct{}
+
+func (c *tmHeaderValidateDeprecated) RequiredGas(input []byte) uint64 {
 	return params.TendermintHeaderValidateGas
 }
 
-func (c *tmHeaderValidateNano) Run(input []byte) (result []byte, err error) {
-	return nil, errors.New("suspend")
+func (c *tmHeaderValidateDeprecated) Run(input []byte) (result []byte, err error) {
+	return nil, errors.New("deprecated")
 }
 
-type iavlMerkleProofValidateNano struct{}
+func (c *tmHeaderValidateDeprecated) Name() string {
+	return "HEADER_VALIDATE_DEPRECATED"
+}
 
-func (c *iavlMerkleProofValidateNano) RequiredGas(_ []byte) uint64 {
+type iavlMerkleProofValidateDeprecated struct{}
+
+func (c *iavlMerkleProofValidateDeprecated) RequiredGas(_ []byte) uint64 {
 	return params.IAVLMerkleProofValidateGas
 }
 
-func (c *iavlMerkleProofValidateNano) Run(_ []byte) (result []byte, err error) {
-	return nil, errors.New("suspend")
+func (c *iavlMerkleProofValidateDeprecated) Run(_ []byte) (result []byte, err error) {
+	return nil, errors.New("deprecated")
+}
+
+func (c *iavlMerkleProofValidateDeprecated) Name() string {
+	return "IAVL_MERKLE_PROOF_VALIDATE_DEPRECATED"
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -163,6 +181,10 @@ func (c *iavlMerkleProofValidateMoran) Run(input []byte) (result []byte, err err
 		forbiddenSimpleValueOpVerifier,
 	}
 	return c.basicIavlMerkleProofValidate.Run(input)
+}
+
+func (c *iavlMerkleProofValidateMoran) Name() string {
+	return "IAVL_MERKLE_PROOF_VALIDATE_MORAN"
 }
 
 type iavlMerkleProofValidatePlanck struct {
@@ -186,6 +208,10 @@ func (c *iavlMerkleProofValidatePlanck) Run(input []byte) (result []byte, err er
 	return c.basicIavlMerkleProofValidate.Run(input)
 }
 
+func (c *iavlMerkleProofValidatePlanck) Name() string {
+	return "IAVL_MERKLE_PROOF_VALIDATE_PLANCK"
+}
+
 type iavlMerkleProofValidatePlato struct {
 	basicIavlMerkleProofValidate
 }
@@ -205,6 +231,10 @@ func (c *iavlMerkleProofValidatePlato) Run(input []byte) (result []byte, err err
 	c.basicIavlMerkleProofValidate.keyVerifier = keyVerifier
 	c.basicIavlMerkleProofValidate.opsVerifier = proofOpsVerifier
 	return c.basicIavlMerkleProofValidate.Run(input)
+}
+
+func (c *iavlMerkleProofValidatePlato) Name() string {
+	return "IAVL_MERKLE_PROOF_VALIDATE_PLATO"
 }
 
 func successfulMerkleResult() []byte {
@@ -363,14 +393,18 @@ func (c *cometBFTLightBlockValidate) RequiredGas(input []byte) uint64 {
 	return params.CometBFTLightBlockValidateGas
 }
 
-func (c *cometBFTLightBlockValidate) run(input []byte, isHertz bool) (result []byte, err error) {
+func (c *cometBFTLightBlockValidate) run(input []byte, isHertz bool, requireUniqueValidators bool) (result []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("internal error: %v\n", r)
 		}
 	}()
 
-	cs, block, err := v2.DecodeLightBlockValidationInput(input)
+	var (
+		cs    *v2.ConsensusState
+		block *types.LightBlock
+	)
+	cs, block, err = v2.DecodeLightBlockValidationInput(input, requireUniqueValidators)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +424,11 @@ func (c *cometBFTLightBlockValidate) run(input []byte, isHertz bool) (result []b
 }
 
 func (c *cometBFTLightBlockValidate) Run(input []byte) (result []byte, err error) {
-	return c.run(input, false)
+	return c.run(input, false, false)
+}
+
+func (c *cometBFTLightBlockValidate) Name() string {
+	return "COMET_BFT_LIGHT_BLOCK_VALIDATE"
 }
 
 type cometBFTLightBlockValidateHertz struct {
@@ -398,7 +436,28 @@ type cometBFTLightBlockValidateHertz struct {
 }
 
 func (c *cometBFTLightBlockValidateHertz) Run(input []byte) (result []byte, err error) {
-	return c.run(input, true)
+	return c.run(input, true, false)
+}
+
+func (c *cometBFTLightBlockValidateHertz) Name() string {
+	return "COMET_BFT_LIGHT_BLOCK_VALIDATE_HERTZ"
+}
+
+type cometBFTLightBlockValidatePasteur struct {
+	cometBFTLightBlockValidate
+}
+
+// Price per input byte so cost scales with the validator/signature count.
+func (c *cometBFTLightBlockValidatePasteur) RequiredGas(input []byte) uint64 {
+	return params.CometBFTLightBlockValidateGas + uint64(len(input))*params.CometBFTLightBlockValidatePerByteGas
+}
+
+func (c *cometBFTLightBlockValidatePasteur) Run(input []byte) (result []byte, err error) {
+	return c.run(input, true, true)
+}
+
+func (c *cometBFTLightBlockValidatePasteur) Name() string {
+	return "COMET_BFT_LIGHT_BLOCK_VALIDATE_PASTEUR"
 }
 
 // secp256k1SignatureRecover implemented as a native contract.
@@ -436,4 +495,8 @@ func (c *secp256k1SignatureRecover) runTMSecp256k1Signature(pubkey, signatureStr
 		return nil, errors.New("invalid signature")
 	}
 	return tmPubKey.Address().Bytes(), nil
+}
+
+func (c *secp256k1SignatureRecover) Name() string {
+	return "SECP256K1_SIGNATURE_RECOVER"
 }

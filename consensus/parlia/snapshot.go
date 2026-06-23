@@ -25,6 +25,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/bits-and-blooms/bitset"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/lru"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -218,6 +219,10 @@ func (s *Snapshot) updateAttestation(header *types.Header, chainConfig *params.C
 			return
 		}
 	}
+
+	// Update vote count metric after validation passed
+	voteCount := bitset.From([]uint64{uint64(attestation.VoteAddressSet)}).Count()
+	attestationVoteCountGauge.Update(int64(voteCount))
 
 	// Update attestation
 	// Two scenarios for s.Attestation being nil:

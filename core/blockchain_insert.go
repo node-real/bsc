@@ -39,7 +39,7 @@ const statsReportLimit = 8 * time.Second
 
 // report prints statistics if some number of blocks have been processed
 // or more than a few seconds have passed since the last message.
-func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, snapBufItems, trieDiffNodes, trieBufNodes, trieImmutableBufNodes common.StorageSize, setHead bool) {
+func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, snapBufItems, trieDiffNodes, trieBufNodes common.StorageSize, setHead bool) {
 	// Fetch the timings for the batch
 	var (
 		now     = mclock.Now()
@@ -62,7 +62,7 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 		context := []interface{}{
 			"number", end.Number(), "hash", end.Hash(), "miner", end.Coinbase(),
 			"blocks", st.processed, "txs", txs, "blobs", blobs, "mgas", float64(st.usedGas) / 1000000,
-			"elapsed", common.PrettyDuration(elapsed), "mgasps", mgasps, "BAL", end.BAL() != nil,
+			"elapsed", common.PrettyDuration(elapsed), "mgasps", mgasps,
 		}
 		blockInsertMgaspsGauge.Update(int64(mgasps))
 		if timestamp := time.Unix(int64(end.Time()), 0); time.Since(timestamp) > time.Minute {
@@ -78,7 +78,6 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 			context = append(context, []interface{}{"triediffs", trieDiffNodes}...)
 		}
 		context = append(context, []interface{}{"triedirty", trieBufNodes}...)
-		context = append(context, []interface{}{"trieimutabledirty", trieImmutableBufNodes}...)
 
 		if st.ignored > 0 {
 			context = append(context, []interface{}{"ignored", st.ignored}...)

@@ -26,8 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/params"
-
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/cmd/utils"
@@ -77,7 +75,12 @@ var (
 		utils.OverrideMaxwell,
 		utils.OverrideFermi,
 		utils.OverrideOsaka,
+		utils.OverrideMendel,
+		utils.OverridePasteur,
+		utils.OverrideBPO1,
+		utils.OverrideBPO2,
 		utils.OverrideVerkle,
+		utils.OverrideGenesisFlag,
 		utils.OverrideFullImmutabilityThreshold,
 		utils.OverrideMinBlocksForBlobRequests,
 		utils.OverrideDefaultExtraReserveForBlobRequests,
@@ -94,9 +97,11 @@ var (
 		utils.TxPoolGlobalSlotsFlag,
 		utils.TxPoolAccountQueueFlag,
 		utils.TxPoolGlobalQueueFlag,
-		utils.TxPoolOverflowPoolSlotsFlag,
+		utils.TxPoolOverflowPoolSlotsFlag, // deprecated
 		utils.TxPoolLifetimeFlag,
 		utils.TxPoolReannounceTimeFlag,
+		utils.MinerTxGasLimitFlag,
+		utils.EnableBALFlag,
 		utils.BlobPoolDataDirFlag,
 		utils.BlobPoolDataCapFlag,
 		utils.BlobPoolPriceBumpFlag,
@@ -115,7 +120,7 @@ var (
 		utils.LogExportCheckpointsFlag,
 		utils.StateHistoryFlag,
 		utils.PathDBSyncFlag,
-		utils.JournalFileFlag,
+		utils.JournalFileFlag, // deprecated
 		utils.LightKDFFlag,
 		utils.EthRequiredBlocksFlag,
 		utils.LegacyWhitelistFlag, // deprecated
@@ -129,7 +134,6 @@ var (
 		utils.CacheSnapshotFlag,
 		// utils.CacheNoPrefetchFlag,
 		utils.CachePreimagesFlag,
-		// utils.MultiDataBaseFlag,
 		utils.PruneAncientDataFlag, // deprecated
 		utils.CacheLogSizeFlag,
 		utils.FDLimitFlag,
@@ -147,7 +151,6 @@ var (
 		utils.MinerRecommitIntervalFlag,
 		utils.MinerNewPayloadTimeoutFlag, // deprecated
 		utils.MinerDelayLeftoverFlag,
-		utils.EnableBALFlag,
 		// utils.MinerNewPayloadTimeout,
 		utils.NATFlag,
 		utils.NoDiscoverFlag,
@@ -166,6 +169,8 @@ var (
 		utils.VMEnableDebugFlag,
 		utils.VMTraceFlag,
 		utils.VMTraceJsonConfigFlag,
+		utils.VMWitnessStatsFlag,
+		utils.VMStatelessSelfValidationFlag,
 		utils.NetworkIdFlag,
 		utils.EthStatsURLFlag,
 		utils.GpoBlocksFlag,
@@ -229,9 +234,12 @@ var (
 		utils.RPCGlobalGasCapFlag,
 		utils.RPCGlobalEVMTimeoutFlag,
 		utils.RPCGlobalTxFeeCapFlag,
+		utils.RPCGlobalLogQueryLimit,
 		utils.AllowUnprotectedTxs,
 		utils.BatchRequestLimit,
 		utils.BatchResponseMaxSize,
+		utils.RPCTxSyncDefaultTimeoutFlag,
+		utils.RPCTxSyncMaxTimeoutFlag,
 	}
 
 	metricsFlags = []cli.Flag{
@@ -249,12 +257,7 @@ var (
 		utils.MetricsInfluxDBTokenFlag,
 		utils.MetricsInfluxDBBucketFlag,
 		utils.MetricsInfluxDBOrganizationFlag,
-	}
-
-	fakeBeaconFlags = []cli.Flag{
-		utils.FakeBeaconEnabledFlag,
-		utils.FakeBeaconAddrFlag,
-		utils.FakeBeaconPortFlag,
+		utils.StateSizeTrackingFlag,
 	}
 )
 
@@ -312,7 +315,6 @@ func init() {
 		consoleFlags,
 		debug.Flags,
 		metricsFlags,
-		fakeBeaconFlags,
 	)
 	flags.AutoEnvVars(app.Flags, "GETH")
 
@@ -453,10 +455,6 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 
 	// Start auxiliary services if enabled
 	ethBackend, ok := backend.(*eth.EthAPIBackend)
-	gasCeil := ethBackend.Miner().GasCeil()
-	if gasCeil > params.SystemTxsGasSoftLimit {
-		ethBackend.TxPool().SetMaxGas(gasCeil - params.SystemTxsGasSoftLimit)
-	}
 	if ctx.Bool(utils.MiningEnabledFlag.Name) {
 		// Mining only makes sense if a full Ethereum node is running
 		if ctx.String(utils.SyncModeFlag.Name) == "light" {

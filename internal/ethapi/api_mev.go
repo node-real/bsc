@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -87,12 +88,87 @@ func (m *MevAPI) SendBid(ctx context.Context, args types.BidArgs) (common.Hash, 
 	return m.b.SendBid(ctx, &args)
 }
 
+// SendBidBlock receives a BidBlock from builders.
+func (m *MevAPI) SendBidBlock(ctx context.Context, args types.BidBlockArgs) (common.Hash, error) {
+	ctx = context.WithValue(ctx, "receiveTime", time.Now().UnixMilli())
+	if !m.b.MevRunning() {
+		return common.Hash{}, types.ErrMevNotRunning
+	}
+
+	// Basic structural validation.
+	if args.BidBlock == nil {
+		return common.Hash{}, types.NewInvalidBidError("empty BidBlock")
+	}
+	bb := args.BidBlock
+	if bb.Header == nil {
+		return common.Hash{}, types.NewInvalidBidError("empty Header")
+	}
+
+	blockNumber := bb.Header.Number.Uint64()
+	parentHash := bb.Header.ParentHash
+	currentBlock := m.b.CurrentBlock()
+	currentNumber := currentBlock.Number.Uint64()
+
+	if blockNumber < currentNumber+1 {
+		return common.Hash{}, types.NewInvalidBidError(
+			fmt.Sprintf("stale block number: %d, latest block: %d", blockNumber, currentNumber))
+	} else if blockNumber > currentNumber+1 {
+		return common.Hash{}, types.NewInvalidBidError(
+			fmt.Sprintf("block in future: %d, latest block: %d", blockNumber, currentNumber))
+	} else if !m.b.MinerInTurn() {
+		return common.Hash{}, types.ErrMevNotInTurn
+	}
+
+	if parentHash != currentBlock.Hash() {
+		return common.Hash{}, types.NewInvalidBidError(
+			fmt.Sprintf("non-aligned parent hash: %v", currentBlock.Hash()))
+	}
+
+	if bb.Header.GasUsed == 0 {
+		return common.Hash{}, types.NewInvalidBidError("empty gasUsed in header")
+	}
+
+	if len(bb.Transactions) == 0 {
+		return common.Hash{}, types.NewInvalidBidError("empty transactions")
+	}
+
+	return m.b.SendBidBlock(ctx, &args)
+}
+
 func (m *MevAPI) Params() *types.MevParams {
 	return m.b.MevParams()
 }
 
 func (m *MevAPI) HasBuilder(builder common.Address) bool {
 	return m.b.HasBuilder(builder)
+}
+
+type BidBlockPermissionResult struct {
+	Allowed     bool            `json:"allowed"`
+	Reason      string          `json:"reason,omitempty"`
+	BlockHash   *common.Hash    `json:"blockHash,omitempty"`
+	BlockNumber *hexutil.Uint64 `json:"blockNumber,omitempty"`
+	RevokedAt   *time.Time      `json:"revokedAt,omitempty"`
+	ResetAt     *time.Time      `json:"resetAt,omitempty"`
+}
+
+func (m *MevAPI) GetBidBlockPermission(builder common.Address) *BidBlockPermissionResult {
+	status := m.b.GetBidBlockPermission(builder)
+	result := &BidBlockPermissionResult{
+		Allowed: status.Allowed,
+	}
+	if !status.Allowed {
+		blockHash := status.BlockHash
+		blockNum := hexutil.Uint64(status.BlockNum)
+		revokedAt := status.RevokedAt
+		resetAt := status.ResetAt
+		result.Reason = status.Reason
+		result.BlockHash = &blockHash
+		result.BlockNumber = &blockNum
+		result.RevokedAt = &revokedAt
+		result.ResetAt = &resetAt
+	}
+	return result
 }
 
 // Running returns true if mev is running

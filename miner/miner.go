@@ -60,6 +60,7 @@ type Miner struct {
 }
 
 func New(eth Backend, config *minerconfig.Config, mux *event.TypeMux, engine consensus.Engine) *Miner {
+	bidBlockPermMgr := NewBidBlockPermissionManager()
 	miner := &Miner{
 		mux:     mux,
 		eth:     eth,
@@ -67,7 +68,7 @@ func New(eth Backend, config *minerconfig.Config, mux *event.TypeMux, engine con
 		exitCh:  make(chan struct{}),
 		startCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
-		worker:  newWorker(config, engine, eth, mux),
+		worker:  newWorker(config, engine, eth, mux, bidBlockPermMgr),
 	}
 
 	miner.bidSimulator = newBidSimulator(&config.Mev, config.DelayLeftOver, config.GasPrice, eth, eth.BlockChain().Config(), engine, miner.worker)
@@ -170,6 +171,10 @@ func (miner *Miner) Mining() bool {
 	return miner.worker.isRunning()
 }
 
+func (miner *Miner) VoteEnabled() bool {
+	return miner.worker.config.VoteEnable && !miner.worker.config.MB.VoteDisable
+}
+
 func (miner *Miner) InTurn() bool {
 	return miner.worker.inTurn()
 }
@@ -225,6 +230,49 @@ func (miner *Miner) SetPrioAddresses(prio []common.Address) {
 // For pre-1559 blocks, it sets the ceiling.
 func (miner *Miner) SetGasCeil(ceil uint64) {
 	miner.worker.setGasCeil(ceil)
+}
+
+func (miner *Miner) MBConfig() minerconfig.MBConfig {
+	return miner.worker.config.MB
+}
+
+func (miner *Miner) ResetMaliciousBehavior() {
+	miner.worker.config.MB = minerconfig.DefaultMBConfig
+}
+
+func (miner *Miner) SetDoubleSign(on bool) {
+	miner.worker.config.MB.DoubleSign = on
+}
+
+func (miner *Miner) SetVoteDisable(on bool) {
+	miner.worker.config.MB.VoteDisable = on
+}
+
+func (miner *Miner) SetSkipOffsetInturn(offset uint64) {
+	miner.worker.config.MB.SkipOffsetInturn = &offset
+}
+
+func (miner *Miner) SetBroadcastDelayBlocks(num uint64) {
+	miner.worker.config.MB.BroadcastDelayBlocks = num
+}
+
+func (miner *Miner) SetLastBlockMiningTime(time uint64) {
+	miner.worker.config.MB.LastBlockMiningTime = time
+}
+
+// SetForceBlobOnNonEligible sets whether to force blob txs on non-eligible blocks (N % 5 != 0).
+func (miner *Miner) SetForceBlobOnNonEligible(on bool) {
+	miner.worker.config.MB.ForceBlobOnNonEligible = on
+}
+
+// SetCorruptBlobSidecar sets whether to corrupt blob sidecar data during P2P broadcast.
+func (miner *Miner) SetCorruptBlobSidecar(on bool) {
+	miner.worker.config.MB.CorruptBlobSidecar = on
+}
+
+// SetDropBlobSidecar sets whether to drop blob sidecars during P2P broadcast.
+func (miner *Miner) SetDropBlobSidecar(on bool) {
+	miner.worker.config.MB.DropBlobSidecar = on
 }
 
 // BuildPayload builds the payload according to the provided parameters.

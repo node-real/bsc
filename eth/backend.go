@@ -24,15 +24,17 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/parlia"
 	"github.com/ethereum/go-ethereum/core"
@@ -66,7 +68,6 @@ import (
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/dnsdisc"
 	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/triedb/pathdb"
@@ -75,7 +76,6 @@ import (
 
 const (
 	ChainDBNamespace = "eth/db/chaindata/"
-	JournalFileName  = "trie.journal"
 	ChainData        = "chaindata"
 )
 
@@ -176,7 +176,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		config.Miner.GasPrice = new(big.Int).Set(ethconfig.Defaults.Miner.GasPrice)
 	}
 
-	chainDb, err := stack.OpenAndMergeDatabase(ChainData, ChainDBNamespace, false, config)
+	chainDb, err := stack.OpenDatabaseWithFreezer(ChainData, config.DatabaseCache, config.DatabaseHandles, config.DatabaseFreezer, ChainDBNamespace, false)
 	if err != nil {
 		return nil, err
 	}
@@ -256,6 +256,22 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		chainConfig.OsakaTime = config.OverrideOsaka
 		overrides.OverrideOsaka = config.OverrideOsaka
 	}
+	if config.OverrideMendel != nil {
+		chainConfig.MendelTime = config.OverrideMendel
+		overrides.OverrideMendel = config.OverrideMendel
+	}
+	if config.OverridePasteur != nil {
+		chainConfig.PasteurTime = config.OverridePasteur
+		overrides.OverridePasteur = config.OverridePasteur
+	}
+	if config.OverrideBPO1 != nil {
+		chainConfig.BPO1Time = config.OverrideBPO1
+		overrides.OverrideBPO1 = config.OverrideBPO1
+	}
+	if config.OverrideBPO2 != nil {
+		chainConfig.BPO2Time = config.OverrideBPO2
+		overrides.OverrideBPO2 = config.OverrideBPO2
+	}
 	if config.OverrideVerkle != nil {
 		chainConfig.VerkleTime = config.OverrideVerkle
 		overrides.OverrideVerkle = config.OverrideVerkle
@@ -319,16 +335,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		}
 	}
 
-	path := ChainData
-	if stack.CheckIfMultiDataBase() {
-		path = ChainData + "/state"
-	}
-	journalFilePath := stack.ResolvePath(path) + "/" + JournalFileName
 	var (
 		options = &core.BlockChainConfig{
 			TrieCleanLimit:        config.TrieCleanCache,
 			NoPrefetch:            config.NoPrefetch,
-			EnableBAL:             config.EnableBAL,
 			TrieDirtyLimit:        config.TrieDirtyCache,
 			ArchiveMode:           config.NoPruning,
 			TrieTimeLimit:         config.TrieTimeout,
@@ -339,8 +349,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			StateHistory:          config.StateHistory,
 			StateScheme:           config.StateScheme,
 			PathSyncFlush:         config.PathSyncFlush,
-			JournalFilePath:       journalFilePath,
-			JournalFile:           config.JournalFileEnabled,
 			EnableIncr:            config.EnableIncrSnapshots,
 			IncrHistoryPath:       config.IncrSnapshotPath,
 			IncrHistory:           config.IncrSnapshotBlockInterval,
@@ -354,6 +362,15 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 				EnablePreimageRecording:   config.EnablePreimageRecording,
 				EnableOpcodeOptimizations: config.EnableOpcodeOptimizing,
 			},
+			// Enables file journaling for the trie database. The journal files will be stored
+			// within the data directory. The corresponding paths will be either:
+			// - DATADIR/triedb/merkle.journal
+			// - DATADIR/triedb/verkle.journal
+			TrieJournalDirectory: stack.ResolvePath("triedb"),
+			StateSizeTracking:    config.EnableStateSizeTracking,
+
+			StatelessSelfValidation: config.StatelessSelfValidation,
+			EnableWitnessStats:      config.EnableWitnessStats,
 		}
 	)
 	if config.DisableTxIndexer {
@@ -377,6 +394,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if stack.Config().EnableDoubleSignMonitor {
 		bcOps = append(bcOps, core.EnableDoubleSignChecker)
 	}
+	// Override the chain config with provided settings.
 	options.Overrides = &overrides
 	eth.blockchain, err = core.NewBlockChain(chainDb, config.Genesis, eth.engine, options, bcOps...)
 	if err != nil {
@@ -384,11 +402,14 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 
 	// Initialize filtermaps log index.
+	// Auto-enable checkpoint file
+	checkpointFile := filepath.Join(stack.DataDir(), "geth", "filtermap_checkpoints.json")
+
 	fmConfig := filtermaps.Config{
-		History:        config.LogHistory,
-		Disabled:       config.LogNoHistory,
-		ExportFileName: config.LogExportCheckpoints,
-		HashScheme:     config.StateScheme == rawdb.HashScheme,
+		History:            config.LogHistory,
+		Disabled:           config.LogNoHistory,
+		CheckpointFileName: checkpointFile,
+		HashScheme:         config.StateScheme == rawdb.HashScheme,
 	}
 	chainView := eth.newChainView(eth.blockchain.CurrentBlock())
 	historyCutoff, _ := eth.blockchain.HistoryPruningCutoff()
@@ -443,7 +464,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		RequiredBlocks:            config.RequiredBlocks,
 		DirectBroadcast:           config.DirectBroadcast,
 		EnableEVNFeatures:         stack.Config().EnableEVNFeatures,
-		EnableBAL:                 config.EnableBAL,
 		EVNNodeIdsWhitelist:       stack.Config().P2P.EVNNodeIdsWhitelist,
 		ProxyedValidatorAddresses: stack.Config().P2P.ProxyedValidatorAddresses,
 		ProxyedNodeIds:            stack.Config().P2P.ProxyedNodeIds,
@@ -459,6 +479,12 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth.miner = miner.New(eth, &config.Miner, eth.EventMux(), eth.engine)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
 	eth.miner.SetPrioAddresses(config.TxPool.Locals)
+
+	// Set up malicious behavior config getter for handler (blob chaos testing)
+	eth.handler.SetMBConfigGetter(func() (corruptBlob, dropBlob bool) {
+		mbConfig := eth.miner.MBConfig()
+		return mbConfig.CorruptBlobSidecar, mbConfig.DropBlobSidecar
+	})
 
 	// Create voteManager instance
 	if posa, ok := eth.engine.(consensus.PoSA); ok {
@@ -510,12 +536,24 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 
 func makeExtraData(extra []byte) []byte {
 	if len(extra) == 0 {
-		// create default extradata
+		// For version >= 1.6.4, use compact format: [version(uint32), commitID, go_version, os]
+		commitID := ""
+		git, ok := version.VCS()
+		if ok && len(git.Commit) >= 8 {
+			commitID = git.Commit[:8]
+		}
+
+		osName := runtime.GOOS
+		if len(osName) > 3 {
+			osName = osName[:3]
+		}
+
+		versionWord := uint32(gethversion.Major<<16 | gethversion.Minor<<8 | gethversion.Patch)
 		extra, _ = rlp.EncodeToBytes([]interface{}{
-			uint(gethversion.Major<<16 | gethversion.Minor<<8 | gethversion.Patch),
-			"geth",
+			versionWord,
+			commitID,
 			runtime.Version(),
-			runtime.GOOS,
+			osName,
 		})
 	}
 	if uint64(len(extra)) > params.MaximumExtraDataSize-params.ForkIDSize {
@@ -790,6 +828,7 @@ func (s *Ethereum) StopMining() {
 }
 
 func (s *Ethereum) IsMining() bool      { return s.miner.Mining() }
+func (s *Ethereum) VoteEnabled() bool   { return s.miner.VoteEnabled() }
 func (s *Ethereum) Miner() *miner.Miner { return s.miner }
 
 func (s *Ethereum) AccountManager() *accounts.Manager  { return s.accountManager }
@@ -975,6 +1014,9 @@ func (s *Ethereum) setupDiscovery() error {
 func (s *Ethereum) Stop() error {
 	if s.miner.Mining() {
 		s.miner.TryWaitProposalDoneWhenStopping()
+	}
+	if s.votePool != nil {
+		s.votePool.Stop()
 	}
 	// Stop all the peer-related stuff first.
 	s.discmix.Close()

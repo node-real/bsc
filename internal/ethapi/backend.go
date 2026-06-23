@@ -55,6 +55,8 @@ type Backend interface {
 	RPCEVMTimeout() time.Duration // global timeout for eth_call over rpc: DoS protection
 	RPCTxFeeCap() float64         // global tx fee cap for all transaction related APIs
 	UnprotectedAllowed() bool     // allows only for EIP155 transactions.
+	RPCTxSyncDefaultTimeout() time.Duration
+	RPCTxSyncMaxTimeout() time.Duration
 
 	// Blockchain API
 	SetHead(number uint64)
@@ -119,8 +121,12 @@ type Backend interface {
 	RemoveBuilder(builder common.Address) error
 	// HasBuilder returns true if the builder is in the builder list.
 	HasBuilder(builder common.Address) bool
+	// GetBidBlockPermission returns the builder's current SendBidBlock permission.
+	GetBidBlockPermission(builder common.Address) types.BidBlockPermissionStatus
 	// SendBid receives bid from the builders.
 	SendBid(ctx context.Context, bid *types.BidArgs) (common.Hash, error)
+	// SendBidBlock receives a BidBlock from builders.
+	SendBidBlock(ctx context.Context, args *types.BidBlockArgs) (common.Hash, error)
 	// MinerInTurn returns true if the validator is in turn to propose the block.
 	MinerInTurn() bool
 

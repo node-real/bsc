@@ -33,6 +33,9 @@ import (
 
 const prefetchTxNumber = 50
 
+// uint256BitLen is the bit width of uint256; a value wider than this cannot fit a tx value.
+const uint256BitLen = 256
+
 var (
 	bidPreCheckTimer     = metrics.NewRegisteredTimer("bid/preCheck", nil)
 	bidTryInterruptTimer = metrics.NewRegisteredTimer("bid/sim/tryInterrupt", nil)
@@ -42,6 +45,20 @@ var (
 	simulateSpeedGauge = metrics.NewRegisteredGauge("bid/sim/simulateSpeed", nil) // mgasps
 
 	bidSimTimeoutCounter = metrics.NewRegisteredCounter("bid/sim/simTimeout", nil)
+
+	// greedyMergeOnchainCounter counts bids that went through greedy merge and were finally chosen as BUILDER BLOCK.
+	greedyMergeOnchainCounter = metrics.NewRegisteredCounter("bid/greedyMerge/onchain", nil)
+
+	// bidBlockBuildersGauge tracks the distinct registered builders that have
+	// sent BidBlock since node start (cumulative, in-memory, resets on restart).
+	bidBlockBuildersGauge = metrics.NewRegisteredGauge("bidblock/sendBidBlock/builders", nil)
+
+	// bidBlockPreCheckTimer measures SendBidBlock admission time from RPC receive
+	// to successful pre-seal verification, matching the legacy bid/preCheck scope.
+	bidBlockPreCheckTimer = metrics.NewRegisteredTimer("bidblock/sendBidBlock/preCheck", nil)
+
+	// bidBlockPreSealVerifyTimer measures only preSealVerifyBidBlock duration.
+	bidBlockPreSealVerifyTimer = metrics.NewRegisteredTimer("bidblock/sendBidBlock/preSealVerify", nil)
 )
 
 var (
@@ -70,8 +87,10 @@ var (
 type bidWorker interface {
 	prepareWork(params *generateParams, witness bool) (*environment, error)
 	etherbase() common.Address
+	getGasCeil() uint64
 	getPrefetcher() core.Prefetcher
 	fillTransactions(interruptCh chan int32, env *environment, stopTimer *time.Timer, bidTxs mapset.Set[common.Hash]) (err error)
+	forceBlobOnNonEligible() bool
 }
 
 // simBidReq is the request for simulating a bid
@@ -85,6 +104,11 @@ type newBidPackage struct {
 	bid         *types.Bid
 	feedback    chan error
 	receiveTime int64
+}
+
+type newBidBlockPackage struct {
+	bidBlock *types.DecodedBidBlock
+	feedback chan error
 }
 
 // bidSimulator is in charge of receiving bid from builders, reporting issue to builders.
@@ -129,6 +153,15 @@ type bidSimulator struct {
 	bidsToSim     map[uint64][]*BidRuntime    // blockNumber -->  bidRuntime list, used to discard envs
 
 	maxBidsPerBuilder uint32 // Maximum number of bids allowed per builder per block
+
+	// SendBidBlock fields
+	bestBidBlockMu sync.RWMutex
+	bestBidBlock   map[common.Hash]*types.DecodedBidBlock // parentHash -> best bid block
+	newBidBlockCh  chan newBidBlockPackage                // channel for incoming bid blocks
+
+	// distinct registered builders that have sent BidBlock since node start
+	bidBlockBuildersMu sync.Mutex
+	bidBlockBuilders   map[common.Address]struct{}
 }
 
 func newBidSimulator(
@@ -141,23 +174,26 @@ func newBidSimulator(
 	bidWorker bidWorker,
 ) *bidSimulator {
 	b := &bidSimulator{
-		config:        config,
-		minGasPrice:   minGasPrice,
-		chain:         eth.BlockChain(),
-		txpool:        eth.TxPool(),
-		chainConfig:   chainConfig,
-		engine:        engine,
-		bidWorker:     bidWorker,
-		exitCh:        make(chan struct{}),
-		chainHeadCh:   make(chan core.ChainHeadEvent, chainHeadChanSize),
-		builders:      make(map[common.Address]*builderclient.Client),
-		simBidCh:      make(chan *simBidReq),
-		newBidCh:      make(chan newBidPackage, 100),
-		pending:       make(map[uint64]map[common.Address]map[common.Hash]struct{}),
-		bestBid:       make(map[common.Hash]*BidRuntime),
-		bestBidToRun:  make(map[common.Hash]*types.Bid),
-		simulatingBid: make(map[common.Hash]*BidRuntime),
-		bidsToSim:     make(map[uint64][]*BidRuntime),
+		config:           config,
+		minGasPrice:      minGasPrice,
+		chain:            eth.BlockChain(),
+		txpool:           eth.TxPool(),
+		chainConfig:      chainConfig,
+		engine:           engine,
+		bidWorker:        bidWorker,
+		exitCh:           make(chan struct{}),
+		chainHeadCh:      make(chan core.ChainHeadEvent, chainHeadChanSize),
+		builders:         make(map[common.Address]*builderclient.Client),
+		simBidCh:         make(chan *simBidReq),
+		newBidCh:         make(chan newBidPackage, 100),
+		pending:          make(map[uint64]map[common.Address]map[common.Hash]struct{}),
+		bestBid:          make(map[common.Hash]*BidRuntime),
+		bestBidToRun:     make(map[common.Hash]*types.Bid),
+		simulatingBid:    make(map[common.Hash]*BidRuntime),
+		bidsToSim:        make(map[uint64][]*BidRuntime),
+		bestBidBlock:     make(map[common.Hash]*types.DecodedBidBlock),
+		newBidBlockCh:    make(chan newBidBlockPackage, 100),
+		bidBlockBuilders: make(map[common.Address]struct{}),
 	}
 	if delayLeftOver != nil {
 		b.delayLeftOver = *delayLeftOver
@@ -180,6 +216,7 @@ func newBidSimulator(
 	go b.clearLoop()
 	go b.mainLoop()
 	go b.newBidLoop()
+	go b.newBidBlockLoop()
 
 	return b
 }
@@ -430,6 +467,15 @@ func (b *bidSimulator) newBidLoop() {
 				continue
 			}
 
+			// Pre-check before simulation for fast feedback to the builder;
+			// simulation would reject these txs anyway via state_transition preCheck.
+			if errCap := b.checkIfBidExceedsTxGasLimit(newBid.bid); errCap != nil {
+				if newBid.feedback != nil {
+					newBid.feedback <- errCap
+				}
+				continue
+			}
+
 			var replyErr error
 			toCommit := true
 			bidAcceptted := true
@@ -520,9 +566,35 @@ func (b *bidSimulator) getBlockInterval(parentHeader *types.Header) uint64 {
 	return blockInterval
 }
 
+// checkIfBidExceedsTxGasLimit checks whether any transaction in the bid exceeds the max txn gas.
+func (b *bidSimulator) checkIfBidExceedsTxGasLimit(bid *types.Bid) error {
+	currentHeader := b.chain.CurrentBlock()
+	if !b.chainConfig.IsOsaka(currentHeader.Number, currentHeader.Time) {
+		return nil
+	}
+	for _, tx := range bid.Txs {
+		if tx.Gas() > params.MaxTxGas {
+			log.Debug("discard bid due to per-tx gas limit",
+				"block", bid.BlockNumber,
+				"bidHash", bid.Hash().TerminalString(),
+				"txHash", tx.Hash().TerminalString(),
+				"txGas", tx.Gas(),
+				"txGasLimit", params.MaxTxGas,
+			)
+			return fmt.Errorf("bid rejected: %w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+		}
+	}
+	return nil
+}
+
 func (b *bidSimulator) bidBetterBefore(parentHash common.Hash) time.Time {
 	parentHeader := b.chain.GetHeaderByHash(parentHash)
 	return bidutil.BidBetterBefore(parentHeader, b.getBlockInterval(parentHeader), b.delayLeftOver, *b.config.BidSimulationLeftOver)
+}
+
+func (b *bidSimulator) bidMustBefore(parentHash common.Hash) time.Time {
+	parentHeader := b.chain.GetHeaderByHash(parentHash)
+	return bidutil.BidMustBefore(parentHeader, b.getBlockInterval(parentHeader), b.delayLeftOver)
 }
 
 func (b *bidSimulator) clearLoop() {
@@ -568,6 +640,14 @@ func (b *bidSimulator) clearLoop() {
 			}
 		}
 		b.simBidMu.Unlock()
+
+		b.bestBidBlockMu.Lock()
+		for k, block := range b.bestBidBlock {
+			if block == nil || block.BlockNumber() <= clearThreshold {
+				delete(b.bestBidBlock, k)
+			}
+		}
+		b.bestBidBlockMu.Unlock()
 	}
 
 	for {
@@ -584,6 +664,217 @@ func (b *bidSimulator) clearLoop() {
 			return
 
 		case <-b.chainHeadSub.Err():
+			return
+		}
+	}
+}
+
+// AddBidBlock keeps the best BidBlock for a given parent hash.
+func (b *bidSimulator) AddBidBlock(parentHash common.Hash, block *types.DecodedBidBlock) error {
+	b.bestBidBlockMu.Lock()
+	defer b.bestBidBlockMu.Unlock()
+
+	if existing := b.bestBidBlock[parentHash]; existing != nil && block.GasFee.Cmp(existing.GasFee) <= 0 {
+		return fmt.Errorf("BidBlock gasFee not higher than current best: bidHash=%s got %s, bestBidHash=%s best %s",
+			block.Hash(), weiToEtherStringF6(block.GasFee), existing.Hash(), weiToEtherStringF6(existing.GasFee))
+	}
+	b.bestBidBlock[parentHash] = block
+	return nil
+}
+
+// GetBestBidBlock returns the best BidBlock for a given parent hash.
+func (b *bidSimulator) GetBestBidBlock(parentHash common.Hash) *types.DecodedBidBlock {
+	b.bestBidBlockMu.RLock()
+	defer b.bestBidBlockMu.RUnlock()
+	return b.bestBidBlock[parentHash]
+}
+
+// recordBidBlockBuilder adds builder to the cumulative set of registered
+// builders that have sent BidBlock and publishes the distinct count.
+// The set is kept in memory and resets on restart.
+func (b *bidSimulator) recordBidBlockBuilder(builder common.Address) {
+	b.bidBlockBuildersMu.Lock()
+	b.bidBlockBuilders[builder] = struct{}{}
+	count := len(b.bidBlockBuilders)
+	b.bidBlockBuildersMu.Unlock()
+	bidBlockBuildersGauge.Update(int64(count))
+}
+
+// preSealVerifyBidBlock validates a BidBlock before admission.
+func (b *bidSimulator) preSealVerifyBidBlock(decoded *types.DecodedBidBlock) error {
+	start := time.Now()
+	defer bidBlockPreSealVerifyTimer.UpdateSince(start)
+	parliaEngine, ok := b.engine.(*parlia.Parlia)
+	if !ok {
+		return errors.New("consensus engine is not parlia")
+	}
+	header := decoded.Header
+
+	if header.Coinbase != b.bidWorker.etherbase() {
+		return fmt.Errorf("invalid coinbase: got %s, want %s",
+			header.Coinbase.Hex(), b.bidWorker.etherbase().Hex())
+	}
+	parent := b.chain.GetHeaderByHash(header.ParentHash)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
+	}
+	expectedGasLimit := core.CalcGasLimit(parent.GasLimit, b.bidWorker.getGasCeil())
+	if header.GasLimit != expectedGasLimit {
+		return fmt.Errorf("invalid gasLimit: got %d, want %d", header.GasLimit, expectedGasLimit)
+	}
+	if err := parliaEngine.VerifyUnsealedHeader(b.chain, header, nil); err != nil {
+		return fmt.Errorf("invalid header: %v", err)
+	}
+	if err := parliaEngine.BlockTimeUpperCheck(b.chain, header); err != nil {
+		return fmt.Errorf("invalid header: %v", err)
+	}
+
+	decoded.SystemTxStart, decoded.GasFee = parliaEngine.ExtractBidBlockDepositValue(decoded.Txs)
+
+	// GasFee comes from the deposit tx value; reject overflow before bid selection.
+	if decoded.GasFee.Sign() <= 0 {
+		return errors.New("empty gasFee")
+	}
+	if decoded.GasFee.BitLen() > uint256BitLen {
+		return fmt.Errorf("gasFee exceeds uint256: bitLen %d", decoded.GasFee.BitLen())
+	}
+
+	// Only cheap sidecar checks run at admission; KZG is checked for the selected BidBlock.
+	if err := b.validateBidBlockBlobSidecars(decoded); err != nil {
+		return err
+	}
+
+	// Per-tx gas cap over user txs only, mirroring SendBid.
+	for _, tx := range decoded.Txs[:decoded.SystemTxStart] {
+		if tx.Gas() > params.MaxTxGas {
+			return fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+		}
+	}
+
+	return parliaEngine.VerifyBidBlockSystemTxs(decoded, parent, decoded.SystemTxStart)
+}
+
+// validateBidBlockBlobSidecars checks cheap sidecar invariants before bid selection.
+func (b *bidSimulator) validateBidBlockBlobSidecars(decoded *types.DecodedBidBlock) error {
+	header := decoded.Header
+	blobEligibleBlock := eip4844.IsBlobEligibleBlock(b.chainConfig, header.Number.Uint64(), header.Time)
+	maxBlobsPerBlock := eip4844.MaxBlobsPerBlock(b.chainConfig, header.Time)
+	sidecarIndex := 0
+	blobCount := 0
+	for txIndex, tx := range decoded.Txs[:decoded.SystemTxStart] {
+		if tx.Type() != types.BlobTxType {
+			continue
+		}
+		if !blobEligibleBlock {
+			return fmt.Errorf("blob transactions not allowed in block %d (N %% %d != 0)",
+				header.Number.Uint64(), params.BlobEligibleBlockInterval)
+		}
+		if sidecarIndex >= len(decoded.Sidecars) {
+			return fmt.Errorf("blob info mismatch: sidecars %d, blob txs at least %d",
+				len(decoded.Sidecars), sidecarIndex+1)
+		}
+		sidecar := decoded.Sidecars[sidecarIndex]
+		if sidecar == nil {
+			return fmt.Errorf("missing sidecar for blob tx at index %d", txIndex)
+		}
+		if sidecar.Version == types.BlobSidecarVersion1 {
+			return errors.New("cell proof is not supported yet")
+		}
+		if sidecar.TxHash != tx.Hash() {
+			return fmt.Errorf("sidecar's TxHash mismatch with transaction at index %d, want: %v, have: %v",
+				txIndex, tx.Hash(), sidecar.TxHash)
+		}
+		if sidecar.TxIndex != uint64(txIndex) {
+			return fmt.Errorf("sidecar's TxIndex mismatch with transaction at index %d, want: %d, have: %d",
+				txIndex, txIndex, sidecar.TxIndex)
+		}
+		blobCount += len(sidecar.Blobs)
+		if blobCount > maxBlobsPerBlock {
+			return fmt.Errorf("too many blobs in block: have %d, permitted %d",
+				blobCount, maxBlobsPerBlock)
+		}
+		sidecarIndex++
+	}
+	if sidecarIndex != len(decoded.Sidecars) {
+		return fmt.Errorf("blob info mismatch: sidecars %d, blob txs %d", len(decoded.Sidecars), sidecarIndex)
+	}
+	return nil
+}
+
+// sendBidBlock queues a decoded BidBlock for selection.
+func (b *bidSimulator) sendBidBlock(_ context.Context, block *types.DecodedBidBlock) error {
+	timer := time.NewTimer(1 * time.Second)
+	defer timer.Stop()
+
+	replyCh := make(chan error, 1)
+
+	select {
+	case b.newBidBlockCh <- newBidBlockPackage{bidBlock: block, feedback: replyCh}:
+		b.AddPending(block.BlockNumber(), block.Builder, block.Hash())
+	case <-timer.C:
+		return types.ErrMevBusy
+	}
+
+	select {
+	case reply := <-replyCh:
+		return reply
+	case <-timer.C:
+		return types.ErrMevBusy
+	}
+}
+
+// newBidBlockLoop stores the best incoming BidBlock by GasFee.
+func (b *bidSimulator) newBidBlockLoop() {
+	for {
+		select {
+		case newBidBlock := <-b.newBidBlockCh:
+			block := newBidBlock.bidBlock
+			if !b.isRunning() || !b.receivingBid() {
+				if newBidBlock.feedback != nil {
+					newBidBlock.feedback <- fmt.Errorf("BidBlock is discarded, not receiving bids: blockNumber=%d builder=%s bidHash=%s",
+						block.BlockNumber(), block.Builder, block.Hash())
+				}
+				continue
+			}
+
+			// Discard stale blocks whose block number is no longer current.
+			currentBlock := b.chain.CurrentBlock()
+			if block.BlockNumber() <= currentBlock.Number.Uint64() {
+				log.Debug("BidBlock: discard stale block",
+					"blockNumber", block.BlockNumber(),
+					"builder", block.Builder,
+					"bidHash", block.Hash())
+				if newBidBlock.feedback != nil {
+					newBidBlock.feedback <- fmt.Errorf("BidBlock is discarded, stale block number: %d, latest block: %d, builder=%s, bidHash=%s",
+						block.BlockNumber(), currentBlock.Number.Uint64(), block.Builder, block.Hash())
+				}
+				continue
+			}
+
+			if err := b.AddBidBlock(block.ParentHash(), block); err != nil {
+				log.Debug("BidBlock: discard BidBlock",
+					"blockNumber", block.BlockNumber(),
+					"builder", block.Builder,
+					"bidHash", block.Hash(),
+					"gasFee", weiToEtherStringF6(block.GasFee),
+					"err", err)
+				if newBidBlock.feedback != nil {
+					newBidBlock.feedback <- err
+				}
+				continue
+			}
+
+			log.Info("[BID BLOCK ARRIVED]",
+				"blockNumber", block.BlockNumber(),
+				"bidHash", block.Hash(),
+				"builder", block.Builder,
+				"gasFee", weiToEtherStringF6(block.GasFee),
+				"txs", len(block.Txs))
+			if newBidBlock.feedback != nil {
+				newBidBlock.feedback <- nil
+			}
+
+		case <-b.exitCh:
 			return
 		}
 	}
@@ -722,6 +1013,8 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 		}
 	}(startTS)
 
+	startAsyncBlobValidation(bidRuntime.bid)
+
 	// prepareWork will configure header with a suitable time according to consensus
 	// prepareWork will start trie prefetching
 	if bidRuntime.env, err = b.bidWorker.prepareWork(&generateParams{
@@ -771,8 +1064,7 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 	if len(bidRuntime.bid.Txs) > prefetchTxNumber {
 		var interrupt atomic.Bool
 		defer interrupt.Store(true) // terminate the prefetch at the end
-		// TODO(Nathan): use ReadersWithCacheStats to accelerate
-		throwaway := bidRuntime.env.state.CopyDoPrefetch()
+		throwaway := bidRuntime.env.state.StateForPrefetch()
 		// Disable tracing for prefetcher executions.
 		vmCfg := *b.chain.GetVMConfig()
 		vmCfg.Tracer = nil
@@ -797,7 +1089,7 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 			break
 		}
 
-		err = bidRuntime.commitTransaction(b.chain, b.chainConfig, tx, bidRuntime.bid.UnRevertible.Contains(tx.Hash()))
+		err = bidRuntime.commitTransaction(b.chain, b.chainConfig, tx, bidRuntime.bid.UnRevertible.Contains(tx.Hash()), b.bidWorker.forceBlobOnNonEligible())
 		if err != nil {
 			log.Error("BidSimulator: failed to commit tx", "bidHash", bidRuntime.bid.Hash(), "tx", tx.Hash(), "err", err)
 			err = fmt.Errorf("invalid tx in bid, %v", err)
@@ -864,11 +1156,14 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 	// if enable greedy merge, fill bid env with transactions from mempool
 	greedyMergeElapsed := time.Duration(0)
 	if *b.config.GreedyMergeTx {
-		endingBidsExtra := 20 * time.Millisecond // Add a buffer to ensure ending bids before `delayLeftOver`
+		endingBidsExtra := 10 * time.Millisecond // Add a buffer to ensure ending bids before `delayLeftOver`
 		minTimeLeftForEndingBids := b.delayLeftOver + endingBidsExtra
 		delay := b.engine.Delay(b.chain, bidRuntime.env.header, &minTimeLeftForEndingBids)
 		if delay != nil && *delay > 0 {
 			greedyMergeStartTs := time.Now()
+			rewardBefore := new(big.Int).Set(bidRuntime.packedBlockReward)
+			tcountBefore := bidRuntime.env.tcount
+			bidRuntime.greedyMerged = true
 			bidTxsSet := mapset.NewThreadUnsafeSetWithSize[common.Hash](len(bidRuntime.bid.Txs))
 			for _, tx := range bidRuntime.bid.Txs {
 				bidTxsSet.Add(tx.Hash())
@@ -880,15 +1175,18 @@ func (b *bidSimulator) simBid(interruptCh chan int32, bidRuntime *BidRuntime) {
 			// recalculate the packed reward
 			bidRuntime.packReward(*b.config.ValidatorCommission)
 			greedyMergeElapsed = time.Since(greedyMergeStartTs)
+			addedTx := bidRuntime.env.tcount - tcountBefore
+			rewardDelta := new(big.Int).Sub(bidRuntime.packedBlockReward, rewardBefore)
 
 			log.Debug("BidSimulator: greedy merge stopped", "block", bidRuntime.env.header.Number,
-				"builder", bidRuntime.bid.Builder, "tx count", bidRuntime.env.tcount-bidTxLen+1, "err", fillErr, "greedyMergeElapsed", greedyMergeElapsed)
+				"builder", bidRuntime.bid.Builder, "addedTx", addedTx, "rewardDelta", weiToEtherStringF6(rewardDelta),
+				"budget", *delay, "elapsed", greedyMergeElapsed, "err", fillErr)
 		}
 	}
 
 	// commit payBidTx at the end of the block
 	bidRuntime.env.gasPool.AddGas(params.PayBidTxGasLimit)
-	err = bidRuntime.commitTransaction(b.chain, b.chainConfig, payBidTx, true)
+	err = bidRuntime.commitTransaction(b.chain, b.chainConfig, payBidTx, true, false) // payBidTx is not a blob tx
 	if err != nil {
 		log.Error("BidSimulator: failed to commit tx", "builder", bidRuntime.bid.Builder,
 			"bidHash", bidRuntime.bid.Hash(), "tx", payBidTx.Hash(), "err", err)
@@ -966,6 +1264,8 @@ type BidRuntime struct {
 
 	finished chan struct{}
 	duration time.Duration
+
+	greedyMerged bool
 }
 
 func newBidRuntime(newBid *types.Bid, validatorCommission uint64) (*BidRuntime, error) {
@@ -1012,7 +1312,7 @@ func (r *BidRuntime) packReward(validatorCommission uint64) {
 	r.packedValidatorReward.Sub(r.packedValidatorReward, r.bid.BuilderFee)
 }
 
-func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *params.ChainConfig, tx *types.Transaction, unRevertible bool) error {
+func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *params.ChainConfig, tx *types.Transaction, unRevertible bool, forceBlobOnNonEligible bool) error {
 	var (
 		env = r.env
 		sc  *types.BlobSidecar
@@ -1021,11 +1321,42 @@ func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *para
 	// Start executing the transaction
 	r.env.state.SetTxContext(tx.Hash(), r.env.tcount)
 
+	// if inclusion of the transaction would put the block size over the
+	// maximum we allow, don't add any more txs to the payload.
+	if !env.txFitsSize(tx) {
+		return core.ErrBlockOversized
+	}
+
 	if tx.Type() == types.BlobTxType {
+		isBlobEligible := eip4844.IsBlobEligibleBlock(chainConfig, r.env.header.Number.Uint64(), r.env.header.Time)
+		if !isBlobEligible && !forceBlobOnNonEligible {
+			return fmt.Errorf("blob transactions not allowed in block %d (N %% %d != 0)", r.env.header.Number.Uint64(), params.BlobEligibleBlockInterval)
+		}
+		if forceBlobOnNonEligible && !isBlobEligible {
+			log.Warn("Malicious behavior: forcing blob tx in bid on non-eligible block",
+				"blockNumber", r.env.header.Number.Uint64(), "txHash", tx.Hash())
+		}
+
 		sc = types.NewBlobSidecarFromTx(tx)
 		if sc == nil {
 			return errors.New("blob transaction without blobs in miner")
 		}
+
+		if sc.Version == types.BlobSidecarVersion1 {
+			return errors.New("cell proof is not supported yet")
+		}
+
+		if ch, ok := r.bid.BlobValResults[tx.Hash()]; ok {
+			delete(r.bid.BlobValResults, tx.Hash())
+			if err := <-ch; err != nil {
+				return err
+			}
+		} else {
+			if err := txpool.ValidateBlobTx(tx, env.header, nil); err != nil {
+				return err
+			}
+		}
+
 		// Checking against blob gas limit: It's kind of ugly to perform this check here, but there
 		// isn't really a better place right now. The blob gas limit is checked at block validation time
 		// and not during execution. This means core.ApplyTransaction will not return an error if the
@@ -1049,10 +1380,12 @@ func (r *BidRuntime) commitTransaction(chain *core.BlockChain, chainConfig *para
 		env.receipts = append(env.receipts, receipt)
 		env.sidecars = append(env.sidecars, sc)
 		env.blobs += len(sc.Blobs)
+		env.size += tx.WithoutBlobTxSidecar().Size()
 		*env.header.BlobGasUsed += receipt.BlobGasUsed
 	} else {
 		env.txs = append(env.txs, tx)
 		env.receipts = append(env.receipts, receipt)
+		env.size += tx.Size()
 	}
 
 	r.env.tcount++

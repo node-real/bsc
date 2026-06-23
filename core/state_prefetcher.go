@@ -25,14 +25,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"golang.org/x/sync/errgroup"
 )
 
 const prefetchMiningThread = 3
-const prefetchThreadBALSnapshot = 8
-const prefetchThreadBALTrie = 8
 const checkInterval = 10
 
 // statePrefetcher is a basic Prefetcher that executes transactions from a block
@@ -40,8 +37,9 @@ const checkInterval = 10
 // from disk. Transactions are executed in parallel to fully leverage the
 // SSD's read performance.
 type statePrefetcher struct {
-	config *params.ChainConfig // Chain configuration options
-	chain  *HeaderChain        // Canonical block chain
+	config     *params.ChainConfig // Chain configuration options
+	chain      *HeaderChain        // Canonical block chain
+	mevEnabled bool                // Indicate whether MEV is enabled
 }
 
 // NewStatePrefetcher initialises a new statePrefetcher.
@@ -50,6 +48,11 @@ func NewStatePrefetcher(config *params.ChainConfig, chain *HeaderChain) *statePr
 		config: config,
 		chain:  chain,
 	}
+}
+
+// EnableMevMode enables MEV mode for this prefetcher.
+func (p *statePrefetcher) EnableMevMode() {
+	p.mevEnabled = true
 }
 
 // Prefetch processes the state changes according to the Ethereum rules by running
@@ -66,7 +69,7 @@ func (p *statePrefetcher) Prefetch(transactions types.Transactions, header *type
 
 	// Iterate over and process the individual transactions
 	for i, tx := range transactions {
-		stateCpy := statedb.CopyDoPrefetch() // closure
+		stateCpy := statedb.Copy() // closure
 		workers.Go(func() error {
 			// If block precaching was interrupted, abort
 			if interrupt != nil && interrupt.Load() {
@@ -116,12 +119,6 @@ func (p *statePrefetcher) Prefetch(transactions types.Transactions, header *type
 				fails.Add(1)
 				return nil // Ugh, something went horribly wrong, bail out
 			}
-			// Pre-load trie nodes for the intermediate root.
-			//
-			// This operation incurs significant memory allocations due to
-			// trie hashing and node decoding. TODO(rjl493456442): investigate
-			// ways to mitigate this overhead.
-			stateCpy.IntermediateRoot(true)
 			return nil
 		})
 	}
@@ -130,147 +127,6 @@ func (p *statePrefetcher) Prefetch(transactions types.Transactions, header *type
 	blockPrefetchTxsValidMeter.Mark(int64(len(transactions)) - fails.Load())
 	blockPrefetchTxsInvalidMeter.Mark(fails.Load())
 	return
-}
-
-func (p *statePrefetcher) PrefetchBALSnapshot(balPrefetch *types.BlockAccessListPrefetch, block *types.Block, txSize int, statedb *state.StateDB, interruptChan <-chan struct{}) {
-	accChan := make(chan struct {
-		txIndex uint32
-		accAddr common.Address
-	}, prefetchThreadBALSnapshot)
-
-	keyChan := make(chan struct {
-		txIndex uint32
-		accAddr common.Address
-		key     common.Hash
-	}, prefetchThreadBALSnapshot)
-
-	// prefetch snapshot cache
-	for i := 0; i < prefetchThreadBALSnapshot; i++ {
-		go func() {
-			newStatedb := statedb.CopyDoPrefetch()
-			for {
-				select {
-				case accAddr := <-accChan:
-					log.Debug("PrefetchBALSnapshot", "txIndex", accAddr.txIndex, "accAddr", accAddr.accAddr)
-					newStatedb.PreloadAccount(accAddr.accAddr)
-				case item := <-keyChan:
-					log.Debug("PrefetchBALSnapshot", "txIndex", item.txIndex, "accAddr", item.accAddr, "key", item.key)
-					newStatedb.PreloadStorage(item.accAddr, item.key)
-				case <-interruptChan:
-					return
-				}
-			}
-		}()
-	}
-	for txIndex := 0; txIndex < txSize; txIndex++ {
-		txAccessList := balPrefetch.AccessListItems[uint32(txIndex)]
-		for accAddr, storageItems := range txAccessList.Accounts {
-			select {
-			case accChan <- struct {
-				txIndex uint32
-				accAddr common.Address
-			}{
-				txIndex: uint32(txIndex),
-				accAddr: accAddr,
-			}:
-			case <-interruptChan:
-				return
-			}
-			for _, storageItem := range storageItems {
-				select {
-				case keyChan <- struct {
-					txIndex uint32
-					accAddr common.Address
-					key     common.Hash
-				}{
-					txIndex: uint32(txIndex),
-					accAddr: accAddr,
-					key:     storageItem.Key,
-				}:
-				case <-interruptChan:
-					return
-				}
-			}
-		}
-	}
-	log.Debug("PrefetchBALSnapshot dispatch finished")
-}
-
-func (p *statePrefetcher) PrefetchBALTrie(balPrefetch *types.BlockAccessListPrefetch, block *types.Block, statedb *state.StateDB, interruptChan <-chan struct{}) {
-	accItemsChan := make(chan struct {
-		txIndex uint32
-		accAddr common.Address
-		items   []types.StorageAccessItemPrefetch
-	}, prefetchThreadBALTrie)
-
-	for i := 0; i < prefetchThreadBALTrie; i++ {
-		go func() {
-			newStatedb := statedb.CopyDoPrefetch()
-			for {
-				select {
-				case accItem := <-accItemsChan:
-					newStatedb.PreloadAccountTrie(accItem.accAddr)
-					log.Debug("PrefetchBALTrie", "txIndex", accItem.txIndex, "accAddr", accItem.accAddr)
-					for _, storageItem := range accItem.items {
-						if storageItem.Dirty {
-							log.Debug("PrefetchBALTrie", "txIndex", accItem.txIndex, "accAddr", accItem.accAddr, "storageItem", storageItem.Key, "dirty", storageItem.Dirty)
-							statedb.PreloadStorageTrie(accItem.accAddr, storageItem.Key)
-						}
-					}
-				case <-interruptChan:
-					return
-				}
-			}
-		}()
-	}
-
-	for txIndex, txAccessList := range balPrefetch.AccessListItems {
-		for accAddr, storageItems := range txAccessList.Accounts {
-			select {
-			case accItemsChan <- struct {
-				txIndex uint32
-				accAddr common.Address
-				items   []types.StorageAccessItemPrefetch
-			}{
-				txIndex: txIndex,
-				accAddr: accAddr,
-				items:   storageItems,
-			}:
-			case <-interruptChan:
-				log.Warn("PrefetchBALTrie interrupted")
-				return
-			}
-		}
-	}
-	log.Debug("PrefetchBALTrie dispatch finished")
-}
-
-func (p *statePrefetcher) PrefetchBAL(block *types.Block, statedb *state.StateDB, interruptChan <-chan struct{}) {
-	if block.BAL() == nil {
-		return
-	}
-	transactions := block.Transactions()
-	blockAccessList := block.BAL()
-
-	// get index sorted block access list, each transaction has a list of accounts, each account has a list of storage items
-	// txIndex 0:
-	// 			 account1: storage1_1, storage1_2, storage1_3
-	// 			 account2: storage2_1, storage2_2, storage2_3
-	// txIndex 1:
-	// 			 account3: storage3_1, storage3_2, storage3_3
-	// ...
-	balPrefetch := types.BlockAccessListPrefetch{
-		AccessListItems: make(map[uint32]types.TxAccessListPrefetch),
-	}
-	for _, account := range blockAccessList.Accounts {
-		balPrefetch.Update(&account)
-	}
-
-	// prefetch snapshot cache
-	go p.PrefetchBALSnapshot(&balPrefetch, block, len(transactions), statedb, interruptChan)
-
-	// prefetch MPT trie node cache
-	go p.PrefetchBALTrie(&balPrefetch, block, statedb, interruptChan)
 }
 
 // PrefetchMining processes the state changes according to the Ethereum rules by running
@@ -285,10 +141,16 @@ func (p *statePrefetcher) PrefetchMining(txs TransactionsByPriceAndNonce, header
 		signer = types.MakeSigner(p.config, header.Number, header.Time)
 	)
 
-	txCh := make(chan *types.Transaction, 2*prefetchMiningThread)
-	for i := 0; i < prefetchMiningThread; i++ {
+	// When MEV is not enabled, use more threads for local mining
+	threadCount := prefetchMiningThread
+	if !p.mevEnabled {
+		threadCount = max(prefetchMiningThread, 3*runtime.NumCPU()/5)
+	}
+
+	txCh := make(chan *types.Transaction, 2*threadCount)
+	for i := 0; i < threadCount; i++ {
 		go func(startCh <-chan *types.Transaction, stopCh <-chan struct{}) {
-			newStatedb := statedb.CopyDoPrefetch()
+			newStatedb := statedb.Copy()
 			evm := vm.NewEVM(NewEVMBlockContext(header, p.chain, nil), newStatedb, p.config, cfg)
 			idx := 0
 			// Iterate over and process the individual transactions
@@ -321,7 +183,7 @@ func (p *statePrefetcher) PrefetchMining(txs TransactionsByPriceAndNonce, header
 					// Convert the transaction into an executable message and pre-cache its sender
 					msg, err := TransactionToMessage(tx, signer, header.BaseFee)
 					if err != nil {
-						return // Also invalid block, bail out
+						continue // Skip invalid tx from txpool
 					}
 					// Disable the nonce check
 					msg.SkipNonceChecks = true

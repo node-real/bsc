@@ -17,6 +17,8 @@
 package eth
 
 import (
+	"cmp"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -28,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dchest/siphash"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/beacon"
 	"github.com/ethereum/go-ethereum/consensus/parlia"
@@ -36,7 +39,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/eth/fetcher"
@@ -123,6 +126,10 @@ type votePool interface {
 	SubscribeNewVoteEvent(ch chan<- core.NewVoteEvent) event.Subscription
 }
 
+// MBConfigGetter is a function type for getting malicious behavior configuration.
+// Used by handler to check blob chaos flags during P2P operations.
+type MBConfigGetter func() (corruptBlob, dropBlob bool)
+
 // handlerConfig is the collection of initialization parameters to create a full
 // node network handler.
 type handlerConfig struct {
@@ -141,7 +148,6 @@ type handlerConfig struct {
 	PeerSet                   *peerSet
 	EnableQuickBlockFetching  bool
 	EnableEVNFeatures         bool
-	EnableBAL                 bool
 	EVNNodeIdsWhitelist       []enode.ID
 	ProxyedValidatorAddresses []common.Address
 	ProxyedNodeIds            []enode.ID
@@ -152,10 +158,10 @@ type handler struct {
 	networkID                  uint64
 	disablePeerTxBroadcast     bool
 	enableEVNFeatures          bool
-	enableBAL                  bool
 	evnNodeIdsWhitelistMap     map[enode.ID]struct{}
 	proxyedValidatorAddressMap map[common.Address]struct{}
 	proxyedNodeIdsMap          map[enode.ID]struct{}
+	mbConfigGetter             MBConfigGetter // For blob chaos testing
 
 	snapSync        atomic.Bool // Flag whether snap sync is enabled (gets disabled if we already have blocks)
 	synced          atomic.Bool // Flag whether we're considered synchronised (enables transaction processing)
@@ -172,10 +178,11 @@ type handler struct {
 	peersPerIP           map[string]int
 	peerPerIPLock        sync.Mutex
 
-	downloader   *downloader.Downloader
-	blockFetcher *fetcher.BlockFetcher
-	txFetcher    *fetcher.TxFetcher
-	peers        *peerSet
+	downloader     *downloader.Downloader
+	blockFetcher   *fetcher.BlockFetcher
+	txFetcher      *fetcher.TxFetcher
+	peers          *peerSet
+	txBroadcastKey [16]byte
 
 	eventMux       *event.TypeMux
 	txsCh          chan core.NewTxsEvent
@@ -201,6 +208,60 @@ type handler struct {
 	handlerDoneCh  chan struct{}
 }
 
+// SetMBConfigGetter sets the malicious behavior config getter (called after miner init).
+func (h *handler) SetMBConfigGetter(getter MBConfigGetter) {
+	h.mbConfigGetter = getter
+}
+
+// getMBConfig returns the current blob chaos config flags.
+func (h *handler) getMBConfig() (corruptBlob, dropBlob bool) {
+	if h.mbConfigGetter != nil {
+		return h.mbConfigGetter()
+	}
+	return false, false
+}
+
+// processSidecarsForBroadcast processes blob sidecars based on malicious behavior config.
+// Returns (processed sidecars, whether modified).
+func (h *handler) processSidecarsForBroadcast(sidecars types.BlobSidecars) (types.BlobSidecars, bool) {
+	corruptBlob, dropBlob := h.getMBConfig()
+
+	if dropBlob {
+		log.Warn("Malicious behavior: dropping blob sidecars during P2P broadcast",
+			"originalCount", len(sidecars))
+		return nil, true
+	}
+
+	if corruptBlob && len(sidecars) > 0 {
+		log.Warn("Malicious behavior: corrupting blob sidecars during P2P broadcast",
+			"count", len(sidecars))
+		corrupted := make(types.BlobSidecars, len(sidecars))
+		for i, sc := range sidecars {
+			if sc != nil && len(sc.Blobs) > 0 {
+				newSc := &types.BlobSidecar{
+					BlobTxSidecar: types.BlobTxSidecar{
+						Blobs:       make([]kzg4844.Blob, len(sc.Blobs)),
+						Commitments: make([]kzg4844.Commitment, len(sc.Commitments)),
+						Proofs:      make([]kzg4844.Proof, len(sc.Proofs)),
+					},
+					TxIndex: sc.TxIndex,
+					TxHash:  sc.TxHash,
+				}
+				copy(newSc.Blobs, sc.Blobs)
+				copy(newSc.Commitments, sc.Commitments)
+				copy(newSc.Proofs, sc.Proofs)
+				newSc.Blobs[0][0] ^= 0xFF // Corrupt first byte
+				corrupted[i] = newSc
+			} else {
+				corrupted[i] = sc
+			}
+		}
+		return corrupted, true
+	}
+
+	return sidecars, false
+}
+
 // newHandler returns a handler for all Ethereum chain management protocol.
 func newHandler(config *handlerConfig) (*handler, error) {
 	// Create the protocol manager with the base fields
@@ -220,11 +281,11 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		votepool:                   config.VotePool,
 		chain:                      config.Chain,
 		peers:                      config.PeerSet,
+		txBroadcastKey:             newBroadcastChoiceKey(),
 		peersPerIP:                 make(map[string]int),
 		requiredBlocks:             config.RequiredBlocks,
 		directBroadcast:            config.DirectBroadcast,
 		enableEVNFeatures:          config.EnableEVNFeatures,
-		enableBAL:                  config.EnableBAL,
 		evnNodeIdsWhitelistMap:     make(map[enode.ID]struct{}),
 		proxyedValidatorAddressMap: make(map[common.Address]struct{}),
 		proxyedNodeIdsMap:          make(map[enode.ID]struct{}),
@@ -263,8 +324,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	} else {
 		head := h.chain.CurrentBlock()
 		if head.Number.Uint64() > 0 && h.chain.HasState(head.Root) {
-			// Print warning log if database is not empty to run snap sync.
-			log.Warn("Switch sync mode from snap sync to full sync", "reason", "snap sync complete")
+			log.Info("Switch sync mode from snap sync to full sync", "reason", "snap sync complete")
 		} else {
 			// If snap sync was requested and our database is empty, grant it
 			h.snapSync.Store(true)
@@ -314,15 +374,21 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		return h.chain.InsertChain(blocks)
 	}
 
-	broadcastBlockWithCheck := func(block *types.Block, propagate bool) {
+	broadcastBlockWithCheck := func(peer string, block *types.Block, propagate bool) {
 		if propagate {
 			if !(block.Header().WithdrawalsHash == nil && block.Withdrawals() == nil) &&
 				!(block.Header().EmptyWithdrawalsHash() && block.Withdrawals() != nil && len(block.Withdrawals()) == 0) {
-				log.Error("Propagated block has invalid withdrawals")
+				log.Error("Propagated block has invalid withdrawals", "peer", peer)
 				return
 			}
 			if err := core.IsDataAvailable(h.chain, block); err != nil {
-				log.Error("Propagating block with invalid sidecars", "number", block.Number(), "hash", block.Hash(), "err", err)
+				var peerAddr string
+				if p := h.peers.peer(peer); p != nil {
+					if addr := p.RemoteAddr(); addr != nil {
+						peerAddr = addr.String()
+					}
+				}
+				log.Error("Propagating block with invalid sidecars", "number", block.Number(), "hash", block.Hash(), "peer", peer[:16], "peerAddr", peerAddr, "err", err)
 				return
 			}
 		}
@@ -349,7 +415,6 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		for i, item := range res {
 			block := types.NewBlockWithHeader(item.Header).WithBody(types.Body{Transactions: item.Txs, Uncles: item.Uncles})
 			block = block.WithSidecars(item.Sidecars)
-			block = block.WithBAL(item.BAL)
 			block.ReceivedAt = time.Now()
 			block.ReceivedFrom = p.ID()
 			if err := block.SanityCheck(); err != nil {
@@ -471,10 +536,6 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 	if err != nil {
 		peer.Log().Error("Bsc extension barrier failed", "err", err)
 		return err
-	}
-	if bscExt != nil && bscExt.Version() == bsc.Bsc3 {
-		peer.CanHandleBAL.Store(true)
-		log.Debug("runEthPeer", "bscExt.Version", bscExt.Version(), "CanHandleBAL", peer.CanHandleBAL.Load())
 	}
 	// Execute the Ethereum handshake
 	var (
@@ -599,6 +660,8 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 			case <-timeout.C:
 				peer.Log().Warn("Required block challenge timed out, dropping", "addr", peer.RemoteAddr(), "type", peer.Name())
 				h.removePeer(peer.ID())
+			case <-dead:
+				// Peer handler terminated, abort all goroutines
 			}
 		}(number, hash, req)
 	}
@@ -814,6 +877,14 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 			return
 		}
 	}
+
+	// Process sidecars based on malicious behavior config (blob chaos testing)
+	if len(block.Sidecars()) > 0 {
+		if processedSidecars, modified := h.processSidecarsForBroadcast(block.Sidecars()); modified {
+			block = block.WithSidecars(processedSidecars)
+		}
+	}
+
 	hash := block.Hash()
 	peers := h.peers.peersWithoutBlock(hash)
 
@@ -833,7 +904,8 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 
 		// Step 1: Select target peers for initial broadcast.
 		limit := totalPeers
-		if !h.directBroadcast {
+		if !h.directBroadcast &&
+			!(h.networkID == 714 /*RialtoChainConfig.ChainID*/ && block.NumberU64() == 1) { // Populate TD from every receiver on startup to establish proper sync.
 			limit = int(math.Sqrt(float64(totalPeers)))
 		}
 
@@ -843,7 +915,6 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 			log.Debug("Broadcast block to peer",
 				"hash", hash, "peer", peer.ID(),
 				"EVNPeerFlag", peer.EVNPeerFlag.Load(),
-				"CanHandleBAL", peer.CanHandleBAL.Load(),
 			)
 			peer.AsyncSendNewBlock(block, td)
 		}
@@ -856,7 +927,6 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 					log.Debug("Broadcast block to proxyed peer",
 						"hash", hash, "peer", peer.ID(),
 						"EVNPeerFlag", peer.EVNPeerFlag.Load(),
-						"CanHandleBAL", peer.CanHandleBAL.Load(),
 					)
 					peer.AsyncSendNewBlock(block, td)
 					proxyedPeersCnt++
@@ -872,7 +942,6 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 					log.Debug("Broadcast block to EVN peer",
 						"hash", hash, "peer", peer.ID(),
 						"EVNPeerFlag", peer.EVNPeerFlag.Load(),
-						"CanHandleBAL", peer.CanHandleBAL.Load(),
 					)
 					peer.AsyncSendNewBlock(block, td)
 					evnPeersCnt++
@@ -894,7 +963,7 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 	if h.chain.HasBlock(hash, block.NumberU64()) {
 		for _, peer := range peers {
 			log.Debug("Announced block to peer", "hash", hash, "peer", peer.ID(),
-				"EVNPeerFlag", peer.EVNPeerFlag.Load(), "CanHandleBAL", peer.CanHandleBAL.Load())
+				"EVNPeerFlag", peer.EVNPeerFlag.Load())
 			peer.AsyncSendNewBlockHash(block)
 		}
 		log.Debug("Announced block", "hash", hash, "recipients", len(peers), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
@@ -956,58 +1025,40 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 
 		txset = make(map[*ethPeer][]common.Hash) // Set peer->hash to transfer directly
 		annos = make(map[*ethPeer][]common.Hash) // Set peer->hash to announce
-	)
-	// Broadcast transactions to a batch of peers not knowing about it
-	direct := big.NewInt(int64(math.Sqrt(float64(h.peers.len())))) // Approximate number of peers to broadcast to
-	if direct.BitLen() == 0 {
-		direct = big.NewInt(1)
-	}
-	total := new(big.Int).Exp(direct, big.NewInt(2), nil) // Stabilise total peer count a bit based on sqrt peers
 
-	var (
-		signer = types.LatestSigner(h.chain.Config()) // Don't care about chain status, we just need *a* sender
-		hasher = crypto.NewKeccakState()
-		hash   = make([]byte, 32)
+		signer = types.LatestSigner(h.chain.Config())
+		choice = newBroadcastChoice(h.nodeID, h.txBroadcastKey)
+		peers  = h.peers.allNonEVNPeers()
 	)
+
 	for _, tx := range txs {
-		var maybeDirect bool
+		var directSet map[*ethPeer]struct{}
 		switch {
 		case tx.Type() == types.BlobTxType:
 			blobTxs++
 		case tx.Size() > txMaxBroadcastSize:
 			largeTxs++
 		default:
-			maybeDirect = true
+			// Get transaction sender address. Here we can ignore any error
+			// since we're just interested in any value.
+			txSender, _ := types.Sender(signer, tx)
+			directSet = choice.choosePeers(peers, txSender)
 		}
-		// Send the transaction (if it's small enough) directly to a subset of
-		// the peers that have not received it yet, ensuring that the flow of
-		// transactions is grouped by account to (try and) avoid nonce gaps.
-		//
-		// To do this, we hash the local enode IW with together with a peer's
-		// enode ID together with the transaction sender and broadcast if
-		// `sha(self, peer, sender) mod peers < sqrt(peers)`.
-		for _, peer := range h.peers.peersWithoutTransaction(tx.Hash()) {
-			var broadcast bool
-			if maybeDirect {
-				hasher.Reset()
-				hasher.Write(h.nodeID.Bytes())
-				hasher.Write(peer.Node().ID().Bytes())
 
-				from, _ := types.Sender(signer, tx) // Ignore error, we only use the addr as a propagation target splitter
-				hasher.Write(from.Bytes())
-
-				hasher.Read(hash)
-				if new(big.Int).Mod(new(big.Int).SetBytes(hash), total).Cmp(direct) < 0 {
-					broadcast = true
-				}
+		for _, peer := range peers {
+			if peer.KnownTransaction(tx.Hash()) {
+				continue
 			}
-			if broadcast {
+			if _, ok := directSet[peer]; ok {
+				// Send direct.
 				txset[peer] = append(txset[peer], tx.Hash())
 			} else {
+				// Send announcement.
 				annos[peer] = append(annos[peer], tx.Hash())
 			}
 		}
 	}
+
 	for peer, hashes := range txset {
 		directCount += len(hashes)
 		peer.AsyncSendTransactions(hashes)
@@ -1183,7 +1234,7 @@ func newBlockRangeState(chain *core.BlockChain, typeMux *event.TypeMux) *blockRa
 	return st
 }
 
-// blockRangeBroadcastLoop announces changes in locally-available block range to peers.
+// blockRangeLoop announces changes in locally-available block range to peers.
 // The range to announce is the range that is available in the store, so it's not just
 // about imported blocks.
 func (h *handler) blockRangeLoop(st *blockRangeState) {
@@ -1290,4 +1341,63 @@ func (st *blockRangeState) stop() {
 // This is safe to call from any goroutine.
 func (st *blockRangeState) currentRange() eth.BlockRangeUpdatePacket {
 	return *st.next.Load()
+}
+
+// broadcastChoice implements a deterministic random choice of peers. This is designed
+// specifically for choosing which peer receives a direct broadcast of a transaction.
+//
+// The choice is made based on the involved p2p node IDs and the transaction sender,
+// ensuring that the flow of transactions is grouped by account to (try and) avoid nonce
+// gaps.
+type broadcastChoice struct {
+	self   enode.ID
+	key    [16]byte
+	buffer map[*ethPeer]struct{}
+	tmp    []broadcastPeer
+}
+
+type broadcastPeer struct {
+	p     *ethPeer
+	score uint64
+}
+
+func newBroadcastChoiceKey() (k [16]byte) {
+	crand.Read(k[:])
+	return k
+}
+
+func newBroadcastChoice(self enode.ID, key [16]byte) *broadcastChoice {
+	return &broadcastChoice{
+		self:   self,
+		key:    key,
+		buffer: make(map[*ethPeer]struct{}),
+	}
+}
+
+// choosePeers selects the peers that will receive a direct transaction broadcast message.
+// Note the return value will only stay valid until the next call to choosePeers.
+func (bc *broadcastChoice) choosePeers(peers []*ethPeer, txSender common.Address) map[*ethPeer]struct{} {
+	// Compute randomized scores.
+	bc.tmp = slices.Grow(bc.tmp[:0], len(peers))[:len(peers)]
+	hash := siphash.New(bc.key[:])
+	for i, peer := range peers {
+		hash.Reset()
+		hash.Write(bc.self[:])
+		hash.Write(peer.Peer.Peer.ID().Bytes())
+		hash.Write(txSender[:])
+		bc.tmp[i] = broadcastPeer{peer, hash.Sum64()}
+	}
+
+	// Sort by score.
+	slices.SortFunc(bc.tmp, func(a, b broadcastPeer) int {
+		return cmp.Compare(a.score, b.score)
+	})
+
+	// Take top n.
+	clear(bc.buffer)
+	n := int(math.Ceil(math.Sqrt(float64(len(bc.tmp)))))
+	for i := range n {
+		bc.buffer[bc.tmp[i].p] = struct{}{}
+	}
+	return bc.buffer
 }

@@ -62,6 +62,12 @@ func (t *table) AncientRange(kind string, start, count, maxBytes uint64) ([][]by
 	return t.db.AncientRange(kind, start, count, maxBytes)
 }
 
+// AncientBytes is a noop passthrough that just forwards the request to the underlying
+// database.
+func (t *table) AncientBytes(kind string, id, offset, length uint64) ([]byte, error) {
+	return t.db.AncientBytes(kind, id, offset, length)
+}
+
 // Ancients is a noop passthrough that just forwards the request to the underlying
 // database.
 func (t *table) Ancients() (uint64, error) {
@@ -212,22 +218,6 @@ func (t *table) SyncKeyValue() error {
 // pre-configured string.
 func (t *table) NewBatch() ethdb.Batch {
 	return &tableBatch{t.db.NewBatch(), t.prefix}
-}
-
-func (t *table) SetStateStore(state ethdb.Database) {
-	panic("not implement")
-}
-
-func (t *table) GetStateStore() ethdb.Database {
-	return nil
-}
-
-func (t *table) HasSeparateStateStore() bool {
-	return false
-}
-
-func (t *table) StateStoreReader() ethdb.Reader {
-	return nil
 }
 
 // NewBatchWithSize creates a write-only database batch with pre-allocated buffer.

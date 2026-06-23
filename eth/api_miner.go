@@ -20,7 +20,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/miner/minerconfig"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -70,15 +70,6 @@ func (api *MinerAPI) SetGasPrice(gasPrice hexutil.Big) bool {
 	return true
 }
 
-// SetGasLimit sets the gaslimit to target towards during mining.
-func (api *MinerAPI) SetGasLimit(gasLimit hexutil.Uint64) bool {
-	api.e.Miner().SetGasCeil(uint64(gasLimit))
-	if uint64(gasLimit) > params.SystemTxsGasSoftLimit {
-		api.e.TxPool().SetMaxGas(uint64(gasLimit) - params.SystemTxsGasSoftLimit)
-	}
-	return true
-}
-
 // SetEtherbase sets the etherbase of the miner.
 func (api *MinerAPI) SetEtherbase(etherbase common.Address) bool {
 	api.e.SetEtherbase(etherbase)
@@ -116,4 +107,57 @@ func (api *MinerAPI) AddBuilder(builder common.Address, url string) error {
 // RemoveBuilder removes a builder from the bid simulator.
 func (api *MinerAPI) RemoveBuilder(builder common.Address) error {
 	return api.e.APIBackend.RemoveBuilder(builder)
+}
+
+func (api *MinerAPI) MBConfig() minerconfig.MBConfig {
+	return api.e.Miner().MBConfig()
+}
+
+func (api *MinerAPI) ResetMaliciousBehavior() minerconfig.MBConfig {
+	api.e.Miner().ResetMaliciousBehavior()
+	return api.e.Miner().MBConfig()
+}
+
+func (api *MinerAPI) SetDoubleSign(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetDoubleSign(on)
+	return api.e.Miner().MBConfig()
+}
+
+func (api *MinerAPI) SetVoteDisable(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetVoteDisable(on)
+	return api.e.Miner().MBConfig()
+}
+
+func (api *MinerAPI) SetSkipOffsetInturn(offset uint64) minerconfig.MBConfig {
+	api.e.Miner().SetSkipOffsetInturn(offset)
+	return api.e.Miner().MBConfig()
+}
+
+func (api *MinerAPI) SetBroadcastDelayBlocks(num uint64) minerconfig.MBConfig {
+	api.e.Miner().SetBroadcastDelayBlocks(num)
+	return api.e.Miner().MBConfig()
+}
+
+func (api *MinerAPI) SetLastBlockMiningTime(time uint64) minerconfig.MBConfig {
+	api.e.Miner().SetLastBlockMiningTime(time)
+	return api.e.Miner().MBConfig()
+}
+
+// SetForceBlobOnNonEligible sets whether to force blob txs on non-eligible blocks.
+// BEP-657 chaos testing: simulate malicious validator packing blobs when N % 5 != 0.
+func (api *MinerAPI) SetForceBlobOnNonEligible(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetForceBlobOnNonEligible(on)
+	return api.e.Miner().MBConfig()
+}
+
+// SetCorruptBlobSidecar sets whether to corrupt blob sidecar data during P2P broadcast.
+func (api *MinerAPI) SetCorruptBlobSidecar(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetCorruptBlobSidecar(on)
+	return api.e.Miner().MBConfig()
+}
+
+// SetDropBlobSidecar sets whether to drop blob sidecars during P2P broadcast.
+func (api *MinerAPI) SetDropBlobSidecar(on bool) minerconfig.MBConfig {
+	api.e.Miner().SetDropBlobSidecar(on)
+	return api.e.Miner().MBConfig()
 }
