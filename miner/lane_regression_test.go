@@ -116,7 +116,7 @@ func TestBidCommitTransactionBooksNothingForAFailedTransaction(t *testing.T) {
 	require.Equal(t, paymentlane.PaymentLane, env.lane.Classify(tx), "the fixture must be a payment transaction")
 
 	r := &BidRuntime{env: env}
-	require.ErrorIs(t, r.commitTransaction(w.chain, config, tx, false), core.ErrIntrinsicGas)
+	require.ErrorIs(t, r.commitTransaction(w.chain, config, tx, false, false), core.ErrIntrinsicGas)
 	require.NotZero(t, env.gasPool.Used(), "buyGas must have drawn from the pool, or the test proves nothing")
 	require.Zero(t, env.lane.Budget.PaymentLaneUsed, "a failed transaction must not book lane gas")
 }
